@@ -1,0 +1,31 @@
+# warz.io on Cloudflare Workers (free plan). Deploy with `npx wrangler deploy`; run locally with `npm run dev:cf`.
+name = "warz-io"
+main = "server/cf/worker.mjs"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# The game's files (index.html, js/, css/) are served as static assets. .assetsignore keeps server code out.
+[assets]
+directory = "./"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "HubObject"
+
+[[durable_objects.bindings]]
+name = "MATCH"
+class_name = "MatchObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HubObject", "MatchObject"]
+
+[vars]
+LOBBY_MIN = "2"
+LOBBY_COUNTDOWN = "20"
+LOBBY_MAX = "50"
+# Sign-in providers (see README). Put the public client IDs here, or set them with `npx wrangler secret put`.
+# GOOGLE_CLIENT_ID = "1234567890-abc.apps.googleusercontent.com"
+# APPLE_CLIENT_ID = "com.yourname.warz.web"
+# PUBLIC_URL = "https://warz-io.<your-account>.workers.dev"

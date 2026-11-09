@@ -1,0 +1,418 @@
+// One running match: the authoritative World at 20 Hz, player inputs, interest-managed snapshots,
+// event replication, placements, spectating, reconnection and the end-of-match sequence.
+// Players connect with a per-slot ticket; a `conn` is { open, sendText(text), sendJson(obj), close(code, reason), bufferedAmount }.
+import { newToken } from './auth.mjs';
+
+export const TICK = 1 / 20;
+const VIEW = 3600;          // includes the wider level-two sniper scope
+const AFK_KILL = 25;        // seconds a disconnected body stays before it is removed
+const END_LINGER = 12;      // seconds the result screen stays before teardown
+const EMPTY_TIMEOUT = 10;   // seconds without any connected player before an early end
+const INPUT_RATE = 60;      // inputs per second per player
+export const COLORS = [
+  ['#2f9bff', '#1c6cbd'], ['#f14e54', '#b23a3f'], ['#00b06d', '#007d4e'], ['#be7ff5', '#8a59b8'], ['#ffb43a', '#c4861d'],
+  ['#ff7ab8', '#c2578a'], ['#3fd1c8', '#2a958e'], ['#9ccc3d', '#6f9628'], ['#ff8c42', '#c2661f'], ['#5ee7ff', '#2aa6bf'],
+  ['#e8536a', '#a83348'], ['#86ea64', '#46b52f'], ['#ffd95a', '#f0a81c'], ['#a2a6ff', '#6a6fd6'], ['#ffa9ca', '#d16a92']
+];
+
+const r1 = (v) => Math.round(v * 10) / 10;
+const r2 = (v) => Math.round(v * 100) / 100;
+const r3 = (v) => Math.round(v * 1000) / 1000;
+const num = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
+const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+function idleInput() { return { seq: 0, mx: 0, my: 0, a: 0, d: 400, f: false, fp: false, sc: false, r: false, sl: null, cy: 0, sw: false, u: false, iv: false, ht: null, ip: false, dp: false }; }
+
+export class Match {
+  constructor({ W, id, mode, teamSize, teams, seed, onEnd, log = console }) {
+    this.W = W;
+    this.id = String(id);
+    this.mode = mode;
+    this.teamSize = teamSize;
+    this.seed = seed >>> 0;
+    this.onEnd = onEnd;
+    this.log = log;
+    this.map = W.MapGen.generate(this.seed);
+    this.world = new W.World({ map: this.map, teams: teamSize > 1 });
+    this.classIndex = W.CLASS_ORDER;
+    this.itemIndex = W.ITEM_ORDER;
+    this.fxKeys = W.FX_KEYS;
+    this.initialPickupMax = this.map.nextPickupId - 1;
+    this.gonePickups = new Set();
+    this.players = [];
+    this.slots = [];
+    this.byId = new Map();
+    this.byUser = new Map();
+    this.byTicket = new Map();
+    this.teamInfo = [];
+    this.teamsAlive = teams.length;
+    this.ended = false;
+    this.endAt = 0;
+    this.emptyT = 0;
+    this.tickCount = 0;
+    this.aliveCount = 0;
+    this.lastReal = Date.now();
+    this.acc = 0;
+    this.started = Date.now();
+
+    const drops = W.U.rng(this.seed ^ 0x1234567).shuffle(this.map.drops.slice());
+    teams.forEach((team, ti) => {
+      const drop = drops[ti % drops.length], color = COLORS[ti % COLORS.length];
+      const info = { index: ti + 1, alive: true, placement: null, players: [] };
+      this.teamInfo.push(info);
+      team.members.forEach((m, mi) => {
+        const a = (mi / Math.max(1, team.members.length)) * Math.PI * 2, off = team.members.length > 1 ? 36 : 0;
+        const p = this.world.addPlayer({
+          name: m.name, x: drop.x + Math.cos(a) * off, y: drop.y + Math.sin(a) * off,
+          color: color[0], outline: color[1], drop: true, team: ti + 1, angle: -Math.PI / 2
+        });
+        p.user = m.userKey || null;
+        p.dropLabel = drop.label;
+        p.teamInfo = info;
+        p.net = { conn: null, inputs: [], held: idleInput(), ack: 0, afk: 0, specId: 0, placement: null, left: false, killerId: 0, rate: { at: 0, n: 0 } };
+        p.controller = () => this.pullInput(p);
+        info.players.push(p);
+        this.players.push(p);
+        this.byId.set(p.id, p);
+        if (p.user) this.byUser.set(p.user, p);
+        const ticket = newToken(16);
+        this.slots.push({ index: this.slots.length, player: p, ticket, userKey: p.user, name: p.name });
+        this.byTicket.set(ticket, p);
+      });
+    });
+    this.timer = setInterval(() => this.pump(), 10);
+  }
+
+  broadcast(msg) {
+    const text = JSON.stringify(msg);
+    for (const p of this.players) if (p.net.conn && p.net.conn.open) p.net.conn.sendText(text);
+  }
+  send(conn, msg) { if (conn && conn.open) conn.sendJson(msg); }
+
+  // ---------------------------------------------------------------- connections
+  claim(ticket, conn) {
+    const p = this.byTicket.get(String(ticket || ''));
+    if (!p || this.ended) return null;
+    const rejoin = p.net.everConnected;
+    this.attach(p, conn, rejoin && p.net.left === false);
+    return p;
+  }
+
+  ticketFor(userKey) {
+    const p = this.byUser.get(userKey);
+    if (!p || this.ended || p.net.left) return null;
+    for (const s of this.slots) if (s.player === p) return s.ticket;
+    return null;
+  }
+
+  startMessage(p, rejoin) {
+    return {
+      t: 'match-start', id: this.id, seed: this.seed, mode: this.mode, teamSize: this.teamSize, you: p.id, team: p.team,
+      drop: p.dropLabel, rejoin: !!rejoin, time: r3(this.world.time), teams: this.teamInfo.length,
+      players: this.players.map((o) => ({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline }))
+    };
+  }
+
+  attach(p, conn, rejoin) {
+    if (p.net.conn && p.net.conn !== conn) { const old = p.net.conn; this.detach(old); old.close(4409, 'replaced'); }
+    p.net.conn = conn;
+    p.net.afk = 0;
+    p.net.everConnected = true;
+    p.net.itemsKey = ''; // resend the hotbar with the next snapshot
+    conn.player = p;
+    this.send(conn, this.startMessage(p, rejoin));
+    if (rejoin) {
+      this.send(conn, this.syncMessage());
+      if (p.net.placement && !this.ended) this.send(conn, { t: 'eliminated', placement: p.net.placement, of: this.teamInfo.length, players: this.players.length, stats: this.stats(p), cause: 'rejoin' });
+    }
+  }
+
+  detach(conn) {
+    const p = conn.player;
+    if (p && p.net.conn === conn) p.net.conn = null;
+    conn.player = null;
+  }
+
+  leave(conn) {
+    const p = conn.player;
+    this.detach(conn);
+    if (!p) return;
+    p.net.left = true;
+    if (p.alive) this.world.killPlayer(p, null, 'left');
+  }
+
+  onMessage(conn, text) {
+    const p = conn.player;
+    if (!p) return;
+    let m;
+    try { m = JSON.parse(text); } catch (e) { return; }
+    if (!m || typeof m.t !== 'string') return;
+    switch (m.t) {
+      case 'in': {
+        const now = Date.now(), rate = p.net.rate;
+        if (now - rate.at >= 1000) { rate.at = now; rate.n = 0; }
+        if (++rate.n > INPUT_RATE) return;
+        this.handleInput(p, m);
+        return;
+      }
+      case 'upgrade': {
+        const cls = str(m.cls, 20), r = p.nearStation ? this.world.upgrade(p, p.nearStation, cls) : { ok: false, reason: 'far' };
+        this.send(conn, { t: 'upgrade-result', ok: !!r.ok, reason: r.reason, usedKey: !!r.usedKey, cls });
+        return;
+      }
+      case 'leave': this.leave(conn); return;
+      case 'ping': this.send(conn, { t: 'pong', c: m.c, s: Date.now() }); return;
+      default: return;
+    }
+  }
+
+  syncMessage() {
+    const map = this.map;
+    return {
+      t: 'sync', time: r3(this.world.time),
+      crates: map.crates.filter((c) => c.hp < c.maxHp || !c.alive).map((c) => [c.id, c.alive ? Math.max(0, Math.round(c.hp)) : 0]),
+      gone: [...this.gonePickups],
+      rocks: map.rocks.filter((rock) => rock.alive === false).map((rock) => rock.id),
+      strikes: this.world.strikes.map((s) => ({ id: s.id, k: s.kind, x: s.x, y: s.y, tg: s.target, tl: s.t, o: s.owner, tm: s.team, r: s.radius, dm: s.damage })),
+      added: map.pickups.filter((pk) => pk.alive && pk.id > this.initialPickupMax).map((pk) => ({ id: pk.id, type: pk.type, it: pk.item || undefined, x: r1(pk.x), y: r1(pk.y), n: pk.amount, lk: r2(pk.lockT || 0) })),
+      stations: map.stations.filter((s) => s.cooldown > 0).map((s) => [s.id, r1(s.cooldown)]),
+      players: this.players.map((o) => [o.id, this.classIndex.indexOf(o.classId), o.alive ? 1 : 0, o.downed ? 1 : 0, r1(o.x), r1(o.y)]),
+      structs: this.world.structures.filter((s) => s.alive).map((s) => this.encodeStruct(s)),
+      zones: this.world.zones.map((z) => this.encodeZone(z)),
+      storm: this.stormMessage()
+    };
+  }
+
+  encodeStruct(s) {
+    return { id: s.id, k: s.kind, it: s.item, x: r1(s.x), y: r1(s.y), r: s.r, o: s.owner || 0, tm: s.team, hp: Math.round(s.hp), mhp: s.maxHp, a: r2(s.angle), m: s.mounted || 0, pr: s.pair || 0 };
+  }
+  encodeZone(z) {
+    return { id: z.id, k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, dur: z.dur, tl: r1(z.t), o: z.owner || 0, tm: z.team, dps: z.dps };
+  }
+
+  // ---------------------------------------------------------------- inputs
+  handleInput(p, m) {
+    const q = p.net.inputs;
+    const input = {
+      seq: num(m.s, 0, 1e9, 0) | 0, mx: num(m.mx, -1, 1, 0), my: num(m.my, -1, 1, 0), a: num(m.a, -10, 10, 0), d: num(m.d, 40, 3000, 400),
+      f: !!m.f, fp: !!m.fp, sc: !!m.sc, r: !!m.r, sl: (m.sl === 0 || m.sl === 1 || m.sl === 2) ? m.sl : null,
+      cy: num(m.cy, -3, 3, 0) | 0, sw: !!m.sw, u: !!m.u, iv: !!m.iv,
+      ht: Number.isInteger(m.ht) && m.ht >= -1 && m.ht < this.W.CONFIG.hotbarSize ? m.ht : null, ip: !!m.ip, dp: !!m.dp
+    };
+    q.push(input);
+    // A backlog means the client runs ahead of us: drop old inputs but keep their button presses.
+    while (q.length > 6) {
+      const dropped = q.shift(), next = q[0];
+      next.fp = next.fp || dropped.fp; next.r = next.r || dropped.r; next.sw = next.sw || dropped.sw; next.u = next.u || dropped.u; next.ip = next.ip || dropped.ip; next.dp = next.dp || dropped.dp;
+      if (next.sl === null) next.sl = dropped.sl;
+      if (next.ht === null) next.ht = dropped.ht;
+      next.cy += dropped.cy;
+    }
+  }
+
+  pullInput(p) {
+    const q = p.net.inputs;
+    let input;
+    if (q.length) {
+      input = q.shift();
+      p.net.ack = input.seq;
+      p.net.held = Object.assign({}, input, { fp: false, r: false, sw: false, u: false, sl: null, cy: 0, ht: null, ip: false, dp: false });
+    } else input = p.net.held;
+    const ca = Math.cos(input.a), sa = Math.sin(input.a);
+    return {
+      mx: input.mx, my: input.my, aimX: p.x + ca * input.d, aimY: p.y + sa * input.d,
+      fire: input.f, firePressed: input.fp, scope: input.sc, reload: input.r, slot: input.sl, cycle: input.cy,
+      swap: input.sw, utility: input.u, iv: input.iv, held: input.ht, interactPressed: input.ip, dropPressed: input.dp
+    };
+  }
+
+  // ---------------------------------------------------------------- loop
+  pump() {
+    const now = Date.now();
+    this.acc += Math.min(0.25, (now - this.lastReal) / 1000);
+    this.lastReal = now;
+    let n = 0;
+    while (this.acc >= TICK && n++ < 4) { this.acc -= TICK; this.tick(); }
+  }
+
+  tick() {
+    if (!this.timer) return;
+    const world = this.world;
+    this.tickCount++;
+    for (const p of this.players) {
+      if (p.alive && !p.net.conn && !p.net.left) {
+        p.net.afk += TICK;
+        if (p.net.afk > AFK_KILL) { p.net.left = true; world.killPlayer(p, null, 'left'); }
+      }
+    }
+    world.update(TICK);
+    const events = world.events;
+    world.events = [];
+    this.aliveCount = this.players.reduce((n, p) => n + (p.alive ? 1 : 0), 0);
+    for (const e of events) this.track(e);
+    this.sendSnapshots(events);
+    if (this.tickCount % 20 === 0) this.broadcast(this.stormMessage());
+    if (!this.ended) this.checkEnd();
+    else if (Date.now() >= this.endAt) this.destroy();
+  }
+
+  track(e) {
+    if (e.type === 'collected') this.gonePickups.add(e.pickup.id);
+    if (e.type === 'damage' && e.source && e.target.net) e.target.net.killerId = e.source.id;
+    if (e.type === 'death') this.onDeath(e);
+  }
+
+  onDeath(e) {
+    const p = e.victim, info = p.teamInfo;
+    if (e.killer) p.net.killerId = e.killer.id;
+    if (info.alive && !info.players.some((o) => o.alive)) {
+      info.alive = false;
+      info.placement = this.teamsAlive;
+      this.teamsAlive--;
+      for (const o of info.players) {
+        o.net.placement = info.placement;
+        this.send(o.net.conn, { t: 'eliminated', placement: info.placement, of: this.teamInfo.length, players: this.players.length, stats: this.stats(o), by: e.killer ? e.killer.name : null, cause: e.cause });
+      }
+    } else if (!p.net.placement) {
+      this.send(p.net.conn, { t: 'spectating', stats: this.stats(p), by: e.killer ? e.killer.name : null, cause: e.cause });
+    }
+  }
+
+  checkEnd() {
+    const aliveTeams = this.teamInfo.filter((t) => t.alive);
+    const connected = this.players.some((p) => p.net.conn && p.net.conn.open);
+    this.emptyT = connected ? 0 : this.emptyT + TICK;
+    const over = (aliveTeams.length <= 1 && (this.teamInfo.length > 1 || aliveTeams.length === 0)) || this.emptyT > EMPTY_TIMEOUT;
+    if (!over) return;
+    this.ended = true;
+    this.endAt = Date.now() + END_LINGER * 1000;
+    const winner = aliveTeams.length === 1 ? aliveTeams[0] : null;
+    if (winner) { winner.placement = 1; winner.players.forEach((o) => { o.net.placement = 1; }); }
+    const winners = winner ? winner.players.map((o) => o.name) : [];
+    for (const p of this.players) {
+      this.send(p.net.conn, { t: 'match-end', placement: p.net.placement, of: this.teamInfo.length, players: this.players.length, winners, won: !!winner && p.teamInfo === winner, stats: this.stats(p), time: r1(this.world.time) });
+    }
+  }
+
+  destroy() {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = null;
+    for (const p of this.players) if (p.net.conn) { const c = p.net.conn; this.detach(c); c.close(1000, 'match over'); }
+    if (this.onEnd) this.onEnd(this);
+  }
+
+  stats(p) {
+    const s = p.stats;
+    return { kills: s.kills, knocks: s.knocks, revives: s.revives, damage: Math.round(s.damage), tokens: s.tokens, upgrades: s.upgrades, crates: s.crates, shots: s.shots, healed: Math.round(s.healed), survived: r1(this.world.time), classId: p.classId };
+  }
+
+  stormMessage() {
+    const s = this.world.storm;
+    return {
+      t: 'storm', x: r1(s.x), y: r1(s.y), r: r1(s.r), nx: s.next ? r1(s.next.x) : null, ny: s.next ? r1(s.next.y) : null, nr: s.next ? r1(s.next.r) : null,
+      st: s.state, tl: r1(s.timeLeft), dps: s.dps, ph: s.phase, alive: this.aliveCount, teams: this.teamsAlive, time: r3(this.world.time)
+    };
+  }
+
+  // ---------------------------------------------------------------- snapshots
+  viewCenter(p) {
+    if (p.alive) return p;
+    let target = p.net.specId ? this.byId.get(p.net.specId) : null;
+    if (!target || !target.alive) {
+      target = p.teamInfo.players.find((o) => o.alive) || (p.net.killerId && this.byId.get(p.net.killerId)) || null;
+      if (!target || !target.alive) target = this.players.find((o) => o.alive) || null;
+      p.net.specId = target ? target.id : 0;
+    }
+    return target || p;
+  }
+
+  encodePlayer(o) {
+    const flags = (o.alive ? 1 : 0) | (o.downed ? 2 : 0) | (o.scoping ? 4 : 0) | (o.weapons[o.slot] && o.weapons[o.slot].reloading ? 8 : 0) | (o.inStorm ? 16 : 0)
+      | (o.mount ? 32 : 0) | (o.fx.invisible > 0 ? 64 : 0) | (o.shieldUp ? 128 : 0);
+    const held = o.held >= 0 && o.items[o.held] ? this.itemIndex.indexOf(o.items[o.held].id) + 1 : 0;
+    return [o.id, r1(o.x), r1(o.y), r2(o.angle), Math.ceil(o.hp), o.maxHp, this.classIndex.indexOf(o.classId), o.slot, flags, r2(o.dropT), o.downed ? r1(o.downT) : 0, o.downed ? r2(o.revive) : 0, held, r2(o.minigunSpin || 0), r1(o.commandBuff || 0), o.flameTicks || 0];
+  }
+
+  encodeYou(p) {
+    const you = {
+      x: r2(p.x), y: r2(p.y), vx: r2(p.vx), vy: r2(p.vy), ack: p.net.ack, hp: Math.ceil(p.hp * 10) / 10, mhp: p.maxHp, ar: p.armor,
+      tok: p.tokens, keys: p.keys, cls: this.classIndex.indexOf(p.classId), slot: p.slot,
+      ammo: p.weapons.map((w) => w.ammo), rel: p.weapons.map((w) => (w.reloading ? r2(w.reloadT) : 0)), gren: p.grenades, med: r1(p.medkitCd),
+      down: p.downed, downT: r1(p.downT), rev: r2(p.revive), sc: p.scoping, near: p.nearStation ? p.nearStation.id : -1,
+      alive: p.alive, drop: r2(p.dropT), team: p.team, storm: p.inStorm,
+      cmd: r1(p.commandCd || 0), cb: r1(p.commandBuff || 0), spin: r2(p.minigunSpin || 0), ft: p.flameTicks || 0,
+      from: p.upgradeFrom || null,
+      held: p.held, mnt: p.mount || 0, fx: this.fxKeys.map((k) => r1(p.fx[k])), rg: r1(p.regen), dr: r1(this.world.reveal[p.team] || 0), tp: r2(p.tpProgress || 0)
+    };
+    // The hotbar only travels when it changes.
+    const items = p.items.map((s) => (s ? [s.id, s.n] : 0)), key = JSON.stringify(items);
+    if (key !== p.net.itemsKey) { p.net.itemsKey = key; you.items = items; }
+    return you;
+  }
+
+  // Returns { msg, x, y, global, to:[ids], only:id, far } or null for events that are not replicated.
+  encodeEvent(e) {
+    switch (e.type) {
+      case 'shot': return { msg: { t: 'shot', id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), a: e.angles.map(r3), st: e.struct || undefined }, x: e.x, y: e.y };
+      case 'launch': case 'throw': return { msg: { t: e.type, id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), tr: r1(e.travel || 0), fuse: e.fuse, it: e.item || undefined, startX: e.startX, startY: e.startY, targetX: e.targetX, targetY: e.targetY, flightTime: e.flightTime, peakHeight: e.peakHeight }, x: e.x, y: e.y };
+      case 'rock-gone': return { msg: { t: 'rock-gone', id: e.rock.id }, global: true };
+      case 'legendary-crate-broken': return { msg: { t: 'legendary-crate-broken', id: e.crate.id, by: e.player ? e.player.id : 0 }, global: true };
+      case 'command': return { msg: { t: 'command', id: e.player.id, d: e.duration, rd: e.radarDuration, cd: e.cooldown, tm: e.team }, global: true };
+      case 'flame': return { msg: { t: 'flame', id: e.player.id, x: e.x, y: e.y, a: e.angle, r: e.range, ha: e.halfAngle, dm: e.damage }, x: e.x, y: e.y };
+      case 'explosion': return { msg: { t: 'boom', x: r1(e.x), y: r1(e.y), pw: e.power, c: e.cause, o: e.owner || 0 }, x: e.x, y: e.y, far: true };
+      case 'burst': return { msg: { t: 'burst', it: e.item, x: r1(e.x), y: r1(e.y), o: e.owner || 0 }, x: e.x, y: e.y, far: true };
+      case 'zone': return { msg: Object.assign({ t: 'zone' }, this.encodeZone(e.zone)), global: true };
+      case 'struct': return { msg: Object.assign({ t: 'struct', op: e.op, reason: e.reason, n: e.amount ? r1(e.amount) : undefined, src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, this.encodeStruct(e.struct)), global: true };
+      case 'strike': return { msg: { t: 'strike', id: e.strike.id, k: e.strike.kind, x: r1(e.strike.x), y: r1(e.strike.y), tg: e.strike.target || 0, tl: r2(e.strike.t), o: e.strike.owner || 0, tm: e.strike.team, r: e.strike.radius, dm: e.strike.damage }, global: true };
+      case 'strike-hit': return { msg: { t: 'shit', id: e.strike.id, k: e.strike.kind, x: r1(e.strike.x), y: r1(e.strike.y) }, global: true };
+      case 'teleport': return { msg: { t: 'tele', id: e.player.id, fx: r1(e.fromX), fy: r1(e.fromY), x: r1(e.x), y: r1(e.y) }, global: true };
+      case 'pulled': return { msg: { t: 'pulled', id: e.player.id, x: r1(e.x), y: r1(e.y) }, global: true };
+      case 'sentry-shot': return { msg: { t: 'sshot', id: e.struct.id, x: r1(e.x), y: r1(e.y), tx: r1(e.tx), ty: r1(e.ty) }, x: e.x, y: e.y };
+      case 'buff': return { msg: { t: 'buff', id: e.player.id, k: e.effect, d: e.duration, it: e.item, my: e.mystery, by: e.by || 0 }, to: e.team ? this.players.filter((o) => o.team === e.team).map((o) => o.id) : [e.player.id] };
+      case 'flashed': return { msg: { t: 'flashed' }, only: e.player.id };
+      case 'saved': return { msg: { t: 'saved', id: e.player.id }, global: true };
+      case 'blocked': return { msg: { t: 'blocked', id: e.player.id, how: e.how }, x: e.player.x, y: e.player.y };
+      case 'damage': return { msg: { t: 'dmg', id: e.target.id, src: e.source ? e.source.id : 0, n: r1(e.amount), c: e.cause, x: r1(e.x), y: r1(e.y) }, x: e.x, y: e.y, to: [e.target.id, e.source ? e.source.id : 0] };
+      case 'death': return { msg: { t: 'death', id: e.victim.id, k: e.killer ? e.killer.id : 0, c: e.cause, wd: !!e.wasDowned }, global: true };
+      case 'downed': return { msg: { t: 'down', id: e.player.id, k: e.source ? e.source.id : 0, c: e.cause }, global: true };
+      case 'revived': return { msg: { t: 'revive', id: e.player.id, by: e.by ? e.by.id : 0 }, global: true };
+      case 'heal': return { msg: { t: 'heal', id: e.player.id, by: e.by ? e.by.id : 0, n: r1(e.amount), it: e.item || undefined }, x: e.player.x, y: e.player.y, to: [e.player.id] };
+      case 'collected': return { msg: { t: 'pick', id: e.pickup.id, by: e.player.id, what: e.pickup.type, it: e.pickup.item || undefined, n: e.pickup.amount, tot: e.total }, global: true };
+      case 'spawn-pickup': return { msg: { t: 'pkspawn', id: e.pickup.id, type: e.pickup.type, it: e.pickup.item || undefined, x: r1(e.pickup.x), y: r1(e.pickup.y), vx: r1(e.pickup.vx), vy: r1(e.pickup.vy), n: e.pickup.amount, lk: r2(e.pickup.lockT || 0) }, global: true };
+      case 'crate-hp': return { msg: { t: 'crate', id: e.crate.id, hp: Math.round(e.hp), src: e.source ? e.source.id : 0, n: r1(e.amount), x: r1(e.x), y: r1(e.y) }, global: true };
+      case 'upgrade': return { msg: { t: 'upg', id: e.player.id, cls: e.classId, st: e.station.id, key: !!e.usedKey }, global: true };
+      case 'land': return { msg: { t: 'land', id: e.player.id }, x: e.player.x, y: e.player.y, to: [e.player.id] };
+      case 'reload': case 'reloaded': case 'switch': case 'deny': case 'item-used': case 'item-dropped': case 'mounted': case 'dismounted':
+        return { msg: { t: 'local', k: e.type, w: e.weapon, reason: e.reason, value: e.value, it: e.item, n: e.amount }, only: e.player.id };
+      default: return null;
+    }
+  }
+
+  sendSnapshots(events) {
+    const encoded = [];
+    for (const e of events) { const enc = this.encodeEvent(e); if (enc) encoded.push(enc); }
+    const time = r3(this.world.time);
+    for (const p of this.players) {
+      const conn = p.net.conn;
+      if (!conn || !conn.open) continue;
+      if (conn.bufferedAmount > 96 * 1024) continue; // slow link: skip this tick rather than pile up
+      const c = this.viewCenter(p);
+      const list = [];
+      for (const enc of encoded) {
+        if (enc.only !== undefined) { if (enc.only === p.id) list.push(enc.msg); continue; }
+        if (enc.global || (enc.to && enc.to.includes(p.id))) { list.push(enc.msg); continue; }
+        if (Math.hypot(enc.x - c.x, enc.y - c.y) < VIEW + (enc.far ? 900 : 300)) list.push(enc.msg);
+      }
+      // Teammates always; enemies within view, or everyone while a drone flies for this team. Invisible enemies are never sent.
+      const players = [], drone = (this.world.reveal[p.team] || 0) > 0, revealed = new Set(this.world.revealedEnemies(p).map((o) => o.id));
+      for (const o of this.players) {
+        if (!o.alive && o.deadT > 1.5) continue;
+        const mate = o === p || o.team === p.team;
+        if (!mate && !drone && !revealed.has(o.id) && o.fx.invisible > 0) continue;
+        if (mate || drone || Math.hypot(o.x - c.x, o.y - c.y) < VIEW) players.push(this.encodePlayer(o));
+      }
+      conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), spec: p.alive ? 0 : p.net.specId, p: players, e: list, alive: this.aliveCount, teams: this.teamsAlive }));
+    }
+  }
+}

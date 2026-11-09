@@ -1,0 +1,21 @@
+{
+  "name": "warz-io",
+  "version": "0.2.0",
+  "private": true,
+  "description": "warz.io: a fast-paced top-down battle royale with upgrade stations, a class tree and online play",
+  "scripts": {
+    "start": "node server/node/index.mjs",
+    "dev": "node tools/serve.js",
+    "dev:cf": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node tests/rules-smoke.mjs && node tests/map-updates-smoke.mjs && node tests/world-smoke.mjs && node tests/items-smoke.mjs && node tests/projectiles-smoke.mjs && node tests/classes-smoke.mjs && node tests/render-smoke.mjs && node tests/icons-smoke.mjs && node tests/demo-smoke.mjs && node tests/controls-smoke.mjs && node tests/ws-smoke.mjs && node tests/auth-smoke.mjs && node tests/online-replication-smoke.mjs && node tests/server-smoke.mjs",
+    "qa": "node tools/qa.js",
+    "qa:online": "node tools/qa-online.mjs",
+    "qa:items": "node tools/qa-items.cjs",
+    "qa:level2": "node tools/qa-level2.cjs",
+    "qa:map-tree": "node tools/qa-map-tree.cjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.158.0"
+  }
+}

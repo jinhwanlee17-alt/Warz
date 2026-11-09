@@ -1,0 +1,140 @@
+/* warz.io: rebindable controls. Each action has a primary and a secondary binding (key code or Mouse1/2/3).
+   Saved in the browser under warz.settings.v1. No DOM access, so the Node tests can load it. */
+(function () {
+  'use strict';
+  var W = window.Warz;
+  var STORE = 'warz.settings.v1';
+
+  var ACTIONS = W.ACTIONS = [
+    { id: 'up', name: 'Move up', group: 'Movement' },
+    { id: 'down', name: 'Move down', group: 'Movement' },
+    { id: 'left', name: 'Move left', group: 'Movement' },
+    { id: 'right', name: 'Move right', group: 'Movement' },
+    { id: 'fire', name: 'Shoot', group: 'Combat' },
+    { id: 'scope', name: 'Scope (Sniper: hold to zoom out)', group: 'Combat' },
+    { id: 'gear', name: 'Use gear (medkit / grenade / command radar)', group: 'Combat' },
+    { id: 'reload', name: 'Reload', group: 'Combat' },
+    { id: 'weapon1', name: 'Hotbar slot 1 (weapon)', group: 'Hotbar' },
+    { id: 'weapon2', name: 'Hotbar slot 2 (weapon / class gear)', group: 'Hotbar' },
+    { id: 'swap', name: 'Swap weapon', group: 'Combat' },
+    { id: 'drop', name: 'Drop held item stack', group: 'Combat' },
+    { id: 'interact', name: 'Pick up item / station / revive / mount', group: 'World' },
+    { id: 'inventory', name: 'Inventory', group: 'World' },
+    { id: 'map', name: 'Island map', group: 'World' },
+    { id: 'mute', name: 'Mute sound', group: 'World' },
+    { id: 'item1', name: 'Hotbar slot 3 (item)', group: 'Hotbar' },
+    { id: 'item2', name: 'Hotbar slot 4 (item)', group: 'Hotbar' },
+    { id: 'item3', name: 'Hotbar slot 5 (item)', group: 'Hotbar' }
+  ];
+  var DEFAULTS = W.DEFAULT_BINDINGS = {
+    up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
+    fire: ['Mouse1', null], scope: ['Mouse3', null], gear: ['KeyF', 'KeyG'], reload: ['KeyR', null],
+    weapon1: ['Digit1', null], weapon2: ['Digit2', null], swap: [null, null], drop: ['KeyQ', null],
+    interact: ['KeyE', null], inventory: ['Tab', null], map: ['KeyM', null], mute: [null, null],
+    item1: ['Digit3', null], item2: ['Digit4', null], item3: ['Digit5', null]
+  };
+  var NAMES = {
+    Mouse1: 'Left click', Mouse2: 'Middle click', Mouse3: 'Right click', Mouse4: 'Mouse 4', Mouse5: 'Mouse 5',
+    Space: 'Space', ShiftLeft: 'L Shift', ShiftRight: 'R Shift', ControlLeft: 'L Ctrl', ControlRight: 'R Ctrl',
+    AltLeft: 'L Alt', AltRight: 'R Alt', Tab: 'Tab', Enter: 'Enter', CapsLock: 'Caps Lock',
+    ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+    Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.',
+    Slash: '/', Backslash: '\\', Backquote: '`'
+  };
+  var settings = fresh();
+
+  function fresh() { return { bindings: clone(DEFAULTS), muted: false }; }
+  function clone(b) {
+    var out = {};
+    Object.keys(b).forEach(function (k) { out[k] = b[k].slice(); });
+    return out;
+  }
+  function store() { try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch (e) { return null; } }
+  function valid(code) { return typeof code === 'string' && /^[A-Za-z0-9]{1,32}$/.test(code) && code !== 'Escape' ? code : null; }
+
+  function load() {
+    settings = fresh();
+    var s = store();
+    if (!s) return settings;
+    var migrated = false;
+    try {
+      var saved = JSON.parse(s.getItem(STORE) || 'null');
+      if (saved && saved.bindings) {
+        ACTIONS.forEach(function (a) {
+          var b = saved.bindings[a.id];
+          if (Array.isArray(b)) settings.bindings[a.id] = [valid(b[0]), valid(b[1])];
+        });
+        // Q now drops the selected item. Migrate legacy assignments once; retain every other key.
+        if (!Array.isArray(saved.bindings.drop)) {
+          ACTIONS.forEach(function (a) {
+            if (a.id !== 'drop') settings.bindings[a.id] = settings.bindings[a.id].map(function (code) { return code === 'KeyQ' ? null : code; });
+          });
+          settings.bindings.drop = ['KeyQ', null];
+          migrated = true;
+        }
+        if (!Array.isArray(saved.bindings.inventory)) {
+          var free = function (code) { return !ACTIONS.some(function (a) { return a.id !== 'inventory' && settings.bindings[a.id].indexOf(code) >= 0; }); };
+          settings.bindings.inventory = [free('Tab') ? 'Tab' : free('KeyI') ? 'KeyI' : null, null];
+          migrated = true;
+        }
+      }
+      if (saved && typeof saved.muted === 'boolean') settings.muted = saved.muted;
+    } catch (e) { /* corrupt settings fall back to defaults */ }
+    if (migrated) save();
+    return settings;
+  }
+  function save() {
+    var s = store();
+    if (!s) return;
+    try { s.setItem(STORE, JSON.stringify(settings)); } catch (e) { /* storage full or blocked */ }
+  }
+
+  function label(code) {
+    if (!code) return '—';
+    if (NAMES[code]) return NAMES[code];
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit\d$/.test(code)) return code.slice(5);
+    if (/^Numpad/.test(code)) return 'Num ' + code.slice(6);
+    return code;
+  }
+  function bindings(action) { return settings.bindings[action] || [null, null]; }
+  function down(input, action) { var b = bindings(action); return input.down(b[0]) || input.down(b[1]); }
+  function hit(input, action) { var b = bindings(action); return input.hit(b[0]) || input.hit(b[1]); }
+  function lift(input, action) { var b = bindings(action); return !!input.lift && (input.lift(b[0]) || input.lift(b[1])); }
+  function primary(action) { var b = bindings(action); return label(b[0] || b[1]); }
+
+  // Binds `code` to one slot; the same code is removed from every other slot. Returns the actions that lost it.
+  function rebind(action, slot, code) {
+    if (!settings.bindings[action] || (slot !== 0 && slot !== 1)) return [];
+    code = valid(code);
+    var freed = [];
+    if (code) {
+      ACTIONS.forEach(function (a) {
+        var b = settings.bindings[a.id];
+        for (var i = 0; i < 2; i++) {
+          if (b[i] === code && !(a.id === action && i === slot)) { b[i] = null; freed.push(a.id); }
+        }
+      });
+    }
+    settings.bindings[action][slot] = code;
+    save();
+    return freed;
+  }
+  function reset() { settings.bindings = clone(DEFAULTS); save(); }
+  function actionName(id) {
+    for (var i = 0; i < ACTIONS.length; i++) if (ACTIONS[i].id === id) return ACTIONS[i].name;
+    return id;
+  }
+
+  W.Controls = {
+    ACTIONS: ACTIONS, DEFAULTS: DEFAULTS,
+    load: load, save: save, reset: reset, rebind: rebind,
+    label: label, bindings: bindings, primary: primary, actionName: actionName,
+    down: down, hit: hit, lift: lift,
+    isReserved: function (code) { return code === 'Escape'; },
+    setMuted: function (v) { settings.muted = !!v; save(); },
+    muted: function () { return settings.muted; },
+    all: function () { return settings.bindings; }
+  };
+  load();
+}());

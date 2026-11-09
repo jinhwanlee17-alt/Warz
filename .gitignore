@@ -1,0 +1,11 @@
+output/
+node_modules/
+.wrangler/
+server/data/
+*.log
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+!.env.example
+!.dev.vars.example

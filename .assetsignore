@@ -1,0 +1,12 @@
+server/
+tests/
+tools/
+output/
+node_modules/
+.wrangler/
+.git/
+.gitignore
+.assetsignore
+package.json
+package-lock.json
+wrangler.toml
