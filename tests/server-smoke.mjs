@@ -10,7 +10,8 @@ const t = suite('server');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const quiet = { info(m) { if (process.env.VERBOSE) console.log('[server] ' + m); }, warn(m) { console.warn('[server] ' + m); }, error(m) { console.error('[server] ' + m); } };
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'warz-server-'));
-const app = createApp({ dataDir, lobbyMin: 2, lobbyCountdown: 0.4, serveStatic: false, log: quiet });
+// Bots are off here: these checks are about exactly who is in a match (bots have their own suites).
+const app = createApp({ dataDir, lobbyMin: 2, lobbyCountdown: 0.4, botFill: 0, serveStatic: false, log: quiet });
 const { port } = await app.listen(0, '127.0.0.1');
 const base = 'ws://127.0.0.1:' + port;
 
@@ -273,7 +274,7 @@ const enemyCommand = await waitSnap(mG, m => m.e.some(e => e.t === 'command'));
 t.check(allyCommand.you.cb > 14 && enemyCommand.you.cb === 0, 'commander buff reaches teammates but not enemies');
 t.check(allyCommand.p.some(row => row[0] === sE.id && row[14] > 14), 'remote-player rows carry the commander boost timer');
 const call = commanded.e.find(e => e.t === 'strike' && e.k === 'airstrike');
-t.check(call && call.tl > 4.8 && call.tl <= 5 && call.dm === 500 && call.r === 450, 'airstrike event carries five-second countdown, radius and damage');
+t.check(call && call.tl > 4.8 && call.tl <= 5 && call.dm === 250 && call.r === 225, 'airstrike event carries five-second countdown, halved radius and 250 damage');
 t.check(allyCommand.e.some(e => e.t === 'strike' && e.id === call.id) && enemyCommand.e.some(e => e.t === 'strike' && e.id === call.id), 'all teams receive the incoming airstrike marker');
 for (const [player, dx] of [[sE, 0], [sF, 100], [sG, -100]]) {
   player.x = call.x + dx; player.y = call.y; player.vx = player.vy = 0;
@@ -281,8 +282,8 @@ for (const [player, dx] of [[sE, 0], [sF, 100], [sG, -100]]) {
 }
 const airHit = await waitSnap(mE, m => m.e.some(e => e.t === 'shit' && e.id === call.id), 7000);
 t.check(airHit.e.some(e => e.t === 'shit' && e.k === 'airstrike'), 'airstrike resolves through the shared strike-hit event');
-t.check(sE.hp === 500 && sF.hp === 500 && sG.hp === 500, 'airstrike deals exactly five hundred to commander, teammate and enemy despite the boost');
-t.check(airHit.you.hp === 500 && airHit.e.some(e => e.t === 'dmg' && e.id === sE.id && e.n === 500), 'same airstrike packet contains authoritative HP and its feedback event');
+t.check(sE.hp === 750 && sF.hp === 750 && sG.hp === 750, 'airstrike deals exactly 250 to commander, teammate and enemy despite the boost');
+t.check(airHit.you.hp === 750 && airHit.e.some(e => e.t === 'dmg' && e.id === sE.id && e.n === 250), 'same airstrike packet contains authoritative HP and its feedback event');
 
 // Flame heat and minigun windup reach both the owner and remote player rows.
 w2.setClass(sE, 'pyromancer', true); sE.commandBuff = 0;
@@ -294,9 +295,9 @@ await drive(mE, { a: 0, d: 200, f: true }, 0.2);
 const flameOwner = await waitSnap(mE, m => m.e.some(e => e.t === 'flame'));
 const flamePeer = await waitSnap(mF, m => m.e.some(e => e.t === 'flame'));
 const flame = flameOwner.e.find(e => e.t === 'flame');
-t.check(flame.r === 300 && flame.ha === 0.45 && flame.dm >= 10 && flame.dm <= 50 && flameOwner.you.ft > 0, 'flame events replicate the cone and owner heat');
+t.check(flame.r === 375 && flame.ha === 0.45 && flame.dm >= 10 && flame.dm <= 50 && flameOwner.you.ft > 0, 'flame events replicate the extended cone and owner heat');
 t.check(flamePeer.p.some(row => row[0] === sE.id && row[15] > 0), 'remote player rows carry flamethrower heat');
-t.check(sG.hp < 500 && sF.hp === 500, 'online flame hits enemies and protects teammates');
+t.check(sG.hp < 750 && sF.hp === 750, 'online flame hits enemies and protects teammates');
 await drive(mE, {}, 0.15);
 w2.setClass(sE, 'juggernaut', true);
 mE.drop('snap'); mF.drop('snap');
@@ -359,7 +360,7 @@ t.equal(badClose, 4401, 'a bad ticket is refused');
 mB3.close(); mH.close(); H.close(); B2.close(); A.close();
 
 const cfg = await (await fetch('http://127.0.0.1:' + port + '/api/config')).json();
-t.check(cfg.lobbyMin === 2 && cfg.platform === 'node' && cfg.google === null, '/api/config reports the server setup');
+t.check(cfg.lobbyMin === 2 && cfg.platform === 'node' && cfg.google === null && cfg.bots === 0, '/api/config reports the server setup');
 
 await app.close();
 t.check(fs.existsSync(path.join(dataDir, 'warz-store.json')), 'accounts are persisted to disk');

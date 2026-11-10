@@ -9,16 +9,40 @@ function map(extra = {}) {
 }
 function steps(world, seconds) { for (let i = 0; i < Math.ceil(seconds / DT); i++) world.update(DT); }
 function crate(id, x, y) { return { id, x, y, size: 52, hp: 180, maxHp: 180, tier: 'epic', alive: true, shake: 0 }; }
+function chargeFor(distance, id = 'grenade') {
+  const def = WEAPONS[id], launcher = def && def.kind === 'launcher';
+  const min = launcher ? def.minRange : 70, max = launcher ? def.range : WEAPONS.grenade.throwRange;
+  return Math.max(0, Math.min(1, (distance - min) / (max - min))) * C.projectileChargeTime;
+}
 const wall = { walls: [{ x: 3380, y: 3050, w: 24, h: 300 }] };
 const throwIds = W.ITEM_ORDER.filter(id => ITEMS[id].kind === 'throw');
+t.equal(C.projectileChargeTime, 0.75, 'maximum projectile charge takes three quarters of a second');
+t.equal(WEAPONS.launcher.range, 660, 'launcher range is halfway between hand grenades and its former range');
+t.equal(WEAPONS.launcher2.range, 700, 'launcher II range is halfway between hand grenades and its former range');
+t.equal(WEAPONS.flamethrower.range, 375, 'flamethrower range increases from 300 to 375');
+{
+  const world = new World({ map: map(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200 });
+  for (const id of [...throwIds, 'launcher', 'launcher2']) {
+    const def = WEAPONS[id], launcher = def && def.kind === 'launcher';
+    const min = launcher ? def.minRange : 70, max = launcher ? def.range : WEAPONS.grenade.throwRange;
+    const aim = { x: 10000, y: 3200 };
+    t.near(world.throwSolution(p, aim, id).range, min, 0.001, id + ': a quick click has minimum range even with a distant cursor');
+    t.near(world.throwSolution(p, { ...aim, charge: 0.375 }, id).range, (min + max) / 2, 0.001, id + ': half charge has half the available range');
+    t.near(world.throwSolution(p, { ...aim, charge: 0.75 }, id).range, max, 0.001, id + ': 0.75 seconds reaches maximum range');
+    t.near(world.throwSolution(p, { ...aim, charge: 4 }, id).range, max, 0.001, id + ': holding longer cannot exceed maximum range');
+    const near = world.throwSolution(p, { x: 3201, y: 3200, charge: 0.75 }, id);
+    t.near(near.targetX, 3200 + max, 0.001, id + ': a nearby cursor still selects direction, not distance');
+    for (const bad of [-1, NaN, Infinity, '0.75']) t.near(world.throwSolution(p, { ...aim, charge: bad }, id).range, min, 0.001, id + ': invalid charge uses minimum range (' + bad + ')');
+  }
+}
 for (const id of ['grenade', ...throwIds.filter(id => id !== 'grenade'), 'launcher', 'launcher2']) {
   const world = new World({ map: map({ buildings: [wall] }), storm: false });
   const p = world.addPlayer({ x: 3200, y: 3200, classId: id === 'launcher2' ? 'grenadier2' : 'grenadier' });
   const launcher = id === 'launcher' || id === 'launcher2';
   const before = JSON.stringify({ p: [p.x, p.y, p.vx, p.vy], grenades: world.grenades });
-  const solution = world.throwSolution(p, { aimX: 3600, aimY: 3200 }, id);
+  const solution = world.throwSolution(p, { aimX: 3600, aimY: 3200, charge: chargeFor(400, id) }, id);
   t.equal(JSON.stringify({ p: [p.x, p.y, p.vx, p.vy], grenades: world.grenades }), before, id + ': preview does not mutate the simulation');
-  t.near(solution.targetX, 3600, 0.001, id + ': preview aims through cover to selected landing spot');
+  t.near(solution.targetX, 3600, 0.001, id + ': charged preview aims through cover to the landing spot');
   const middle = world.trajectoryPoint(solution, 0.5);
   t.check(middle.z > 60 && middle.x > solution.startX && middle.x < solution.targetX, id + ': preview has an actual elevated arc');
   const g = launcher ? world.spawnShell(p, solution) : world.spawnGrenade(p, { ...solution, item: id, fuse: ITEMS[id].fuse });
@@ -42,18 +66,18 @@ for (const id of ['grenade', ...throwIds.filter(id => id !== 'grenade'), 'launch
 {
   const world = new World({ map: map({ buildings: [wall], rocks: [{ x: 3550, y: 3300, r: 60 }] }), storm: false });
   const p = world.addPlayer({ x: 3200, y: 3200 });
-  const hitWall = world.throwSolution(p, { x: 3390, y: 3200 }, 'grenade');
+  const hitWall = world.throwSolution(p, { x: 3390, y: 3200, charge: chargeFor(190) }, 'grenade');
   t.check(hitWall.targetX <= 3370 || hitWall.targetX >= 3414, 'landing target inside a wall is pushed safely to its surface');
-  const hitRock = world.throwSolution(p, { x: 3550, y: 3300 }, 'grenade');
+  const hitRock = world.throwSolution(p, { x: 3550, y: 3300, charge: chargeFor(Math.hypot(350, 100)) }, 'grenade');
   t.check(Math.hypot(hitRock.targetX - 3550, hitRock.targetY - 3300) >= 69, 'landing target inside a rock moves outside its collision radius');
-  const ranged = world.throwSolution(p, { x: 6000, y: 3200 }, 'grenade');
+  const ranged = world.throwSolution(p, { x: 6000, y: 3200, charge: C.projectileChargeTime }, 'grenade');
   t.near(ranged.range, WEAPONS.grenade.throwRange, 0.001, 'throw preview clamps range exactly like firing');
 }
 {
   const world = new World({ map: map(), storm: false }), mirror = new World({ map: map(), remote: true });
   const p = world.addPlayer({ id: 4, x: 3200, y: 3200, classId: 'grenadier2' });
   const mp = mirror.addPlayer({ id: 4, x: 3200, y: 3200, classId: 'grenadier2' });
-  world.fireLauncher(p, WEAPONS.launcher2, { aimX: 3700, aimY: 3300 });
+  world.fireLauncher(p, WEAPONS.launcher2, { aimX: 3700, aimY: 3300, charge: chargeFor(Math.hypot(500, 100), 'launcher2') });
   const event = world.events.find(e => e.type === 'launch'), original = world.grenades[0];
   const copy = mirror.spawnShell(mp, event);
   t.check(event.weapon === 'launcher2' && Number.isFinite(event.targetX) && event.flightTime > 0, 'launch replication carries exact trajectory and weapon identity');
@@ -61,13 +85,43 @@ for (const id of ['grenade', ...throwIds.filter(id => id !== 'grenade'), 'launch
   t.near(copy.x, original.x, 0.0001, 'mirrored launcher x matches authoritative arc');
   t.near(copy.z, original.z, 0.0001, 'mirrored launcher height matches authoritative arc');
   t.equal(copy.explosion.maxDamage, 70, 'mirrored level-two shell preserves its damage definition');
-  const g = world.lob(p, 3450, 3400, 0, 'firenade');
+  const g = world.lob(p, 3450, 3400, 0, 'firenade', chargeFor(Math.hypot(250, 200)));
   const handEvent = { ...world.projectileEvent(g), item: 'firenade', fuse: g.fuse };
   const handCopy = mirror.spawnGrenade(mp, handEvent);
   world.updateHand(g, 0.2); mirror.updateHand(handCopy, 0.2);
   t.near(g.x, handCopy.x, 0.0001, 'mirrored item grenade follows transmitted path');
   t.near(g.z, handCopy.z, 0.0001, 'mirrored item grenade has matching height');
   t.check(handCopy.instant, 'replicated fire grenade still bursts on landing');
+}
+{
+  for (const classId of ['grenadier', 'grenadier2']) {
+    const world = new World({ map: map(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200, classId });
+    const def = WEAPONS[p.weapons[0].id], before = p.weapons[0].ammo;
+    p.controller = () => ({ fire: true, aimX: 10000, aimY: 3200, charge: 0.75 });
+    steps(world, 1);
+    t.check(!world.grenades.length && p.weapons[0].ammo === before, classId + ': holding launcher fire does not launch or consume ammunition');
+    const intent = { firePressed: true, aimX: 10000, aimY: 3200, charge: 0.375 };
+    const preview = world.throwSolution(p, intent, def.id);
+    world.trigger(p, intent);
+    t.check(world.grenades.length === 1 && p.weapons[0].ammo === before - 1, classId + ': releasing fires exactly one shell');
+    t.near(world.grenades[0].targetX, preview.targetX, 0.001, classId + ': charged launcher release matches the preview');
+    world.trigger(p, intent);
+    t.check(world.grenades.length === 1 && p.weapons[0].ammo === before - 1, classId + ': charge does not bypass the launcher cooldown');
+  }
+  const world = new World({ map: map(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200, classId: 'grenadier' });
+  const grenades = p.grenades;
+  world.useUtility(p, { aimX: 10000, aimY: 3200, charge: 0, utilityCharge: 0.75 });
+  t.near(world.grenades[0].targetX, p.x + WEAPONS.grenade.throwRange, 0.001, 'gear grenade uses its own held duration');
+  t.equal(p.grenades, grenades - 1, 'charged gear grenade consumes exactly one grenade');
+  world.useUtility(p, { aimX: 10000, aimY: 3200, utilityCharge: 0.75 });
+  t.equal(p.grenades, grenades - 1, 'charged gear grenade preserves its cooldown');
+  world.addItem(p, 'firenade', 2); p.held = 0;
+  const fire = { firePressed: true, aimX: 10000, aimY: 3200, charge: 0.375 };
+  const preview = world.throwSolution(p, fire, 'firenade');
+  world.useHeld(p, fire);
+  const g = world.grenades[world.grenades.length - 1];
+  t.near(g.targetX, preview.targetX, 0.001, 'item grenade charged release matches its preview');
+  t.equal(world.countItem(p, 'firenade'), 1, 'charged item release consumes exactly one stack item');
 }
 {
   const world = new World({ map: map(), storm: false, teams: true });

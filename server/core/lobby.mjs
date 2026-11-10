@@ -1,5 +1,7 @@
 // Parties and matchmaking queues. A queue entry is one party (or one solo player); when a mode has enough
 // players a countdown runs and the entries are packed into teams for a new match.
+// With `config.botFill` set, every lobby is topped up to that many players with bots: each real player who joins
+// takes a bot's place, so 5 players wait with 45 bots, and a sixth makes it 6 and 44.
 export const MODES = { solo: 1, duo: 2, trio: 3, squad: 4 };
 
 function lower(s) { return String(s || '').trim().toLowerCase(); }
@@ -169,10 +171,21 @@ export class Lobby {
 
   count(mode) { return this.queues[mode].reduce((n, e) => n + e.conns.length, 0); }
 
+  // How many players a lobby is filled up to with bots (0: no bots).
+  botTarget() {
+    const fill = Math.floor(Number(this.config.botFill) || 0);
+    return fill > 0 ? Math.min(fill, this.config.lobbyMax) : 0;
+  }
+
+  // Real players a match needs before its countdown starts. One is enough when bots make up at least one other
+  // team; without them (bots off, or a fill no bigger than a single team) nobody starts a match against no one.
+  minPlayers(mode) { return Math.max(this.config.lobbyMin, this.botTarget() > this.teamSize(mode) ? 1 : 2); }
+
+  // `count` is real players; `bots` fill the rest of the lobby once at least one player is waiting.
   lobbyView(mode, now) {
-    const end = this.countdown[mode];
+    const end = this.countdown[mode], count = this.count(mode), bots = count > 0 ? Math.max(0, this.botTarget() - count) : 0;
     return {
-      mode, count: this.count(mode), min: this.config.lobbyMin, max: this.config.lobbyMax, size: this.teamSize(mode),
+      mode, count, bots, total: count + bots, min: this.minPlayers(mode), max: this.config.lobbyMax, size: this.teamSize(mode),
       countdown: end ? Math.max(0, Math.ceil((end - (now || Date.now())) / 1000)) : null
     };
   }
@@ -187,7 +200,7 @@ export class Lobby {
   tick(now) {
     for (const mode of Object.keys(this.queues)) {
       const n = this.count(mode);
-      if (n > 0 && n >= this.config.lobbyMin) {
+      if (n > 0 && n >= this.minPlayers(mode)) {
         if (!this.countdown[mode]) this.countdown[mode] = now + this.config.lobbyCountdown * 1000;
         if (n >= this.config.lobbyMax) this.countdown[mode] = Math.min(this.countdown[mode], now + 5000);
         if (now >= this.countdown[mode]) { this.launch(mode); continue; }
@@ -216,6 +229,15 @@ export class Lobby {
       if (!team) { team = { members: [] }; teams.push(team); open.push(team); }
       team.members.push(...members);
       if (team.members.length >= size) open.splice(open.indexOf(team), 1);
+    }
+    // Bots take the seats nobody is in: first the open spots on teams that asked for fill, then whole bot teams
+    // until the lobby is full. (A party with fill switched off keeps its empty spots.)
+    let seats = this.botTarget() - total;
+    for (const team of open) while (seats > 0 && team.members.length < size) { team.members.push({ bot: true }); seats--; }
+    while (seats > 0) {
+      const team = { members: [] };
+      while (seats > 0 && team.members.length < size) { team.members.push({ bot: true }); seats--; }
+      teams.push(team);
     }
     for (const e of picked) {
       const i = q.indexOf(e);

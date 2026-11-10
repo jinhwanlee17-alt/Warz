@@ -76,6 +76,7 @@
       alive: true, deadT: 0, isLocal: !!o.isLocal, bot: !!o.bot, controller: null, ai: null,
       recoil: 0, hitFlash: 0, healFlash: 0, dropT: o.drop ? C.dropDuration : 0,
       inPond: false, inStorm: false, nearStation: null, scoping: false,
+      stamina: C.staminaMax, sprintExhausted: false, sprintRestT: 0, sprinting: false,
       team: o.team || 0, downed: false, downT: 0, revive: 0, wantsRevive: false,
       ox: 0, oy: 0, snaps: null,
       stats: { damage: 0, crateDamage: 0, crates: 0, tokens: 0, shots: 0, hits: 0, kills: 0, knocks: 0, revives: 0, upgrades: 0, healed: 0 }
@@ -120,6 +121,7 @@
   World.prototype.respawn = function (p, x, y, classId) {
     p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.alive = true; p.deadT = 0; p.hitFlash = 0;
     p.downed = false; p.downT = 0; p.revive = 0;
+    p.stamina = C.staminaMax; p.sprintExhausted = false; p.sprintRestT = 0; p.sprinting = false;
     this.resetItems(p);
     this.setClass(p, classId || 'soldier', true);
     this.collide(p);
@@ -187,6 +189,7 @@
     p.scoping = false;
     p.wantsRevive = !!intent.iv;
     if (p.dropT > 0) {
+      this.tickStamina(p, IDLE, dt);
       p.dropT -= dt;
       if (p.dropT <= 0) { p.dropT = 0; this.land(p); }
       return;
@@ -201,9 +204,9 @@
       this.moveStep(p, intent, dt);
       return;
     }
-    if (p.mount) { this.updateMounted(p, intent, dt); return; } // on a turret: aim and fire it, no walking
+    if (p.mount) { this.tickStamina(p, IDLE, dt); this.updateMounted(p, intent, dt); return; } // on a turret: aim and fire it, no walking
     if (intent.interactPressed) this.pressInteract(p);
-    if (p.mount) return;
+    if (p.mount) { this.tickStamina(p, IDLE, dt); return; }
     if (intent.held !== undefined && intent.held !== null) this.selectItem(p, intent.held);
     p.scoping = !!intent.scope && p.held < 0 && !!WEAPONS[cur.id].zoom;
     if (intent.slot !== undefined && intent.slot !== null) this.switchSlot(p, intent.slot);
@@ -216,12 +219,50 @@
     this.moveStep(p, intent, dt);
   };
 
-  // Movement only: shared by the simulation and by client-side prediction of the local player.
+  // Integrate stamina through boundaries instead of granting an entire tick of recovery or sprint
+  // when a meter empties, refills, or reaches the standing-rest delay midway through that tick.
+  World.prototype.tickStamina = function (p, intent, dt) {
+    p.sprinting = false;
+    if (!p.alive || !(dt > 0)) return 1;
+    var moving = !!(intent.mx || intent.my), canSprint = !p.downed && !p.mount && p.dropT <= 0;
+    var wants = moving && !!intent.sprint && canSprint, left = dt, sprintTime = 0, epsilon = 1e-9;
+    if (p.stamina <= 0) { p.stamina = 0; p.sprintExhausted = true; }
+    if (p.stamina >= C.staminaMax) { p.stamina = C.staminaMax; p.sprintExhausted = false; }
+    if (!moving) {
+      var wait = Math.min(left, Math.max(0, C.staminaRestDelay - p.sprintRestT));
+      p.sprintRestT = Math.min(C.staminaRestDelay, p.sprintRestT + wait);
+      left -= wait;
+      p.stamina = Math.min(C.staminaMax, p.stamina + left * C.staminaRestRegen);
+      if (p.stamina >= C.staminaMax - epsilon) { p.stamina = C.staminaMax; p.sprintExhausted = false; }
+      return 1;
+    }
+    p.sprintRestT = 0;
+    while (left > epsilon) {
+      if (wants && !p.sprintExhausted) {
+        var run = Math.min(left, p.stamina / C.staminaDrain);
+        p.stamina -= run * C.staminaDrain;
+        sprintTime += run; left -= run;
+        if (p.stamina <= epsilon) { p.stamina = 0; p.sprintExhausted = true; }
+      } else {
+        // At full recovery, a held sprint key can take effect for the rest of this step.
+        var recover = wants && p.sprintExhausted ? Math.min(left, (C.staminaMax - p.stamina) / C.staminaWalkRegen) : left;
+        p.stamina = Math.min(C.staminaMax, p.stamina + recover * C.staminaWalkRegen);
+        left -= recover;
+        if (p.stamina >= C.staminaMax - epsilon) { p.stamina = C.staminaMax; p.sprintExhausted = false; }
+      }
+    }
+    p.sprinting = wants && !p.sprintExhausted && p.stamina > 0;
+    return 1 + (C.sprintSpeedMul - 1) * sprintTime / dt;
+  };
+
+  // Movement and stamina: shared by the authoritative world and local prediction/replay.
   World.prototype.moveStep = function (p, intent, dt) {
+    if (!p.alive || p.mount || p.dropT > 0) { this.tickStamina(p, IDLE, dt); return; }
     var mx = intent.mx || 0, my = intent.my || 0, len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
     p.inPond = this.inPond(p.x, p.y);
-    var speed = C.playerSpeed * (p.inPond ? C.pondSpeedMul : 1) * (p.downed ? 0.35 : 1) * this.speedMul(p), k = Math.min(1, C.playerAccel * dt);
+    var sprint = this.tickStamina(p, intent, dt);
+    var speed = C.playerSpeed * (p.inPond ? C.pondSpeedMul : 1) * (p.downed ? 0.35 : 1) * this.speedMul(p) * sprint, k = Math.min(1, C.playerAccel * dt);
     p.vx += (mx * speed - p.vx) * k;
     p.vy += (my * speed - p.vy) * k;
     p.x += p.vx * dt;
@@ -256,12 +297,13 @@
   World.prototype.downPlayer = function (p, src, cause) {
     p.downed = true; p.downT = DOWNED_TIME; p.hp = DOWNED_HP; p.revive = 0; p.reviver = null;
     p.vx = 0; p.vy = 0; p.scoping = false;
+    p.sprinting = false;
     if (p.mount) this.dismount(p);
     p.held = -1; p.shieldUp = false; p.regen = 0;
     var w = p.weapons[p.slot];
     if (w && w.reloading) { w.reloading = false; w.reloadT = 0; }
     if (src && src !== p) src.stats.knocks++;
-    this.explosions.push({ x: p.x, y: p.y, r: p.r * 2.6, t: 0, dur: 0.5, ring: true, color: '#ff5a4f' });
+    if (!this.remote || !p.hidden) this.explosions.push({ x: p.x, y: p.y, r: p.r * 2.6, t: 0, dur: 0.5, ring: true, color: '#ff5a4f' });
     this.emit({ type: 'downed', player: p, source: src, cause: cause });
   };
 
@@ -271,8 +313,10 @@
     p.hp = by && CLASSES[by.classId].reviveFraction ? p.maxHp * CLASSES[by.classId].reviveFraction : Math.min(p.maxHp, REVIVE_HP);
     p.healFlash = 1;
     if (by) by.stats.revives++;
-    this.explosions.push({ x: p.x, y: p.y, r: 120, t: 0, dur: 0.6, ring: true, color: '#63ff9e' });
-    this.text(p.x, p.y - p.r - 14, 'REVIVED', '#63ff9e', 22);
+    if (!this.remote || !p.hidden) {
+      this.explosions.push({ x: p.x, y: p.y, r: 120, t: 0, dur: 0.6, ring: true, color: '#63ff9e' });
+      this.text(p.x, p.y - p.r - 14, 'REVIVED', '#63ff9e', 22);
+    }
     this.emit({ type: 'revived', player: p, by: by || null });
     return true;
   };
@@ -375,7 +419,7 @@
   World.prototype.trigger = function (p, intent) {
     var w = p.weapons[p.slot], def = WEAPONS[w.id];
     if (def.kind === 'gun' || def.kind === 'launcher') {
-      if (def.semiAuto && !intent.firePressed) return;
+      if ((def.semiAuto || def.kind === 'launcher') && !intent.firePressed) return;
       if (w.reloading || w.cooldown > 0.00000001) return;
       if (w.ammo <= 0) { this.startReload(p); return; }
       if (p.automaticWeapon !== w.id) w.cooldown = Math.max(0, w.cooldown);
@@ -396,7 +440,7 @@
   World.prototype.useUtility = function (p, intent) {
     for (var i = 0; i < p.weapons.length; i++) {
       var kind = WEAPONS[p.weapons[i].id].kind;
-      if (kind === 'throwable') return this.throwGrenade(p, intent);
+      if (kind === 'throwable') return this.throwGrenade(p, Object.assign({}, intent, { charge: intent.utilityCharge === undefined ? intent.charge : intent.utilityCharge }));
       if (kind === 'medkit') return this.useMedkit(p);
     }
     this.emit({ type: 'deny', player: p, reason: 'nogear' });
@@ -436,6 +480,7 @@
 
   // One deterministic ground path + height arc for the preview, server and mirror.
   World.prototype.aimedProjectile = function (p) {
+    if (p.mount) return null; // Mounted fire belongs to the turret, regardless of the equipped weapon.
     var held = this.heldItem(p);
     if (held) return held.kind === 'throw' ? held.id : null;
     var w = p.weapons[p.slot], def = w && WEAPONS[w.id];
@@ -468,7 +513,9 @@
     var ax = aim.aimX === undefined ? aim.x : aim.aimX, ay = aim.aimY === undefined ? aim.y : aim.aimY;
     if (!Number.isFinite(ax) || !Number.isFinite(ay)) { ax = p.x + Math.cos(p.angle) * maxRange; ay = p.y + Math.sin(p.angle) * maxRange; }
     var dx = ax - p.x, dy = ay - p.y, d = Math.hypot(dx, dy), ux = d > 0.001 ? dx / d : Math.cos(p.angle), uy = d > 0.001 ? dy / d : Math.sin(p.angle);
-    var distance = U.clamp(d, launcher ? def.minRange : 70, maxRange), start = Math.min(p.r + 10, distance * 0.35);
+    // Aim chooses the direction only. Range comes from how long the trigger was held.
+    var charge = Number.isFinite(aim.charge) ? U.clamp(aim.charge, 0, C.projectileChargeTime) : 0;
+    var distance = U.lerp(launcher ? def.minRange : 70, maxRange, charge / C.projectileChargeTime), start = Math.min(p.r + 10, distance * 0.35);
     var end = this.safeGrenadeLanding(p.x + ux * distance, p.y + uy * distance, launcher ? 8 : 9, p.x, p.y);
     var sx = p.x + ux * start, sy = p.y + uy * start, travel = Math.hypot(end.x - sx, end.y - sy);
     var duration = launcher ? Math.max(0.12, travel / def.projectileSpeed) : 0.35 + travel / 900;
@@ -517,7 +564,7 @@
       ax = p.x + Math.cos(p.angle) * def.throwRange;
       ay = p.y + Math.sin(p.angle) * def.throwRange;
     }
-    var g = this.lob(p, ax, ay, def.fuse, null);
+    var g = this.lob(p, ax, ay, def.fuse, null, intent && intent.charge);
     p.grenades--;
     p.throwCd = def.cooldown;
     this.emit(Object.assign({ type: 'throw', player: p, left: p.grenades, fuse: g.fuse }, this.projectileEvent(g)));
@@ -525,8 +572,8 @@
   };
 
   // All grenades follow the preview's arc and clear walls while airborne.
-  World.prototype.lob = function (p, ax, ay, fuse, item) {
-    var solution = this.throwSolution(p, { aimX: ax, aimY: ay }, item || 'grenade');
+  World.prototype.lob = function (p, ax, ay, fuse, item, charge) {
+    var solution = this.throwSolution(p, { aimX: ax, aimY: ay, charge: charge }, item || 'grenade');
     var g = this.spawnGrenade(p, Object.assign(solution, { fuse: fuse, item: item }));
     p.recoil = 0.7;
     return g;
@@ -573,6 +620,7 @@
 
   World.prototype.healFx = function (p, healed) {
     p.healFlash = 1;
+    if (this.remote && p.hidden) return;
     this.text(p.x, p.y - p.r - 12, '+' + Math.round(healed) + ' HP', '#63ff9e', 22);
     for (var i = 0; i < 12; i++) {
       var a = i / 12 * U.TAU;
@@ -598,6 +646,8 @@
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
       if (!p.alive || p.id === ownerId || p.dropT > 0) continue;
+      // Hidden client replicas have no current position; only the server can hit them.
+      if (this.remote && p.hidden) continue;
       if (teamed && p.team === ownerTeam) continue;
       var t = U.segCircle(x1, y1, x2, y2, p.x, p.y, p.r + br);
       if (t >= 0 && t < bestT) { bestT = t; best = null; bestPlayer = p; }
@@ -836,6 +886,7 @@
   World.prototype.killPlayer = function (p, src, cause) {
     var wasDowned = p.downed, team = p.team;
     p.alive = false; p.hp = 0; p.deadT = 0; p.vx = 0; p.vy = 0; p.nearStation = null;
+    p.sprinting = false;
     p.downed = false; p.downT = 0; p.revive = 0; p.scoping = false; p.wantsRevive = false;
     if (src && src !== p) src.stats.kills++;
     this.clearItemState(p);
@@ -849,8 +900,10 @@
       p.tokens = 0;
       p.keys = 0;
     }
-    this.burst(p.x, p.y, 26, p.color, 320, 0.8, 7);
-    this.explosions.push({ x: p.x, y: p.y, r: p.r * 3.2, t: 0, dur: 0.45, ring: true, color: p.color });
+    if (!this.remote || !p.hidden) {
+      this.burst(p.x, p.y, 26, p.color, 320, 0.8, 7);
+      this.explosions.push({ x: p.x, y: p.y, r: p.r * 3.2, t: 0, dur: 0.45, ring: true, color: p.color });
+    }
     this.emit({ type: 'death', victim: p, killer: src, cause: cause, wasDowned: wasDowned });
     if (!this.remote) this.checkWipe(team, src, cause);
   };
@@ -935,10 +988,12 @@
     }
   };
   World.prototype.pickupText = function (p, what, amount, total, item) {
-    if (what === 'token') this.text(p.x, p.y - p.r - 16, '+' + amount + (amount === 1 ? ' token' : ' tokens'), '#ffd23f', 18);
-    else if (what === 'key') this.text(p.x, p.y - p.r - 16, '+1 station key', '#c9a2ff', 18);
-    else if (what === 'armor') this.text(p.x, p.y - p.r - 16, '+' + (C.armorPlate * (amount || 1)) + ' armor', '#9cc6ff', 18);
-    else if (what === 'item' && item && W.ITEMS[item]) this.text(p.x, p.y - p.r - 16, '+' + amount + ' ' + W.ITEMS[item].name, W.TIERS[W.ITEMS[item].tier].color, 18);
+    if (!this.remote || !p.hidden) {
+      if (what === 'token') this.text(p.x, p.y - p.r - 16, '+' + amount + (amount === 1 ? ' token' : ' tokens'), '#ffd23f', 18);
+      else if (what === 'key') this.text(p.x, p.y - p.r - 16, '+1 station key', '#c9a2ff', 18);
+      else if (what === 'armor') this.text(p.x, p.y - p.r - 16, '+' + (C.armorPlate * (amount || 1)) + ' armor', '#9cc6ff', 18);
+      else if (what === 'item' && item && W.ITEMS[item]) this.text(p.x, p.y - p.r - 16, '+' + amount + ' ' + W.ITEMS[item].name, W.TIERS[W.ITEMS[item].tier].color, 18);
+    }
     this.emit({ type: 'pickup', player: p, what: what, amount: amount, total: total, item: item || null });
   };
 
@@ -1029,16 +1084,20 @@
     if (!this.remote || p.classId !== classId) this.setClass(p, classId, false);
     p.stats.upgrades++;
     var color = CLASSES[classId].color;
-    this.burst(p.x, p.y, 30, color, 360, 0.9, 6);
-    this.explosions.push({ x: p.x, y: p.y, r: 150, t: 0, dur: 0.75, ring: true, color: color });
+    if (!this.remote || !p.hidden) {
+      this.burst(p.x, p.y, 30, color, 360, 0.9, 6);
+      this.explosions.push({ x: p.x, y: p.y, r: 150, t: 0, dur: 0.75, ring: true, color: color });
+      this.text(p.x, p.y - p.r - 30, CLASSES[classId].name.toUpperCase() + '!', color, 28);
+    }
     this.explosions.push({ x: station.x, y: station.y, r: 90, t: 0, dur: 0.6, ring: true, color: '#7fe9ff' });
-    this.text(p.x, p.y - p.r - 30, CLASSES[classId].name.toUpperCase() + '!', color, 28);
     this.emit({ type: 'upgrade', player: p, classId: classId, station: station, usedKey: !!usedKey });
   };
 
   World.prototype.land = function (p) {
-    this.explosions.push({ x: p.x, y: p.y, r: 140, t: 0, dur: 0.55, ring: true, color: '#ffffff' });
-    this.smoke(p.x, p.y, 14, '#efe7d2', 16, 0.8, 210);
+    if (!this.remote || !p.hidden) {
+      this.explosions.push({ x: p.x, y: p.y, r: 140, t: 0, dur: 0.55, ring: true, color: '#ffffff' });
+      this.smoke(p.x, p.y, 14, '#efe7d2', 16, 0.8, 210);
+    }
     this.emit({ type: 'land', player: p });
   };
 

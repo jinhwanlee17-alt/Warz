@@ -93,7 +93,9 @@
       $('mode-team-text').textContent = 'You’re in a ' + modeName(party.mode) + ' team' + (others.length ? ' with ' + others.join(', ') : '') + '.';
     }
     var cfg = Account.config();
-    $('mode-online-note').textContent = on ? 'Online as ' + Account.name() + ' · ' + Account.onlineCount() + ' online · matches start with ' + cfg.lobbyMin + '+ players, up to ' + cfg.lobbyMax + '.' : '';
+    $('mode-online-note').textContent = !on ? '' : 'Online as ' + Account.name() + ' · ' + Account.onlineCount() + ' online · ' +
+      (cfg.bots ? 'matches have ' + cfg.bots + ' players.'
+        : 'matches start with ' + cfg.lobbyMin + '+ players, up to ' + cfg.lobbyMax + '.');
   }
   function openModePicker() {
     renderModes();
@@ -122,14 +124,15 @@
   function lobbyLine(l) {
     if (!l) return 'Joining the queue…';
     if (l.count < l.min) return 'Waiting for ' + (l.min - l.count) + ' more player' + (l.min - l.count === 1 ? '' : 's') + ' (matches start with ' + l.min + ').';
-    if (l.countdown !== null && l.countdown !== undefined) return 'Starting in ' + l.countdown + ' s. More players can still drop in.';
+    if (l.countdown !== null && l.countdown !== undefined) return 'Starting in ' + l.countdown + ' s.';
     return 'Starting…';
   }
+  function lobbyTotal(l) { return l ? l.count + (l.bots || 0) : 0; }
   function renderLobby() {
-    var l = Lobby.current();
-    $('lobby-count').textContent = l ? String(l.count) : '–';
+    var l = Lobby.current(), total = lobbyTotal(l);
+    $('lobby-count').textContent = l ? String(total) : '–';
     $('lobby-max').textContent = '/ ' + (l ? l.max : Account.config().lobbyMax) + ' players';
-    $('lobby-fill').style.width = l ? Math.min(100, l.count / l.max * 100).toFixed(1) + '%' : '0%';
+    $('lobby-fill').style.width = l ? Math.min(100, total / l.max * 100).toFixed(1) + '%' : '0%';
     $('lobby-note').textContent = lobbyLine(l);
     $('lobby-title').textContent = l && l.count >= l.min ? 'Match starting' : 'Finding a match';
   }
@@ -176,7 +179,7 @@
         }).join('');
     var l = Lobby.current(), start = $('party-start');
     if (party.queued) {
-      $('party-status').textContent = l ? 'In queue · ' + l.count + '/' + l.max + ' players · ' + lobbyLine(l) : 'In queue…';
+      $('party-status').textContent = !l ? 'In queue…' : 'In queue · ' + lobbyTotal(l) + '/' + l.max + ' players · ' + lobbyLine(l);
       start.textContent = leader ? 'Leave queue' : 'In queue…';
     } else {
       $('party-status').textContent = leader ? '' : 'Waiting for ' + party.leader + ' to find a match.';

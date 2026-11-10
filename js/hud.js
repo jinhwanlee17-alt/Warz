@@ -26,7 +26,7 @@
   function init() {
     ['hud', 'hud-tokens', 'hud-token-count', 'hud-token-pips', 'hud-key-count', 'hud-upgrade-ready', 'hud-storm', 'hud-storm-text',
       'hud-lobby', 'hud-feed', 'minimap', 'hud-class-icon', 'hud-class-name', 'hud-class-tier', 'hud-hp-fill', 'hud-hp-text',
-      'hud-armor-fill', 'hud-armor-text', 'hud-prompt', 'hud-ammo', 'hud-ammo-max', 'hud-ammo-label', 'hud-reload',
+      'hud-armor-fill', 'hud-armor-text', 'hud-stamina', 'hud-stamina-fill', 'hud-stamina-text', 'hud-prompt', 'hud-ammo', 'hud-ammo-max', 'hud-ammo-label', 'hud-reload',
       'hud-reload-fill', 'hud-slots', 'hud-banner', 'vignette', 'hud-token-icon', 'hud-key-icon', 'hud-keys', 'hud-team', 'hud-spectate',
       'hud-buffs', 'flash'].forEach(function (id) {
       el[id] = $(id);
@@ -41,7 +41,7 @@
     var k = function (a) { return '<kbd>' + esc(Controls.primary(a)) + '</kbd>'; };
     el['hud-keys'].innerHTML =
       '<span>' + k('interact') + ' pick up / station / revive / mount</span><span>' + k('weapon1') + '…' + k('item3') + ' hotbar · click to use</span>' +
-      '<span>' + k('drop') + ' drop held item</span><span>' + k('inventory') + ' inventory</span>' +
+      '<span>' + k('drop') + ' drop held item</span><span>' + k('inventory') + ' inventory</span><span>' + k('sprint') + ' sprint</span>' +
       '<span>' + k('map') + ' map · ' + k('reload') + ' reload</span>' +
       '<span>' + k('weapon1') + k('weapon2') + ' / wheel switch weapons</span><span><kbd>Esc</kbd> menu</span>';
     lastWeaponsKey = '';
@@ -196,6 +196,11 @@
     set('hpt', el['hud-hp-text'], 'text', p.downed ? 'DOWNED · ' + U.formatTime(p.downT) + ' to bleed out' : Math.ceil(p.hp) + ' / ' + p.maxHp + ' HP');
     set('arw', el['hud-armor-fill'], 'width', (p.armor > 0 ? Math.min(100, p.armor) : 0) + '%');
     set('art', el['hud-armor-text'], 'text', Math.ceil(p.armor) + ' Armor');
+    var stamina = U.clamp(Number.isFinite(p.stamina) ? p.stamina : 100, 0, 100);
+    set('stw', el['hud-stamina-fill'], 'width', stamina.toFixed(2) + '%');
+    set('stt', el['hud-stamina-text'], 'text', Math.round(stamina) + ' / 100 Stamina' + (p.sprintExhausted ? ' · Recovering' : ''));
+    set('stc', el['hud-stamina-fill'], 'class', p.sprintExhausted ? 'exhausted' : '');
+    set('sttitle', el['hud-stamina'], 'title', p.sprintExhausted ? 'Exhausted: refill to 100 stamina before sprinting again.' : 'Hold ' + Controls.primary('sprint') + ' while moving to sprint.');
     updateTeam(world, p);
 
     var wkey = p.weapons.map(function (w) { return w.id; }).join(',') + '|' +
@@ -224,7 +229,7 @@
     else if (cdef.kind === 'ability') { big = p.commandCd > 0 ? Math.ceil(p.commandCd) + 's' : 'Ready'; max = ''; label = 'Aim, then click · radar + team boost + airstrike'; }
     else { big = String(cur.ammo); max = '/ ' + cdef.mag; label = cdef.zoom ? (p.scoping ? 'scoped' : 'hold ' + Controls.primary('scope') + ' to scope') : '∞ ammo'; }
     if (!heldIt && cdef.windup && p.minigunSpin > 0 && p.minigunSpin < cdef.windup) label = 'Spinning up · ' + Math.round(p.minigunSpin / cdef.windup * 100) + '%';
-    if (world.aimedProjectile(p)) label = 'Hold to aim · release to throw';
+    if (world.aimedProjectile(p)) label = 'Hold 0.75 s for range · release to throw';
     set('ammo', el['hud-ammo'], 'text', big);
     set('ammomax', el['hud-ammo-max'], 'text', max);
     set('ammolabel', el['hud-ammo-label'], 'text', label);

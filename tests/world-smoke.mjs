@@ -42,8 +42,8 @@ function range(extra) {
 }
 function crate(id, x, y) { return { id, x, y, size: C.crateSize, hp: C.crateHp, maxHp: C.crateHp, alive: true, shake: 0 }; }
 function steps(world, seconds) { for (let i = 0; i < Math.round(seconds / DT); i++) world.update(DT); }
-function holdFire(player, aimX, aimY) {
-  player.controller = () => ({ mx: 0, my: 0, aimX, aimY, fire: true, firePressed: true });
+function holdFire(player, aimX, aimY, charge) {
+  player.controller = () => ({ mx: 0, my: 0, aimX, aimY, fire: true, firePressed: true, charge });
 }
 function idle(player, aimX, aimY) { player.controller = () => ({ mx: 0, my: 0, aimX, aimY, fire: false, firePressed: false }); }
 function fireOnce(world, player, aimX, aimY) {
@@ -171,13 +171,13 @@ gunTest('shotgunner', 0, 520, far, 'shotgun at long range: one pellet hit per bl
   const p = world.addPlayer({ x: 3200, y: 3200, classId: 'grenadier' });
   t.equal(p.grenades, 10, 'grenadier starts with 10 grenades');
   steps(world, 0.2);
-  holdFire(p, 3600, 3200);
+  holdFire(p, 3600, 3200, (400 - WEAPONS.launcher.minRange) / (WEAPONS.launcher.range - WEAPONS.launcher.minRange) * C.projectileChargeTime);
   world.update(DT);
   idle(p, 3600, 3200);
   steps(world, 0.6); // 400 units at 950/s: the shell has landed by now
   const shell = world.grenades.find((g) => g.shell);
   t.check(!!shell, 'launcher shell lands instead of exploding on arrival');
-  t.near(shell ? shell.x : 0, 3600, 12, 'shell lands at the cursor');
+  t.near(shell ? shell.x : 0, 3600, 12, 'shell lands at its charged range');
   t.equal(events(world, 'explosion').length, 0, 'no explosion yet during the fuse');
   steps(world, 0.6);
   const boom = events(world, 'explosion');
@@ -185,13 +185,13 @@ gunTest('shotgunner', 0, 520, far, 'shotgun at long range: one pellet hit per bl
   t.check(boom[0] && boom[0].cause === 'launcher' && boom[0].power === WEAPONS.launcher.explosion.maxDamage, 'launcher blast at 37.5 power');
   t.equal(world.grenades.filter((g) => g.shell).length, 0, 'shell is gone after bursting');
   t.equal(p.grenades, 10, 'the launcher never uses hand grenades');
-  p.controller = () => ({ mx: 0, my: 0, aimX: 3500, aimY: 3200, utility: true });
+  p.controller = () => ({ mx: 0, my: 0, aimX: 3500, aimY: 3200, utility: true, utilityCharge: (300 - 70) / (WEAPONS.grenade.throwRange - 70) * C.projectileChargeTime });
   world.update(DT);
   idle(p, 3500, 3200);
   t.equal(p.grenades, 9, 'gear key throws a hand grenade');
   const g = world.grenades.find((x) => x.kind === 'hand' && !x.shell);
   steps(world, 1.5);
-  t.near(Math.hypot(g.x - 3200, g.y - 3200), 300, 20, 'hand grenade lands at the cursor');
+  t.near(Math.hypot(g.x - 3200, g.y - 3200), 300, 20, 'hand grenade lands at its charged range');
   steps(world, 0.2);
   t.check(!world.grenades.includes(g), 'hand grenade explodes after its fuse');
 }
@@ -200,7 +200,7 @@ gunTest('shotgunner', 0, 520, far, 'shotgun at long range: one pellet hit per bl
   const world = new World({ map: range({ crates: [crate(0, 3400, 3200)] }), storm: false });
   const p = world.addPlayer({ x: 3200, y: 3200, classId: 'grenadier' });
   steps(world, 0.2);
-  holdFire(p, 3700, 3200);
+  holdFire(p, 3700, 3200, (500 - WEAPONS.launcher.minRange) / (WEAPONS.launcher.range - WEAPONS.launcher.minRange) * C.projectileChargeTime);
   world.update(DT);
   idle(p, 3700, 3200);
   steps(world, 0.35);
@@ -352,6 +352,76 @@ gunTest('shotgunner', 0, 520, far, 'shotgun at long range: one pellet hit per bl
 }
 
 // ---------------------------------------------------------------- remote mirror: cosmetic only, prediction matches the server
+{
+  const station = { id: 0, x: 4200, y: 4300, cooldown: 0 };
+  const world = new World({ map: range({ stations: [station] }), remote: true, storm: false });
+  const unknown = world.addPlayer({ x: 3200, y: 3200 });
+  unknown.hidden = true;
+  world.downPlayer(unknown, null, 'ar');
+  t.check(unknown.downed && events(world, 'downed').length === 1 && world.explosions.length === 0,
+    'an unseen player can be knocked down without drawing a ring at their placeholder');
+  world.revivePlayer(unknown, null);
+  t.check(!unknown.downed && unknown.hp === 30 && events(world, 'revived').length === 1,
+    'unseen revival still updates health and emits its gameplay event');
+  t.check(world.explosions.length === 0 && world.texts.length === 0,
+    'unseen revival produces no ring or text at an unknown position');
+  world.healFx(unknown, 10);
+  world.land(unknown);
+  t.check(unknown.healFlash === 1 && events(world, 'land').length === 1 && world.particles.length === 0 && world.texts.length === 0 && world.explosions.length === 0,
+    'unseen healing and landing retain state and events without placeholder effects');
+  world.applyUpgrade(unknown, station, 'sniper', false);
+  t.check(unknown.classId === 'sniper' && station.cooldown === C.stationCooldown && events(world, 'upgrade').length === 1,
+    'an unseen upgrade still updates class, station cooldown and gameplay events');
+  t.check(world.particles.length === 0 && world.texts.length === 0 && world.explosions.length === 1 && world.explosions[0].x === station.x && world.explosions[0].y === station.y,
+    'unseen upgrade effects remain at the known station instead of the placeholder player');
+  const pickup = world.spawnPickupAt({ id: 999, type: 'token', x: 4100, y: 4400, amount: 1 });
+  world.removePickup(pickup.id, unknown, 'token', 1, 1);
+  t.check(!pickup.alive && events(world, 'pickup').length === 1 && world.texts.length === 0,
+    'an unseen collector still removes the pickup and emits its event without floating placeholder text');
+  t.check(world.particles.length === 8 && world.particles.every(p => p.x === pickup.x && p.y === pickup.y),
+    'pickup particles retain the authoritative pickup location');
+  world.killPlayer(unknown, null, 'ar');
+  t.check(!unknown.alive && unknown.hp === 0 && events(world, 'death').length === 1,
+    'an unseen death still updates the roster and emits the elimination');
+  t.check(world.particles.length === 8 && world.explosions.length === 1,
+    'an unseen death creates no extra burst or ring at the placeholder');
+  const known = world.addPlayer({ x: 3600, y: 3200 });
+  world.land(known);
+  world.healFx(known, 10);
+  t.check(world.explosions.length === 2 && world.particles.length > 8 && world.texts.length === 1,
+    'visible players keep their landing and healing graphics');
+}
+{
+  const world = new World({ map: range(), remote: true, storm: false });
+  const shooter = world.addPlayer({ x: 3200, y: 3200 });
+  const unknown = world.addPlayer({ x: 3300, y: 3200 });
+  const stale = world.addPlayer({ x: 3400, y: 3200 });
+  const visible = world.addPlayer({ x: 3700, y: 3200 });
+  // Unknown roster entries and previously seen players outside snapshot range have no current body here.
+  unknown.hidden = true; unknown.snaps = [];
+  stale.hidden = true; stale.snaps = [{ t: 0, x: stale.x, y: stale.y, a: 0 }];
+  const hit = world.sweep(3200, 3200, 3800, 3200, WEAPONS.ar.bulletRadius, shooter.id, shooter.team);
+  t.check(hit && hit.player === visible, 'cosmetic shots ignore unknown and stale hidden replicas and reach the visible enemy behind them');
+  world.spawnShot(shooter, WEAPONS.ar, [0]);
+  const bullet = world.bullets[0];
+  t.check(world.advanceBullet(bullet, 250) && bullet.x > stale.x + stale.r, 'a mirrored bullet travels through hidden replica positions instead of disappearing there');
+  t.check(!world.advanceBullet(bullet, 500), 'the same cosmetic bullet still collides with a visible replicated body');
+  t.equal(visible.hp, 100, 'that cosmetic collision still leaves damage to the authoritative server');
+  unknown.hidden = false;
+  unknown.snaps = [{ t: 1, x: unknown.x, y: unknown.y, a: 0 }];
+  const restored = world.sweep(3200, 3200, 3800, 3200, WEAPONS.ar.bulletRadius, shooter.id, shooter.team);
+  t.check(restored && restored.player === unknown, 'a replica starts blocking cosmetic shots once its authoritative position becomes visible');
+}
+{
+  const world = new World({ map: range(), storm: false });
+  const shooter = world.addPlayer({ x: 3200, y: 3200 });
+  const target = world.addPlayer({ x: 3400, y: 3200 });
+  target.hidden = true;
+  target.fx.invisible = 10;
+  fireOnce(world, shooter, target.x, target.y);
+  t.equal(target.hp, 90, 'authoritative bullets still damage hidden and invisible players at their real positions');
+  t.check(target.hidden && target.fx.invisible > 0, 'the hit does not rely on removing hidden or invisibility state');
+}
 {
   const world = new World({ map: range({ crates: [crate(0, 3400, 3200)] }), remote: true });
   const p = world.addPlayer({ id: 7, x: 3200, y: 3200, name: 'Remote' });

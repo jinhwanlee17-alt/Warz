@@ -29,7 +29,9 @@ function use(world, p, id, ax, ay) {
   ax = ax === undefined ? p.x + 100 : ax; ay = ay === undefined ? p.y : ay;
   hold(world, p, id, ax, ay);
   p.itemCd = 0; // skip the short anti-double-click cooldown between uses (tested on its own below)
-  once(world, p, { mx: 0, my: 0, aimX: ax, aimY: ay, firePressed: true });
+  // These item-effect scenarios keep their chosen landing positions by charging to that distance.
+  const charge = ITEMS[id].kind === 'throw' ? Math.max(0, Math.min(1, (Math.hypot(ax - p.x, ay - p.y) - 70) / (WEAPONS.grenade.throwRange - 70))) * C.projectileChargeTime : 0;
+  once(world, p, { mx: 0, my: 0, aimX: ax, aimY: ay, firePressed: true, charge });
 }
 function fireOnce(world, p, ax, ay) {
   p.controller = () => ({ mx: 0, my: 0, aimX: ax, aimY: ay, fire: true, firePressed: true });

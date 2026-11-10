@@ -94,6 +94,14 @@ t.check(Rules.shotgunDamage(0, WEAPONS.shotgun2) === 200 && Rules.shotgunDamage(
   w.trigger(p, { fire: true, firePressed: true }); t.equal(p.weapons[1].ammo, 4, 'a deliberate revolver click uses one of five rounds');
 }
 {
+  const w = arena(), p = player(w, 'pyromancer', 4000, 4000);
+  const reach = player(w, 'soldier', 4350, 4000), outside = player(w, 'soldier', 4425, 4000);
+  p.angle = 0;
+  w.fireFlame(p, WEAPONS.flamethrower);
+  t.equal(reach.hp, 90, 'flamethrower now reaches an enemy 350 units away with its unchanged first-tick damage');
+  t.equal(outside.hp, 100, 'flamethrower still has a finite reach beyond its new 375-unit range');
+}
+{
   const w = arena(), p = player(w, 'juggernaut');
   t.check(p.maxHp === 150 && w.speedMul(p) === .75, 'juggernaut has 150 HP and 25% slower movement');
   p.controller = () => ({ mx: 0, my: 0, aimX: p.x + 1000, aimY: p.y, fire: true });
@@ -105,10 +113,11 @@ t.check(Rules.shotgunDamage(0, WEAPONS.shotgun2) === 200 && Rules.shotgunDamage(
 }
 {
   const w = arena(true), p = player(w, 'commander', 4000, 4000, 1), mate = player(w, 'juggernaut', 4100, 4000, 1);
-  const enemy = player(w, 'soldier', 4000, 4100, 2), out = player(w, 'soldier', 4700, 4000, 3);
+  const enemy = player(w, 'soldier', 4000, 4100, 2), out = player(w, 'soldier', 4300, 4000, 3);
   for (const o of [p,mate,enemy,out]) { o.hp = o.maxHp = 1000; }
   t.check(!w.useCommandRadar(p, {}) && p.commandCd === 0, 'invalid strike target does not consume commander cooldown');
   t.check(w.useCommandRadar(p, { aimX: 4000, aimY: 4000 }), 'command radar activates at the cursor');
+  t.check(w.strikes[0].radius === 225 && w.strikes[0].damage === 250, 'commander airstrike has half the original radius and 250 damage');
   t.check(p.commandCd === 45 && p.fx.radar === 30 && p.commandBuff === 15 && mate.commandBuff === 15, 'radar, team buff and cooldown durations are exact');
   t.check(enemy.commandBuff === 0 && out.commandBuff === 0, 'rally does not buff enemies');
   t.near(w.speedMul(mate), .75 * 1.25, 1e-9, 'team speed buff multiplies juggernaut class speed');
@@ -116,8 +125,8 @@ t.check(Rules.shotgunDamage(0, WEAPONS.shotgun2) === 200 && Rules.shotgunDamage(
   t.check(!w.useCommandRadar(p, { aimX: 7000, aimY: 7000 }) && w.strikes.length === 1, 'cooldown prevents duplicate airstrikes');
   run(w, 4.9); t.equal(p.hp, 1000, 'airstrike does not arrive early');
   run(w, .15);
-  t.check(p.hp === 500 && mate.hp === 500 && enemy.hp === 500, 'airstrike deals exactly 500 to self, teammate and enemy');
-  t.equal(out.hp, 1000, 'players outside the 450 radius are safe');
+  t.check(p.hp === 750 && mate.hp === 750 && enemy.hp === 750, 'airstrike deals exactly 250 to self, teammate and enemy');
+  t.equal(out.hp, 1000, 'a player inside the old radius but outside the new 225 radius is safe');
   t.equal(w.strikes.length, 0, 'resolved airstrike leaves no pending strike');
   run(w, 10.1); t.check(p.commandBuff === 0 && mate.commandBuff === 0, 'team rally expires after fifteen seconds');
   t.near(w.damageMul(mate), 1, 1e-9, 'damage returns to normal after the rally');
@@ -125,7 +134,7 @@ t.check(Rules.shotgunDamage(0, WEAPONS.shotgun2) === 200 && Rules.shotgunDamage(
 {
   const w = arena(false, true), p = player(w, 'commander'), e = player(w, 'soldier', 4050, 4000);
   t.check(!w.useCommandRadar(p, { aimX: e.x, aimY: e.y }), 'remote mirror cannot activate authoritative commander abilities');
-  w.addStrike({ kind: 'airstrike', x: 4000, y: 4000, t: .1, owner: p.id, team: p.team, radius: 450, damage: 500 });
+  w.addStrike({ kind: 'airstrike', x: 4000, y: 4000, t: .1, owner: p.id, team: p.team, radius: 225, damage: 250 });
   run(w, .2); t.equal(e.hp, 100, 'remote airstrikes wait for server damage');
 }
 t.done();

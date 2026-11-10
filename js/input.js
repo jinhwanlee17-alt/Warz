@@ -15,24 +15,27 @@
     this.keys = {};
     this.pressed = {};
     this.released = {};
+    this.heldAt = {};
+    this.releasedAfter = {};
     this.mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     this.wheel = 0;
     this.capture = false;
 
     window.addEventListener('keydown', function (e) {
       if (typing(e)) return;
-      if (!e.repeat) self.pressed[e.code] = true;
+      if (!self.keys[e.code]) { self.pressed[e.code] = true; self.heldAt[e.code] = performance.now(); }
       self.keys[e.code] = true;
       if (self.capture && GAME_KEYS[e.code]) e.preventDefault();
     });
-    window.addEventListener('keyup', function (e) { if (self.keys[e.code]) self.released[e.code] = true; self.keys[e.code] = false; });
+    window.addEventListener('keyup', function (e) { self.releaseKey(e.code); });
     window.addEventListener('blur', function () { self.release(); });
     canvas.addEventListener('mousedown', function (e) {
       var code = 'Mouse' + (e.button + 1);
+      if (!self.keys[code]) self.heldAt[code] = performance.now();
       self.keys[code] = true;
       self.pressed[code] = true;
     });
-    window.addEventListener('mouseup', function (e) { var code = 'Mouse' + (e.button + 1); if (self.keys[code]) self.released[code] = true; self.keys[code] = false; });
+    window.addEventListener('mouseup', function (e) { self.releaseKey('Mouse' + (e.button + 1)); });
     window.addEventListener('mousemove', function (e) { self.mouse.x = e.clientX; self.mouse.y = e.clientY; });
     canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     canvas.addEventListener('wheel', function (e) {
@@ -45,8 +48,20 @@
   Input.prototype.down = function (code) { return !!(code && this.keys[code]); };
   Input.prototype.hit = function (code) { return !!(code && this.pressed[code]); };
   Input.prototype.lift = function (code) { return !!(code && this.released[code]); };
-  Input.prototype.endFrame = function () { this.pressed = {}; this.released = {}; this.wheel = 0; };
-  Input.prototype.release = function () { this.keys = {}; this.pressed = {}; this.released = {}; };
+  Input.prototype.releaseKey = function (code) {
+    if (this.keys[code]) {
+      this.released[code] = true;
+      this.releasedAfter[code] = Math.max(0, (performance.now() - this.heldAt[code]) / 1000);
+    }
+    this.keys[code] = false;
+    delete this.heldAt[code];
+  };
+  Input.prototype.heldSeconds = function (code) {
+    if (!code) return 0;
+    return this.keys[code] ? Math.max(0, (performance.now() - this.heldAt[code]) / 1000) : this.releasedAfter[code] || 0;
+  };
+  Input.prototype.endFrame = function () { this.pressed = {}; this.released = {}; this.releasedAfter = {}; this.wheel = 0; };
+  Input.prototype.release = function () { this.keys = {}; this.pressed = {}; this.released = {}; this.heldAt = {}; this.releasedAfter = {}; };
 
   W.Input = Input;
 }());

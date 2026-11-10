@@ -1024,15 +1024,10 @@
   Renderer.prototype.drawStrikes = function (ctx, world, v, t) {
     for (var i = 0; i < world.strikes.length; i++) {
       var st = world.strikes[i];
+      if (st.kind === 'airstrike') { this.drawAirstrike(ctx, st, v); continue; }
       if (!visible(v, st.x, st.y, Math.max(400, st.radius || 0))) continue;
       var k = 1 - U.clamp(st.t / (st.dur || 1), 0, 1); // 0 when called, 1 when it lands
-      if (st.kind === 'airstrike') {
-        ctx.fillStyle = 'rgba(255,45,45,0.15)'; ctx.beginPath(); ctx.arc(st.x, st.y, st.radius, 0, TAU); ctx.fill();
-        ctx.strokeStyle = '#ff5959'; ctx.lineWidth = 6; ctx.setLineDash([22, 14]); ctx.beginPath(); ctx.arc(st.x, st.y, st.radius, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff0dc'; ctx.strokeStyle = '#852323'; ctx.lineWidth = 7;
-        ctx.font = 'bold 190px ' + FONT; ctx.strokeText('!', st.x, st.y - 25); ctx.fillText('!', st.x, st.y - 25);
-        ctx.font = 'bold 30px ' + FONT; ctx.fillText('AIRSTRIKE · ' + Math.ceil(st.t) + 's', st.x, st.y + 110);
-      } else if (st.kind === 'lightning') {
+      if (st.kind === 'lightning') {
         var R = 40 + 20 * Math.sin(t * 12);
         ctx.strokeStyle = 'rgba(255,246,168,' + (0.5 + 0.5 * k).toFixed(2) + ')'; ctx.lineWidth = 4;
         ctx.beginPath(); ctx.arc(st.x, st.y, R, 0, TAU); ctx.stroke();
@@ -1051,6 +1046,75 @@
         }
       }
     }
+  };
+
+  // The flyover and falling bomb are purely visual. The server's strike-hit event
+  // still decides when the explosion appears, including after a delayed packet.
+  Renderer.prototype.drawAirstrike = function (ctx, st, v) {
+    var remaining = Math.max(0, st.t), radius = st.radius || 450;
+    if (visible(v, st.x, st.y, radius + 20)) {
+      ctx.fillStyle = 'rgba(255,45,45,0.15)'; ctx.beginPath(); ctx.arc(st.x, st.y, radius, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#ff5959'; ctx.lineWidth = 6; ctx.setLineDash([22, 14]); ctx.beginPath(); ctx.arc(st.x, st.y, radius, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff0dc'; ctx.strokeStyle = '#852323'; ctx.lineWidth = 7;
+      ctx.font = 'bold 190px ' + FONT; ctx.strokeText('!', st.x, st.y - 25); ctx.fillText('!', st.x, st.y - 25);
+      ctx.font = 'bold 30px ' + FONT; ctx.fillText('AIRSTRIKE · ' + Math.ceil(remaining) + 's', st.x, st.y + 110);
+    }
+    if (remaining > 2.8) return;
+    var planeX = st.x + (1.1 - st.t) * 900, planeY = st.y - 370;
+    if (visible(v, planeX, planeY, 320)) this.drawStrikeAircraft(ctx, planeX, planeY);
+    if (remaining <= 1.1) {
+      var fall = U.clamp(1 - remaining / 1.1, 0, 1), bombY = st.y - 370 * (1 - fall * fall);
+      if (visible(v, st.x, bombY, 90)) this.drawStrikeBomb(ctx, st.x, bombY, 0.55 + 0.45 * fall);
+    }
+  };
+
+  Renderer.prototype.drawStrikeAircraft = function (ctx, x, y) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.strokeStyle = 'rgba(242,250,255,0.35)'; ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(-290, -45); ctx.lineTo(-75, -45); ctx.moveTo(-290, 45); ctx.lineTo(-75, 45); ctx.stroke();
+    ctx.fillStyle = '#718d87'; ctx.strokeStyle = '#243b3c'; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.moveTo(135, 0); ctx.lineTo(72, -18); ctx.lineTo(16, -21);
+    ctx.lineTo(-18, -102); ctx.lineTo(-51, -102); ctx.lineTo(-36, -18); ctx.lineTo(-89, -15);
+    ctx.lineTo(-111, -52); ctx.lineTo(-132, -52); ctx.lineTo(-117, 0); ctx.lineTo(-132, 52);
+    ctx.lineTo(-111, 52); ctx.lineTo(-89, 15); ctx.lineTo(-36, 18); ctx.lineTo(-51, 102);
+    ctx.lineTo(-18, 102); ctx.lineTo(16, 21); ctx.lineTo(72, 18); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b9c9be'; ctx.beginPath(); ctx.moveTo(127, 0); ctx.lineTo(52, -12); ctx.lineTo(-86, -8); ctx.lineTo(-86, 8); ctx.lineTo(52, 12); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#64cbeb'; ctx.strokeStyle = '#243b3c'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.ellipse(57, 0, 27, 11, 0, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#f5cd55'; ctx.fillRect(-36, -85, 22, 9); ctx.fillRect(-36, 76, 22, 9);
+    ctx.restore();
+  };
+
+  Renderer.prototype.drawStrikeBomb = function (ctx, x, y, scale) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale);
+    ctx.strokeStyle = 'rgba(255,239,190,0.65)'; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(0, -105); ctx.lineTo(0, -40); ctx.stroke();
+    ctx.fillStyle = '#586c66'; ctx.strokeStyle = '#1d3034'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(-22, -16); ctx.lineTo(-31, -46); ctx.lineTo(-8, -32);
+    ctx.lineTo(8, -32); ctx.lineTo(31, -46); ctx.lineTo(22, -16); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, 2, 20, 37, 0, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#f5cd55'; ctx.fillRect(-17, 8, 34, 10);
+    ctx.strokeStyle = '#d4e0d3'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-8, -16); ctx.lineTo(-8, 1); ctx.stroke();
+    ctx.restore();
+  };
+
+  Renderer.prototype.drawAirstrikeImpact = function (ctx, e, k) {
+    var grow = U.easeOut(Math.min(1, k * 3)), fade = 1 - k, spread = e.r * 0.48 * grow;
+    ctx.save(); ctx.globalAlpha = fade * 0.85;
+    for (var i = 0; i < 7; i++) {
+      var a = i / 7 * TAU, x = e.x + Math.cos(a) * spread, y = e.y + Math.sin(a) * spread * 0.65 - k * 85;
+      var r = e.r * (0.13 + 0.12 * k) * (0.65 + 0.35 * grow);
+      ctx.fillStyle = k < 0.3 ? '#e46b2e' : '#5e6066'; ctx.strokeStyle = k < 0.3 ? '#9a3e29' : '#434951'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); ctx.stroke();
+      if (k < 0.65) {
+        ctx.globalAlpha = fade * (1 - k / 0.65);
+        ctx.fillStyle = '#ffb54a'; ctx.beginPath(); ctx.arc(x - r * 0.12, y - r * 0.18, r * 0.65, 0, TAU); ctx.fill();
+        ctx.globalAlpha = fade * 0.85;
+      }
+    }
+    ctx.globalAlpha = Math.max(0, 1 - k * 2.2); ctx.fillStyle = '#fff1ac';
+    ctx.beginPath(); ctx.arc(e.x, e.y - k * 60, e.r * 0.28 * (0.7 + grow * 0.3), 0, TAU); ctx.fill();
+    ctx.restore();
   };
 
   Renderer.prototype.drawTrajectory = function (ctx, world, solution) {
@@ -1185,6 +1249,7 @@
       ctx.strokeStyle = 'rgba(255,255,255,' + (0.65 * (1 - k)).toFixed(2) + ')';
       ctx.lineWidth = 5;
       ctx.beginPath(); ctx.arc(e.x, e.y, e.r * U.easeOut(k), 0, TAU); ctx.stroke();
+      if (e.kind === 'airstrike') this.drawAirstrikeImpact(ctx, e, k);
     }
   };
 

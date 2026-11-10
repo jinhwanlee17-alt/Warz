@@ -1,13 +1,15 @@
 // One running match: the authoritative World at 20 Hz, player inputs, interest-managed snapshots,
 // event replication, placements, spectating, reconnection and the end-of-match sequence.
 // Players connect with a per-slot ticket; a `conn` is { open, sendText(text), sendJson(obj), close(code, reason), bufferedAmount }.
+// Team members marked `bot` have no connection: a BotDirector plays them through the same World as everyone else.
 import { newToken } from './auth.mjs';
+import { BotDirector, makeNames } from './bots/index.mjs';
 
 export const TICK = 1 / 20;
 const VIEW = 3600;          // includes the wider level-two sniper scope
 const AFK_KILL = 25;        // seconds a disconnected body stays before it is removed
 const END_LINGER = 12;      // seconds the result screen stays before teardown
-const EMPTY_TIMEOUT = 10;   // seconds without any connected player before an early end
+const EMPTY_TIMEOUT = 10;   // seconds without any connected player before an early end (see checkEnd for who is still waited for)
 const INPUT_RATE = 60;      // inputs per second per player
 export const COLORS = [
   ['#2f9bff', '#1c6cbd'], ['#f14e54', '#b23a3f'], ['#00b06d', '#007d4e'], ['#be7ff5', '#8a59b8'], ['#ffb43a', '#c4861d'],
@@ -21,10 +23,23 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 const num = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 
-function idleInput() { return { seq: 0, mx: 0, my: 0, a: 0, d: 400, f: false, fp: false, sc: false, r: false, sl: null, cy: 0, sw: false, u: false, iv: false, ht: null, ip: false, dp: false }; }
+function idleInput() { return { seq: 0, mx: 0, my: 0, sp: false, a: 0, d: 400, f: false, fp: false, ch: 0, sc: false, r: false, sl: null, cy: 0, sw: false, u: false, uch: 0, iv: false, ht: null, ip: false, dp: false }; }
+
+// Held controls use the newest packet; button presses must survive when older packets are superseded.
+function carryPresses(older, newer) {
+  if (older.fp && !newer.fp) newer.ch = older.ch;
+  if (older.u && !newer.u) newer.uch = older.uch;
+  newer.fp = newer.fp || older.fp; newer.r = newer.r || older.r; newer.sw = newer.sw || older.sw; newer.u = newer.u || older.u; newer.ip = newer.ip || older.ip; newer.dp = newer.dp || older.dp;
+  if (newer.sl === null) newer.sl = older.sl;
+  if (newer.ht === null) newer.ht = older.ht;
+  newer.cy += older.cy;
+}
 
 export class Match {
-  constructor({ W, id, mode, teamSize, teams, seed, onEnd, log = console }) {
+  // `clock: false` leaves the 20 Hz timer off so tests can call tick() themselves; `emptyTimeout` is how long
+  // a match with no connected player keeps running (bots alone do not keep it alive); `botSkill` (0..1) is how
+  // good the bots in it are (0.5: the usual mix).
+  constructor({ W, id, mode, teamSize, teams, seed, onEnd, log = console, clock = true, emptyTimeout = EMPTY_TIMEOUT, botSkill = 0.5 }) {
     this.W = W;
     this.id = String(id);
     this.mode = mode;
@@ -32,6 +47,7 @@ export class Match {
     this.seed = seed >>> 0;
     this.onEnd = onEnd;
     this.log = log;
+    this.emptyTimeout = emptyTimeout;
     this.map = W.MapGen.generate(this.seed);
     this.world = new W.World({ map: this.map, teams: teamSize > 1 });
     this.classIndex = W.CLASS_ORDER;
@@ -55,32 +71,78 @@ export class Match {
     this.acc = 0;
     this.started = Date.now();
 
+    // Bots get names nobody in the lobby is using.
+    const botSeats = [];
+    teams.forEach((team) => team.members.forEach((m) => { if (m.bot) botSeats.push(m); }));
+    if (botSeats.length) {
+      const taken = [];
+      teams.forEach((team) => team.members.forEach((m) => { if (!m.bot && m.name) taken.push(m.name); }));
+      const names = makeNames(W.U.rng((this.seed ^ 0x2545f491) >>> 0), botSeats.length, taken);
+      botSeats.forEach((m, i) => { if (!m.name) m.name = names[i]; });
+      this.bots = new BotDirector({ W, world: this.world, seed: this.seed, teamSize, log, level: botSkill });
+    } else this.bots = null;
+
     const drops = W.U.rng(this.seed ^ 0x1234567).shuffle(this.map.drops.slice());
+    const anchors = this.spawnAnchors(teams, drops);
     teams.forEach((team, ti) => {
-      const drop = drops[ti % drops.length], color = COLORS[ti % COLORS.length];
+      const drop = drops[ti % drops.length], color = COLORS[ti % COLORS.length], at = anchors[ti];
       const info = { index: ti + 1, alive: true, placement: null, players: [] };
       this.teamInfo.push(info);
       team.members.forEach((m, mi) => {
         const a = (mi / Math.max(1, team.members.length)) * Math.PI * 2, off = team.members.length > 1 ? 36 : 0;
         const p = this.world.addPlayer({
-          name: m.name, x: drop.x + Math.cos(a) * off, y: drop.y + Math.sin(a) * off,
-          color: color[0], outline: color[1], drop: true, team: ti + 1, angle: -Math.PI / 2
+          name: m.name, x: at.x + Math.cos(a) * off, y: at.y + Math.sin(a) * off,
+          color: color[0], outline: color[1], drop: true, team: ti + 1, angle: -Math.PI / 2, bot: !!m.bot
         });
         p.user = m.userKey || null;
         p.dropLabel = drop.label;
         p.teamInfo = info;
         p.net = { conn: null, inputs: [], held: idleInput(), ack: 0, afk: 0, specId: 0, placement: null, left: false, killerId: 0, rate: { at: 0, n: 0 } };
-        p.controller = () => this.pullInput(p);
+        if (m.bot) this.bots.add(p);
+        else p.controller = () => this.pullInput(p);
         info.players.push(p);
         this.players.push(p);
         this.byId.set(p.id, p);
         if (p.user) this.byUser.set(p.user, p);
-        const ticket = newToken(16);
-        this.slots.push({ index: this.slots.length, player: p, ticket, userKey: p.user, name: p.name });
-        this.byTicket.set(ticket, p);
+        // Every seat keeps its place in `slots` (the hub lines tickets up with its member list); only humans can claim one.
+        const ticket = m.bot ? null : newToken(16);
+        this.slots.push({ index: this.slots.length, player: p, ticket, userKey: p.user, name: p.name, bot: !!m.bot });
+        if (ticket) this.byTicket.set(ticket, p);
       });
     });
-    this.timer = setInterval(() => this.pump(), 10);
+    this.running = true;
+    this.timer = clock ? setInterval(() => this.pump(), 10) : null;
+  }
+
+  // Where each team lands. A team with a Drop Station to itself lands on it; teams that share one (a full
+  // lobby has more teams than stations) come down spread around it, in view of each other but not on top
+  // of each other, each on a spot that is clear of walls, rocks and water.
+  spawnAnchors(teams, drops) {
+    const W = this.W, U = W.U, C = W.CONFIG, world = this.world, map = this.map, TAU = Math.PI * 2;
+    const rng = U.rng((this.seed ^ 0x7f4a7c15) >>> 0), share = drops.map(() => 0);
+    teams.forEach((team, ti) => { share[ti % drops.length]++; });
+    const clear = (x, y, r) => {
+      if (!U.insideIsland(x, y, 320, C.worldSize, C.cornerRadius) || world.inPond(x, y)) return false;
+      for (const b of map.buildings) if (x > b.x - r && x < b.x + b.w + r && y > b.y - r && y < b.y + b.h + r) return false;
+      let free = true;
+      world.solids.query(x - r, y - r, x + r, y + r, (s) => {
+        if (s.shape === 'circle' ? Math.hypot(s.x - x, s.y - y) < s.r + r : !!U.circleRectPush(x, y, r, s.x, s.y, s.w, s.h)) free = false;
+      });
+      return free;
+    };
+    return teams.map((team, ti) => {
+      const di = ti % drops.length, drop = drops[di], n = share[di], k = Math.floor(ti / drops.length);
+      if (n <= 1) return { x: drop.x, y: drop.y };
+      const body = team.members.length > 1 ? 60 : 24, phase = (drop.id * 2.399) % TAU;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const a = phase + (k + (attempt ? rng.range(-0.15, 0.15) : 0)) / n * TAU, R = attempt < 6 ? rng.range(390, 470) : rng.range(250, 390);
+        const x = drop.x + Math.cos(a) * R, y = drop.y + Math.sin(a) * R;
+        if (clear(x, y, body + 50)) return { x, y };
+      }
+      // The map generator keeps the pad and a ring around it free of everything, so this always fits.
+      const a = phase + k / n * TAU, R = C.dropStationRadius + 90 - body - 6;
+      return { x: drop.x + Math.cos(a) * R, y: drop.y + Math.sin(a) * R };
+    });
   }
 
   broadcast(msg) {
@@ -195,18 +257,17 @@ export class Match {
     const q = p.net.inputs;
     const input = {
       seq: num(m.s, 0, 1e9, 0) | 0, mx: num(m.mx, -1, 1, 0), my: num(m.my, -1, 1, 0), a: num(m.a, -10, 10, 0), d: num(m.d, 40, 3000, 400),
+      sp: m.sp === true,
       f: !!m.f, fp: !!m.fp, sc: !!m.sc, r: !!m.r, sl: (m.sl === 0 || m.sl === 1 || m.sl === 2) ? m.sl : null,
+      ch: num(m.ch, 0, this.W.CONFIG.projectileChargeTime, 0), uch: num(m.uch, 0, this.W.CONFIG.projectileChargeTime, 0),
       cy: num(m.cy, -3, 3, 0) | 0, sw: !!m.sw, u: !!m.u, iv: !!m.iv,
       ht: Number.isInteger(m.ht) && m.ht >= -1 && m.ht < this.W.CONFIG.hotbarSize ? m.ht : null, ip: !!m.ip, dp: !!m.dp
     };
     q.push(input);
-    // A backlog means the client runs ahead of us: drop old inputs but keep their button presses.
+    // Bound packets arriving between ticks, while retaining their button presses.
     while (q.length > 6) {
       const dropped = q.shift(), next = q[0];
-      next.fp = next.fp || dropped.fp; next.r = next.r || dropped.r; next.sw = next.sw || dropped.sw; next.u = next.u || dropped.u; next.ip = next.ip || dropped.ip; next.dp = next.dp || dropped.dp;
-      if (next.sl === null) next.sl = dropped.sl;
-      if (next.ht === null) next.ht = dropped.ht;
-      next.cy += dropped.cy;
+      carryPresses(dropped, next);
     }
   }
 
@@ -214,14 +275,19 @@ export class Match {
     const q = p.net.inputs;
     let input;
     if (q.length) {
+      // A delayed burst must not leave every later command stuck behind stale movement. The world has
+      // already advanced using held input while packets were in transit; apply the latest controls on
+      // this tick, acknowledge them, and preserve any one-shot actions from the burst.
+      while (q.length > 1) carryPresses(q.shift(), q[0]);
       input = q.shift();
       p.net.ack = input.seq;
-      p.net.held = Object.assign({}, input, { fp: false, r: false, sw: false, u: false, sl: null, cy: 0, ht: null, ip: false, dp: false });
+      p.net.held = Object.assign({}, input, { fp: false, ch: 0, r: false, sw: false, u: false, uch: 0, sl: null, cy: 0, ht: null, ip: false, dp: false });
     } else input = p.net.held;
     const ca = Math.cos(input.a), sa = Math.sin(input.a);
     return {
-      mx: input.mx, my: input.my, aimX: p.x + ca * input.d, aimY: p.y + sa * input.d,
-      fire: input.f, firePressed: input.fp, scope: input.sc, reload: input.r, slot: input.sl, cycle: input.cy,
+      mx: input.mx, my: input.my, sprint: input.sp, aimX: p.x + ca * input.d, aimY: p.y + sa * input.d,
+      fire: input.f, firePressed: input.fp, charge: input.ch, utilityCharge: input.uch, scope: input.sc, reload: input.r, slot: input.sl,
+      cycle: input.cy % p.weapons.length || (input.cy ? p.weapons.length : 0),
       swap: input.sw, utility: input.u, iv: input.iv, held: input.ht, interactPressed: input.ip, dropPressed: input.dp
     };
   }
@@ -236,18 +302,20 @@ export class Match {
   }
 
   tick() {
-    if (!this.timer) return;
+    if (!this.running) return;
     const world = this.world;
     this.tickCount++;
     for (const p of this.players) {
-      if (p.alive && !p.net.conn && !p.net.left) {
+      if (p.alive && !p.bot && !p.net.conn && !p.net.left) {
         p.net.afk += TICK;
         if (p.net.afk > AFK_KILL) { p.net.left = true; world.killPlayer(p, null, 'left'); }
       }
     }
+    if (this.bots) this.bots.beforeTick(TICK);
     world.update(TICK);
     const events = world.events;
     world.events = [];
+    if (this.bots) this.bots.observe(events);
     this.aliveCount = this.players.reduce((n, p) => n + (p.alive ? 1 : 0), 0);
     for (const e of events) this.track(e);
     this.sendSnapshots(events);
@@ -282,7 +350,10 @@ export class Match {
     const aliveTeams = this.teamInfo.filter((t) => t.alive);
     const connected = this.players.some((p) => p.net.conn && p.net.conn.open);
     this.emptyT = connected ? 0 : this.emptyT + TICK;
-    const over = (aliveTeams.length <= 1 && (this.teamInfo.length > 1 || aliveTeams.length === 0)) || this.emptyT > EMPTY_TIMEOUT;
+    // Nobody connected: wind up. But a player whose connection dropped mid-match is waited for as long as their body
+    // stands (AFK_KILL), since with bots one player is usually the whole audience and may be about to come back.
+    const awaited = !connected && this.players.some((p) => !p.bot && p.alive && !p.net.left && p.net.everConnected);
+    const over = (aliveTeams.length <= 1 && (this.teamInfo.length > 1 || aliveTeams.length === 0)) || (this.emptyT > this.emptyTimeout && !awaited);
     if (!over) return;
     this.ended = true;
     this.endAt = Date.now() + END_LINGER * 1000;
@@ -295,8 +366,9 @@ export class Match {
   }
 
   destroy() {
-    if (!this.timer) return;
-    clearInterval(this.timer);
+    if (!this.running) return;
+    this.running = false;
+    if (this.timer) clearInterval(this.timer);
     this.timer = null;
     for (const p of this.players) if (p.net.conn) { const c = p.net.conn; this.detach(c); c.close(1000, 'match over'); }
     if (this.onEnd) this.onEnd(this);
@@ -337,6 +409,7 @@ export class Match {
   encodeYou(p) {
     const you = {
       x: r2(p.x), y: r2(p.y), vx: r2(p.vx), vy: r2(p.vy), ack: p.net.ack, hp: Math.ceil(p.hp * 10) / 10, mhp: p.maxHp, ar: p.armor,
+      stam: r3(p.stamina), exh: p.sprintExhausted, rest: r3(p.sprintRestT), spr: p.sprinting,
       tok: p.tokens, keys: p.keys, cls: this.classIndex.indexOf(p.classId), slot: p.slot,
       ammo: p.weapons.map((w) => w.ammo), rel: p.weapons.map((w) => (w.reloading ? r2(w.reloadT) : 0)), gren: p.grenades, med: r1(p.medkitCd),
       down: p.downed, downT: r1(p.downT), rev: r2(p.revive), sc: p.scoping, near: p.nearStation ? p.nearStation.id : -1,

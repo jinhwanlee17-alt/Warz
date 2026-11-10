@@ -18,8 +18,8 @@ snap(you({ hp: 62 }), [{ t: 'dmg', id: me.id, src: me.id, n: 38, c: 'launcher', 
 t.equal(me.hp, 62, 'same-packet grenade damage feedback does not subtract from snapshot HP again');
 snap(you({ hp: 100, ar: 70 }), [{ t: 'dmg', id: me.id, src: enemy.id, n: 30, c: 'ar', x: me.x, y: me.y }]);
 t.check(me.hp === 100 && me.armor === 70, 'armor-only damage leaves authoritative HP intact');
-snap(you({ hp: 500, mhp: 1000 }), [{ t: 'dmg', id: me.id, src: enemy.id, n: 500, c: 'airstrike', x: me.x, y: me.y }]);
-t.equal(me.hp, 500, 'airstrike feedback cannot falsely show a surviving player at zero HP');
+snap(you({ hp: 750, mhp: 1000 }), [{ t: 'dmg', id: me.id, src: enemy.id, n: 250, c: 'airstrike', x: me.x, y: me.y }]);
+t.equal(me.hp, 750, 'airstrike feedback does not subtract its 250 damage a second time');
 
 world.setClass(me, 'medic', true);
 const station = world.map.stations[0];
@@ -55,9 +55,9 @@ Online.applyEvent({ t: 'flashed' });
 t.equal(me.fx.flash, W.ITEMS.flashbang.flash, 'flashbang owner event restores its flash duration');
 
 Online.applySync({ crates: [], gone: [], rocks: [], added: [], structs: [], zones: [], stations: [], players: [],
-  strikes: [{ id: 999, k: 'airstrike', x: 3000, y: 4000, tg: 0, tl: 3, o: me.id, tm: me.team, r: 450, dm: 500 }] });
+  strikes: [{ id: 999, k: 'airstrike', x: 3000, y: 4000, tg: 0, tl: 3, o: me.id, tm: me.team, r: 225, dm: 250 }] });
 const strike = world.strikeById(999);
-t.check(strike && strike.kind === 'airstrike' && strike.t === 3 && strike.radius === 450 && strike.damage === 500, 'reconnect sync restores the remaining airstrike marker and full blast definition');
+t.check(strike && strike.kind === 'airstrike' && strike.t === 3 && strike.radius === 225 && strike.damage === 250, 'reconnect sync restores the smaller airstrike marker and 250 damage');
 world.updateStrikes(3.1);
 t.check(world.strikeById(999) && me.hp === hpBefore, 'remote airstrike waits for its authoritative impact');
 Online.applyEvent({ t: 'shit', id: 999, k: 'airstrike', x: 3000, y: 4000 });

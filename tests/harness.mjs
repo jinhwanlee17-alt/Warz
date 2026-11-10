@@ -33,14 +33,16 @@ export function loadWarz(files = ['config', 'util', 'map', 'world', 'items', 'cl
 export function suite(title) {
   const failures = [];
   let passed = 0;
+  // WARZ_TEST_VERBOSE=1 prints every check that passes too (many of them carry measured numbers in their text).
+  const pass = (message) => { passed++; if (process.env.WARZ_TEST_VERBOSE) console.log('  ok   ' + message); };
   return {
-    check(ok, message) { if (ok) passed++; else failures.push(message); },
+    check(ok, message) { if (ok) pass(message); else failures.push(message); },
     equal(actual, expected, message) {
-      if (actual === expected) passed++;
+      if (actual === expected) pass(message);
       else failures.push(message + ' (expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(actual) + ')');
     },
     near(actual, expected, tolerance, message) {
-      if (Math.abs(actual - expected) <= tolerance) passed++;
+      if (Math.abs(actual - expected) <= tolerance) pass(message);
       else failures.push(message + ' (expected ~' + expected + ' ±' + tolerance + ', got ' + actual + ')');
     },
     done() {

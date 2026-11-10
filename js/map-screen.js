@@ -2,23 +2,22 @@
 (function () {
   'use strict';
   var W = window.Warz;
-  var el, canvas, hint, base = null, baseMap = null, open = false;
+  var el, canvas, base = null, baseMap = null, open = false;
 
   function $(id) { return document.getElementById(id); }
   function size() {
     var dpr = Math.min(2, window.devicePixelRatio || 1);
-    var css = Math.max(220, Math.min(window.innerWidth - 64, window.innerHeight - 190));
+    var css = Math.max(1, Math.min(window.innerWidth - 32, window.innerHeight - 37));
     return { css: css, px: Math.round(css * dpr), dpr: dpr };
   }
   function init() {
     el = $('map-screen');
     canvas = $('bigmap');
-    hint = $('map-hint');
     refreshHint();
   }
   function refreshHint() {
-    if (!hint) return;
-    hint.innerHTML = '<kbd>' + W.Controls.primary('map') + '</kbd> or <kbd>Esc</kbd> closes · the match keeps running';
+    if (!el) return;
+    el.setAttribute('aria-label', 'Island map. Press ' + W.Controls.primary('map') + ' or Escape to close. The match keeps running.');
   }
   function show() {
     if (open) return;

@@ -2,7 +2,8 @@
 // Two real browsers against the Node server: accounts, live friend requests, a Duos party with an invite,
 // matchmaking into one match, movement seen by the teammate, friendly-fire immunity, then a Solo duel to the
 // elimination and victory screens. Screenshots in output/qa-online/; any page error fails the run.
-// Pass --url ws://host:port/ws to run the same flow against another server (for example `wrangler dev`).
+// Pass --url ws://host:port/ws to run the same flow against another server (for example `wrangler dev`); that server
+// must run without bots and wait for two players (`wrangler dev --var BOT_FILL:0 --var LOBBY_MIN:2`).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -93,7 +94,8 @@ async function main() {
   let app = null, site, wsUrl = arg('url');
   if (!wsUrl) {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'warz-qa-online-'));
-    app = createApp({ dataDir, lobbyMin: 2, lobbyCountdown: 2, log: { info() {}, warn: console.warn, error: console.error } });
+    // No bots: this flow counts players and duels to a result (tools/qa-bots.mjs covers matches with bots).
+    app = createApp({ dataDir, lobbyMin: 2, lobbyCountdown: 2, botFill: 0, log: { info() {}, warn: console.warn, error: console.error } });
     const { port } = await app.listen(0, '127.0.0.1');
     site = 'http://127.0.0.1:' + port + '/';
   } else {

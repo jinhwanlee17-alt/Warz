@@ -64,6 +64,7 @@
         <span class="class-badge-icon" id="hud-class-icon"></span>
         <div><b id="hud-class-name">Soldier</b><small id="hud-class-tier">LVL 0</small></div>
       </div>
+      <div class="bar bar-stamina" id="hud-stamina" title="If stamina runs out, wait until it fully refills before sprinting again."><i id="hud-stamina-fill"></i><span id="hud-stamina-text">100 / 100 Stamina</span></div>
       <div class="bar bar-armor"><i id="hud-armor-fill"></i><span id="hud-armor-text">0 Armor</span></div>
       <div class="bar bar-hp"><i id="hud-hp-fill"></i><span id="hud-hp-text">100 / 100 HP</span></div>
     </div>
@@ -94,21 +95,8 @@
     </div>
   </section>
 
-  <section id="map-screen" class="map-screen" role="dialog" aria-modal="false" aria-labelledby="map-title" hidden>
-    <div class="map-card">
-      <header><h2 id="map-title">Island map</h2><span id="map-hint" class="map-hint"></span></header>
-      <canvas id="bigmap" aria-label="Full island map"></canvas>
-      <ul class="map-legend" aria-label="Legend">
-        <li><i class="lg-you"></i>You</li>
-        <li><i class="lg-mate"></i>Teammate</li>
-        <li><i class="lg-enemy"></i>Revealed enemy</li>
-        <li><i class="lg-ready"></i>Upgrade Station ready</li>
-        <li><i class="lg-cooling"></i>Recharging</li>
-        <li><i class="lg-drop"></i>Drop Station</li>
-        <li><i class="lg-safe"></i>Next safe zone</li>
-        <li><i class="lg-storm"></i>Storm</li>
-      </ul>
-    </div>
+  <section id="map-screen" class="map-screen" role="dialog" aria-modal="false" aria-label="Island map" hidden>
+    <canvas id="bigmap" aria-label="Full island map"></canvas>
   </section>
 
   <section id="upgrade-panel" role="dialog" aria-modal="true" aria-labelledby="ut-title" hidden></section>
@@ -314,9 +302,18 @@
           <button type="button" data-test="key">+1 station key</button>
           <button type="button" data-test="hurt">Take 30 damage</button>
           <button type="button" data-test="reset">Back to Soldier</button>
-          <button type="button" data-test="items">Fill hotbar with sample items</button>
+          <button type="button" data-test="items" aria-controls="practice-items" aria-expanded="false">Choose hotbar items</button>
           <button type="button" data-test="armor">+25 armor</button>
+          <button type="button" data-test="storm" id="practice-storm">Disable storm</button>
+          <button type="button" data-test="station">Teleport to nearest Upgrade Station</button>
         </div>
+        <form id="practice-items" class="practice-items" hidden>
+          <label class="practice-item-select">Item <select id="practice-item" aria-describedby="practice-item-detail"></select></label>
+          <label>Hotbar item slot <select id="practice-item-slot"><option value="0">Item slot 1</option><option value="1">Item slot 2</option><option value="2">Item slot 3</option></select></label>
+          <label>Quantity <input id="practice-item-quantity" type="number" min="1" max="9" value="9" step="1" required></label>
+          <p id="practice-item-detail"></p>
+          <button type="submit" class="mini">Put item in slot</button>
+        </form>
         <p id="test-status" class="status-line" role="status" aria-live="polite"></p>
       </div>
     </div>

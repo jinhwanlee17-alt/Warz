@@ -22,9 +22,11 @@ tag = "v1"
 new_sqlite_classes = ["HubObject", "MatchObject"]
 
 [vars]
-LOBBY_MIN = "2"
-LOBBY_COUNTDOWN = "20"
+LOBBY_MIN = "1"          # real players needed before the countdown starts (bots do not count)
+LOBBY_COUNTDOWN = "20"   # seconds a lobby waits for more real players before the match starts
 LOBBY_MAX = "50"
+BOT_FILL = "50"          # every match is filled up to this many players with bots; "0" turns bots off
+BOT_SKILL = "0.5"        # how good the bots are, from "0" (easy) to "1" (hard); "0.5" is the normal mix of weak, average and good ones
 # Sign-in providers (see README). Put the public client IDs here, or set them with `npx wrangler secret put`.
 # GOOGLE_CLIENT_ID = "1234567890-abc.apps.googleusercontent.com"
 # APPLE_CLIENT_ID = "com.yourname.warz.web"

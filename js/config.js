@@ -15,6 +15,13 @@
     playerRadius: 24,
     playerSpeed: 270,
     playerAccel: 12,
+    sprintSpeedMul: 1.5,
+    staminaMax: 100,
+    staminaDrain: 10,
+    staminaWalkRegen: 15,
+    staminaRestRegen: 30,
+    staminaRestDelay: 1,
+    projectileChargeTime: 0.75, // hold time for maximum grenade or launcher range
     pondSpeedMul: 0.62,
     upgradeCost: 8,             // first-tier compatibility value; use Rules.upgradeCostFor for a target class
     upgradeCosts: { 1: 8, 2: 15 },
@@ -78,15 +85,15 @@
     },
     launcher: {
       id: 'launcher', name: 'Grenade Launcher', kind: 'launcher',
-      mag: 10, fireInterval: 0.6, reload: 2.5, projectileSpeed: 950, range: 760, minRange: 140,
+      mag: 10, fireInterval: 0.6, reload: 2.5, projectileSpeed: 950, range: 660, minRange: 140,
       explosion: { maxDamage: 37.5, radius: 150 }, landFuse: 0.5, recoil: 70,
-      blurb: 'Infinite launcher grenades that land at your cursor (or where they hit) and burst half a second later. 0–37.5 damage.'
+      blurb: 'Release to launch. Tap for a short shot; hold 0.75 seconds for maximum range. Bursts half a second after landing. 0–37.5 damage.'
     },
     grenade: {
       id: 'grenade', name: 'Grenades', kind: 'throwable',
       count: 10, cooldown: 0.6, fuse: 1.6, throwRange: 560,
       explosion: { maxDamage: 100, radius: 150 },
-      blurb: '10 hand grenades. 100 damage at the center of the blast, 0 at the edge.'
+      blurb: '10 hand grenades. Release to throw: tap for short range, hold 0.75 seconds for maximum range. 100 damage at the center, 0 at the edge.'
     },
     medkit: {
       id: 'medkit', name: "Medic's Medkit", kind: 'medkit',
@@ -96,12 +103,12 @@
     medkit2: { id: 'medkit2', name: 'Advanced Medkit', kind: 'medkit', heal: 50, cooldown: 50, reviveFraction: 0.5, blurb: 'Heals you and nearby teammates for 50 HP; revives nearby downed teammates at half maximum HP.' },
     shotgun2: { id: 'shotgun2', name: 'Shotgun II', kind: 'gun', damageNear: 200, damageFar: 10, pointBlank: 70, mag: 5, fireInterval: 0.75, reload: 2.3, bulletSpeed: 1750, range: 560, spread: 0.2, pellets: 8, bulletRadius: 4.2, recoil: 160, blurb: '10–200 damage by distance, with one hit per target per blast.' },
     sniper2: { id: 'sniper2', name: 'Sniper Rifle II', kind: 'gun', damage: 95, damageMax: 300, damageRampRange: 2100, mag: 3, fireInterval: 0.25, reload: 2.2, bulletSpeed: 3800, range: 1000000, unlimitedRange: true, spread: 0, bulletRadius: 5, recoil: 150, zoom: 1.65, blurb: 'Three shots and wider scope. Damage rises from 95 to 300 over 2100 units; shots cross the entire island.' },
-    launcher2: { id: 'launcher2', name: 'Grenade Launcher II', kind: 'launcher', mag: 10, fireInterval: 0.6, reload: 2.5, projectileSpeed: 1100, range: 840, minRange: 140, explosion: { maxDamage: 70, radius: 150, demolition: true }, landFuse: 0.2, demolition: true, recoil: 80, blurb: '70 maximum blast damage, a 0.2-second landing fuse, and one-hit demolition of rocks and crates.' },
-    flamethrower: { id: 'flamethrower', name: 'Flamethrower', kind: 'flame', damage: 10, damageMax: 50, damageStep: 5, fireInterval: 0.15, range: 300, halfAngle: 0.45, mag: 100, reload: 2.5, recoil: 0, blurb: 'A short flame cone hits every enemy inside. Each 0.15-second tick grows from 10 to 50 damage; releasing fire resets the heat.' },
+    launcher2: { id: 'launcher2', name: 'Grenade Launcher II', kind: 'launcher', mag: 10, fireInterval: 0.6, reload: 2.5, projectileSpeed: 1100, range: 700, minRange: 140, explosion: { maxDamage: 70, radius: 150, demolition: true }, landFuse: 0.2, demolition: true, recoil: 80, blurb: 'Release to launch; hold 0.75 seconds for maximum range. 70 maximum blast damage, a 0.2-second landing fuse, and one-hit demolition of rocks and crates.' },
+    flamethrower: { id: 'flamethrower', name: 'Flamethrower', kind: 'flame', damage: 10, damageMax: 50, damageStep: 5, fireInterval: 0.15, range: 375, halfAngle: 0.45, mag: 100, reload: 2.5, recoil: 0, blurb: 'A flame cone hits every enemy inside. Each 0.15-second tick grows from 10 to 50 damage; releasing fire resets the heat.' },
     revolver: { id: 'revolver', name: 'Heavy Revolver', kind: 'gun', damage: 75, mag: 5, fireInterval: 0.9, reload: 2.3, semiAuto: true, bulletSpeed: 2300, range: 980, spread: 0.015, bulletRadius: 7, recoil: 80, blurb: 'Five rounds, 75 damage. Slow, deliberate shots: click once per shot.' },
     minigun: { id: 'minigun', name: 'Minigun', kind: 'gun', damage: 5, mag: 100, fireInterval: 0.05, reload: 3.5, bulletSpeed: 1900, range: 900, spread: 0.12, bulletRadius: 4.5, recoil: 5, windup: 0.75, blurb: 'Hold fire to spin up for 0.75 seconds, then fire 20 rounds per second with moderate spread.' },
     commandpistol: { id: 'commandpistol', name: 'Command Pistol', kind: 'gun', damage: 15, mag: 12, fireInterval: 0.2, reload: 1.15, bulletSpeed: 1750, range: 820, spread: 0.02, bulletRadius: 5, recoil: 6, blurb: 'Twelve rounds, 15 damage each.' },
-    commandradar: { id: 'commandradar', name: 'Command Radar', kind: 'ability', cooldown: 45, duration: 15, radarDuration: 30, radius: 1050, bonus: 0.25, strikeRadius: 450, strikeDelay: 5, strikeDamage: 500, blurb: 'Radar plus 15 seconds of +25% team damage, speed and fire rate. Marks the cursor for an airstrike in 5 seconds: 500 damage to everyone inside, including your team.' },
+    commandradar: { id: 'commandradar', name: 'Command Radar', kind: 'ability', cooldown: 45, duration: 15, radarDuration: 30, radius: 1050, bonus: 0.25, strikeRadius: 225, strikeDelay: 5, strikeDamage: 250, blurb: 'Radar plus 15 seconds of +25% team damage, speed and fire rate. Marks the cursor for an airstrike in 5 seconds: 250 damage to everyone inside, including your team.' },
     // Bullets fired from a mounted turret (damage comes from the turret item).
     turret: {
       id: 'turret', name: 'Turret', kind: 'turret',
@@ -424,7 +431,7 @@
       if (w.kind === 'launcher') return '0–' + w.explosion.maxDamage + ' blast · ' + w.landFuse + ' s fuse · ' + w.mag + ' rounds · endless grenades';
       if (w.kind === 'throwable') return '×' + w.count + ' · 0–' + w.explosion.maxDamage + ' blast';
       if (w.kind === 'flame') return w.damage + '–' + w.damageMax + ' dmg per ' + w.fireInterval + ' s · area flame';
-      if (w.kind === 'ability') return '+25% team buffs · ' + w.cooldown + ' s cooldown · 500-damage airstrike';
+      if (w.kind === 'ability') return '+25% team buffs · ' + w.cooldown + ' s cooldown · ' + w.strikeDamage + '-damage airstrike';
       return '+' + w.heal + ' HP · ' + w.cooldown + ' s cooldown';
     }
   };

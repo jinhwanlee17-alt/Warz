@@ -8,10 +8,13 @@ import { Match } from '../core/match.mjs';
 import { DoStore } from './store-do.mjs';
 
 function configFrom(env) {
-  const n = (v, d) => { const x = Number(v); return Number.isFinite(x) && x >= 0 ? x : d; };
+  const n = (v, d) => { const x = Number(v); return v !== undefined && v !== '' && Number.isFinite(x) && x >= 0 ? x : d; };
+  const lobbyMax = Math.max(2, n(env.LOBBY_MAX, 50));
   return {
     googleClientId: env.GOOGLE_CLIENT_ID || '', appleClientId: env.APPLE_CLIENT_ID || '', publicUrl: env.PUBLIC_URL || '',
-    lobbyMin: Math.max(1, n(env.LOBBY_MIN, 2)), lobbyCountdown: n(env.LOBBY_COUNTDOWN, 20), lobbyMax: Math.max(2, n(env.LOBBY_MAX, 50))
+    lobbyMin: Math.max(1, n(env.LOBBY_MIN, 1)), lobbyCountdown: n(env.LOBBY_COUNTDOWN, 20), lobbyMax,
+    botFill: Math.min(lobbyMax, n(env.BOT_FILL, lobbyMax)),  // lobbies are topped up to this many players with bots; 0 = no bots
+    botSkill: Math.min(1, n(env.BOT_SKILL, 0.5))             // how good the bots are: 0 easiest .. 1 hardest
   };
 }
 
@@ -102,7 +105,7 @@ export class MatchObject {
       if (this.match) return new Response('already started', { status: 409 });
       const spec = await request.json(), id = this.state.id.toString(), env = this.env;
       this.match = new Match({
-        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, seed: (Math.random() * 2147483647) | 0, log: console,
+        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, seed: (Math.random() * 2147483647) | 0, log: console, botSkill: configFrom(env).botSkill,
         onEnd() {
           env.HUB.get(env.HUB.idFromName('hub')).fetch('https://hub/internal/match-ended', { method: 'POST', body: JSON.stringify({ id }) }).catch(() => {});
         }
@@ -137,7 +140,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/config') {
       const c = configFrom(env);
-      return json({ google: c.googleClientId || null, apple: c.appleClientId || null, lobbyMin: c.lobbyMin, lobbyMax: c.lobbyMax, version: VERSION, platform: 'cloudflare' });
+      return json({ google: c.googleClientId || null, apple: c.appleClientId || null, lobbyMin: c.lobbyMin, lobbyMax: c.lobbyMax, bots: c.botFill, version: VERSION, platform: 'cloudflare' });
     }
     if (url.pathname === '/healthz') return new Response('ok');
     if (url.pathname === '/ws') return env.HUB.get(env.HUB.idFromName('hub')).fetch(request);

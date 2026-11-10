@@ -266,7 +266,7 @@
       ax = p.x + Math.cos(p.angle) * WEAPONS.grenade.throwRange;
       ay = p.y + Math.sin(p.angle) * WEAPONS.grenade.throwRange;
     }
-    var g = this.lob(p, ax, ay, it.fuse > 0 ? it.fuse : 0, it.id);
+    var g = this.lob(p, ax, ay, it.fuse > 0 ? it.fuse : 0, it.id, intent.charge);
     this.emit(Object.assign({ type: 'throw', player: p, left: p.items[p.held].n - 1, fuse: g.fuse, item: it.id }, this.projectileEvent(g)));
     return true;
   };
@@ -754,7 +754,7 @@
       this.explosions.push({ x: st.x, y: st.y, r: 110, t: 0, dur: 0.35, ring: true, color: '#fff6a8' });
       this.burst(st.x, st.y, 14, '#fff6a8', 300, 0.4, 4);
     } else {
-      this.explosions.push({ x: st.x, y: st.y, r: st.radius, t: 0, dur: 0.9, power: 120 });
+      this.explosions.push({ x: st.x, y: st.y, r: st.radius, t: 0, dur: 0.9, power: 120, kind: st.kind });
       this.explosions.push({ x: st.x, y: st.y, r: st.radius * 1.25, t: 0, dur: 0.8, ring: true, color: '#ff8a3c' });
       this.burst(st.x, st.y, 40, '#ff9a3c', 420, 0.9, 8);
       this.smoke(st.x, st.y, 18, '#6b5a4a', 30, 1.4, 180);

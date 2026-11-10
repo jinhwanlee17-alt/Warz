@@ -10,6 +10,7 @@
     { id: 'down', name: 'Move down', group: 'Movement' },
     { id: 'left', name: 'Move left', group: 'Movement' },
     { id: 'right', name: 'Move right', group: 'Movement' },
+    { id: 'sprint', name: 'Sprint (hold)', group: 'Movement' },
     { id: 'fire', name: 'Shoot', group: 'Combat' },
     { id: 'scope', name: 'Scope (Sniper: hold to zoom out)', group: 'Combat' },
     { id: 'gear', name: 'Use gear (medkit / grenade / command radar)', group: 'Combat' },
@@ -28,6 +29,7 @@
   ];
   var DEFAULTS = W.DEFAULT_BINDINGS = {
     up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
+    sprint: ['ShiftLeft', null],
     fire: ['Mouse1', null], scope: ['Mouse3', null], gear: ['KeyF', 'KeyG'], reload: ['KeyR', null],
     weapon1: ['Digit1', null], weapon2: ['Digit2', null], swap: [null, null], drop: ['KeyQ', null],
     interact: ['KeyE', null], inventory: ['Tab', null], map: ['KeyM', null], mute: [null, null],
@@ -77,6 +79,12 @@
           settings.bindings.inventory = [free('Tab') ? 'Tab' : free('KeyI') ? 'KeyI' : null, null];
           migrated = true;
         }
+        if (!Array.isArray(saved.bindings.sprint)) {
+          // Keep custom controls intact when introducing sprint to an older save.
+          var sprintFree = function (code) { return !ACTIONS.some(function (a) { return a.id !== 'sprint' && settings.bindings[a.id].indexOf(code) >= 0; }); };
+          settings.bindings.sprint = [sprintFree('ShiftLeft') ? 'ShiftLeft' : sprintFree('ShiftRight') ? 'ShiftRight' : null, null];
+          migrated = true;
+        }
       }
       if (saved && typeof saved.muted === 'boolean') settings.muted = saved.muted;
     } catch (e) { /* corrupt settings fall back to defaults */ }
@@ -102,6 +110,29 @@
   function hit(input, action) { var b = bindings(action); return input.hit(b[0]) || input.hit(b[1]); }
   function lift(input, action) { var b = bindings(action); return !!input.lift && (input.lift(b[0]) || input.lift(b[1])); }
   function primary(action) { var b = bindings(action); return label(b[0] || b[1]); }
+
+  // A charge belongs to the equipped projectile and is cancelled by menus or a
+  // weapon change. Measure physical key hold time, including taps between frames.
+  function createChargeTracker() {
+    var slots = {};
+    return {
+      reset: function () { slots = {}; },
+      sample: function (input, action, id, enabled) {
+        var held = down(input, action), pressed = hit(input, action), old = slots[action];
+        if (!enabled || !id) { slots[action] = null; return { id: id, held: false, released: false, seconds: 0 }; }
+        if (!old || old.id !== id) old = slots[action] = { id: id, armed: pressed };
+        if (pressed) old.armed = true;
+        var released = old.armed && !held && lift(input, action), seconds = 0, b = bindings(action);
+        if (old.armed && (held || released) && input.heldSeconds) {
+          seconds = Math.max(input.heldSeconds(b[0]), input.heldSeconds(b[1]));
+          seconds = Math.min(W.CONFIG.projectileChargeTime, Math.max(0, seconds || 0));
+        }
+        var result = { id: id, held: held && old.armed, released: released, seconds: seconds };
+        if (released) old.armed = false;
+        return result;
+      }
+    };
+  }
 
   // Binds `code` to one slot; the same code is removed from every other slot. Returns the actions that lost it.
   function rebind(action, slot, code) {
@@ -130,7 +161,7 @@
     ACTIONS: ACTIONS, DEFAULTS: DEFAULTS,
     load: load, save: save, reset: reset, rebind: rebind,
     label: label, bindings: bindings, primary: primary, actionName: actionName,
-    down: down, hit: hit, lift: lift,
+    down: down, hit: hit, lift: lift, createChargeTracker: createChargeTracker,
     isReserved: function (code) { return code === 'Escape'; },
     setMuted: function (v) { settings.muted = !!v; save(); },
     muted: function () { return settings.muted; },

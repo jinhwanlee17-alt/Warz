@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // warz.io Node server: the same hub + match code as the Cloudflare Worker, for LAN play and tests.
 // `npm start` (or `node server/node/index.mjs`). Environment: PORT (5180), HOST (0.0.0.0), DATA_DIR (server/data),
-// GOOGLE_CLIENT_ID, APPLE_CLIENT_ID, PUBLIC_URL, LOBBY_MIN (2), LOBBY_COUNTDOWN (20 s), LOBBY_MAX (50).
+// GOOGLE_CLIENT_ID, APPLE_CLIENT_ID, PUBLIC_URL, LOBBY_MIN (1), LOBBY_COUNTDOWN (20 s), LOBBY_MAX (50),
+// BOT_FILL (players a lobby is filled up to with bots; defaults to LOBBY_MAX, 0 turns bots off).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +19,7 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/markdown; charset=utf-8' };
 const PUBLIC = [/^\/index\.html$/, /^\/js\/[A-Za-z0-9_-]+\.js$/, /^\/css\/[A-Za-z0-9_-]+\.css$/, /^\/README\.md$/];
 
-function envNum(v, d) { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : d; }
+function envNum(v, d) { const n = Number(v); return v !== undefined && v !== null && v !== '' && Number.isFinite(n) && n >= 0 ? n : d; }   // (an empty variable is "not set", not 0)
 
 function wrap(ws) {
   return {
@@ -39,11 +40,13 @@ export function createApp(options = {}) {
     googleClientId: options.googleClientId !== undefined ? options.googleClientId : (env.GOOGLE_CLIENT_ID || ''),
     appleClientId: options.appleClientId !== undefined ? options.appleClientId : (env.APPLE_CLIENT_ID || ''),
     publicUrl: options.publicUrl !== undefined ? options.publicUrl : (env.PUBLIC_URL || ''),
-    lobbyMin: Math.max(1, envNum(options.lobbyMin !== undefined ? options.lobbyMin : env.LOBBY_MIN, 2)),
+    lobbyMin: Math.max(1, envNum(options.lobbyMin !== undefined ? options.lobbyMin : env.LOBBY_MIN, 1)),
     lobbyCountdown: envNum(options.lobbyCountdown !== undefined ? options.lobbyCountdown : env.LOBBY_COUNTDOWN, 20),
     lobbyMax: Math.max(2, envNum(options.lobbyMax !== undefined ? options.lobbyMax : env.LOBBY_MAX, 50)),
     serveStatic: options.serveStatic !== false
   };
+  config.botFill = Math.min(config.lobbyMax, envNum(options.botFill !== undefined ? options.botFill : env.BOT_FILL, config.lobbyMax));
+  config.botSkill = Math.min(1, envNum(options.botSkill !== undefined ? options.botSkill : env.BOT_SKILL, 0.5));   // 0 easiest .. 1 hardest
   const store = new FileStore(dataDir ? path.join(dataDir, 'warz-store.json') : null, { log });
   const verifiers = Object.assign(makeVerifiers(config, options.fetch), options.verifiers || {});
   const accounts = new Accounts(store, { verifiers });
@@ -54,7 +57,7 @@ export function createApp(options = {}) {
     start(spec) {
       const id = String(nextMatch++);
       const match = new Match({
-        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, seed: (Math.random() * 2147483647) | 0, log,
+        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, seed: (Math.random() * 2147483647) | 0, log, botSkill: config.botSkill,
         onEnd: () => { matches.delete(id); hub.matchEnded(id); }
       });
       matches.set(id, match);
@@ -75,7 +78,7 @@ export function createApp(options = {}) {
     const url = (req.url || '/').split('?')[0];
     if (url === '/api/config') {
       res.writeHead(200, { 'Content-Type': TYPES['.json'], 'Cache-Control': 'no-store' });
-      res.end(JSON.stringify({ google: config.googleClientId || null, apple: config.appleClientId || null, lobbyMin: config.lobbyMin, lobbyMax: config.lobbyMax, online: hub.size(), matches: matches.size, version: VERSION, platform: 'node' }));
+      res.end(JSON.stringify({ google: config.googleClientId || null, apple: config.appleClientId || null, lobbyMin: config.lobbyMin, lobbyMax: config.lobbyMax, bots: config.botFill, online: hub.size(), matches: matches.size, version: VERSION, platform: 'node' }));
       return;
     }
     if (url === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
@@ -139,6 +142,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   app.listen(port, host).then(({ port: p }) => {
     console.log('warz.io server listening on http://' + (host === '0.0.0.0' ? 'localhost' : host) + ':' + p + '/');
     console.log('lobby: starts with ' + app.config.lobbyMin + '+ players after ' + app.config.lobbyCountdown + ' s' +
+      (app.config.botFill ? ', filled to ' + app.config.botFill + ' with bots' : ', no bots') +
       ' · Google sign-in ' + (app.config.googleClientId ? 'on' : 'off (set GOOGLE_CLIENT_ID)') + ' · Apple sign-in ' + (app.config.appleClientId ? 'on' : 'off (set APPLE_CLIENT_ID)'));
   }).catch((err) => { console.error(err.message); process.exit(1); });
   const stop = () => { app.close().then(() => process.exit(0)); };

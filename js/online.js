@@ -7,7 +7,7 @@
   var STEP = 1 / 20, INTERP = 0.1, state = null, cbs = {}, pendingJoin = null;
 
   function byId(id) { return id && state ? state.world.playerById(id) : null; }
-  function freshLatch() { return { fp: false, r: false, sl: null, cy: 0, sw: false, u: false, ht: null, ip: false, dp: false, use: false }; }
+  function freshLatch() { return { fp: false, ch: 0, r: false, sl: null, cy: 0, sw: false, u: false, uch: 0, ht: null, ip: false, dp: false, use: false }; }
 
   function init(callbacks) { cbs = callbacks || {}; }
 
@@ -44,6 +44,9 @@
       var p = world.addPlayer({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline, x: map.size / 2, y: map.size / 2, drop: !info.rejoin, angle: -Math.PI / 2 });
       p.snaps = [];
       p.seenAt = -1;
+      // The roster contains identities, not positions. Keep every body out of the
+      // world until its first authoritative snapshot (including our own spawn).
+      p.hidden = true;
     });
     var me = world.playerById(info.you);
     me.isLocal = true;
@@ -70,16 +73,13 @@
     state.snapCount++;
     var y = s.you;
     if (y) {
+      me.seenAt = s.time;
+      me.hidden = false;
       setClassIfChanged(me, y.cls);
       var prevX = me.x + state.corr.x, prevY = me.y + state.corr.y;
       me.x = y.x; me.y = y.y; me.vx = y.vx; me.vy = y.vy;
       state.pending = state.pending.filter(function (i) { return i.seq > y.ack; });
       me.alive = y.alive; me.dropT = y.drop; me.downed = y.down; me.downT = y.downT; me.revive = y.rev; me.team = y.team;
-      if (me.alive && me.dropT <= 0) state.pending.forEach(function (i) { world.moveStep(me, i.intent, STEP); });
-      // Fold the correction into a visual offset that decays, so small mispredictions never pop.
-      var ex = prevX - me.x, ey = prevY - me.y;
-      if (state.snapCount > 1 && Math.abs(ex) + Math.abs(ey) < 140) { state.corr.x = ex; state.corr.y = ey; } else { state.corr.x = 0; state.corr.y = 0; }
-      me.px = me.x; me.py = me.y;
       me.hp = y.hp; me.maxHp = y.mhp; me.armor = y.ar; me.tokens = y.tok; me.keys = y.keys;
       me.upgradeFrom = y.from || null;
       me.slot = y.slot;
@@ -95,6 +95,11 @@
       // Inventory, held item, turret mount and potion timers: the server owns them, prediction only reads them.
       if (y.items) me.items = y.items.map(function (s) { return s ? { id: s[0], n: s[1] } : null; });
       me.held = y.held === undefined ? -1 : y.held;
+      if (me.mount !== (y.mnt || 0)) {
+        // A click queued for one weapon must not fire after mounting or dismounting.
+        state.latch.fp = false; state.latch.ch = 0;
+        state.latch.u = false; state.latch.uch = 0; state.latch.use = false;
+      }
       me.mount = y.mnt || 0;
       if (y.fx) for (var fi = 0; fi < W.FX_KEYS.length; fi++) me.fx[W.FX_KEYS[fi]] = y.fx[fi] || 0;
       me.regen = y.rg || 0;
@@ -102,6 +107,17 @@
       var heldIt = world.heldItem(me);
       me.shieldUp = !!heldIt && heldIt.kind === 'hold' && !me.mount && !me.downed;
       world.reveal[me.team] = y.dr || 0;
+      // Restore authoritative stamina and every speed/mount modifier before replay. Replaying
+      // unacknowledged input from this baseline cannot drain the same frame a second time.
+      me.stamina = typeof y.stam === 'number' ? U.clamp(y.stam, 0, W.CONFIG.staminaMax) : W.CONFIG.staminaMax;
+      me.sprintExhausted = !!y.exh;
+      me.sprintRestT = U.clamp(y.rest || 0, 0, W.CONFIG.staminaRestDelay);
+      me.sprinting = !!y.spr;
+      if (me.alive && me.dropT <= 0) state.pending.forEach(function (i) { world.moveStep(me, i.intent, STEP); });
+      // Fold the correction into a visual offset that decays, so small mispredictions never pop.
+      var ex = prevX - me.x, ey = prevY - me.y;
+      if (state.snapCount > 1 && Math.abs(ex) + Math.abs(ey) < 140) { state.corr.x = ex; state.corr.y = ey; } else { state.corr.x = 0; state.corr.y = 0; }
+      me.px = me.x; me.py = me.y;
     }
     for (var i = 0; i < s.p.length; i++) {
       var a = s.p[i], p = world.playerById(a[0]);
@@ -111,12 +127,22 @@
     state.spec = s.spec || 0;
     state.alive = s.alive;
     state.teamsAlive = s.teams;
+    // Global events can refer to players outside our interest range. Hide stale
+    // bodies before applying those events, not only on the next render frame.
+    world.players.forEach(updatePresence);
     for (var k = 0; k < s.e.length; k++) applyEvent(s.e[k]);
+  }
+
+  function updatePresence(p) {
+    if (p === state.me) return;
+    p.hidden = p.seenAt < 0 || (p.team !== state.me.team && state.serverTime - p.seenAt > 0.4);
   }
 
   function pushSnap(p, time, a) {
     var prev = p.snaps.length ? p.snaps[p.snaps.length - 1] : null;
-    if (prev && Math.hypot(prev.x - a[1], prev.y - a[2]) > 500) p.snaps.length = 0; // teleported or pulled: do not slide across the island
+    // Reappearing players start at the newly received position rather than
+    // blending from an old body that left our view or turned invisible.
+    if (prev && (p.hidden || time - prev.t > 0.4 || Math.hypot(prev.x - a[1], prev.y - a[2]) > 500)) p.snaps.length = 0;
     p.snaps.push({ t: time, x: a[1], y: a[2], a: a[3] });
     if (p.snaps.length > 16) p.snaps.shift();
     p.seenAt = time;
@@ -146,9 +172,9 @@
     if (!state) return;
     var now = performance.now() / 1000, rt = state.serverTime + (now - state.recvAt) - INTERP, me = state.me;
     state.world.players.forEach(function (p) {
-      if (p === state.me || !p.snaps || !p.snaps.length) return;
-      // Enemies the server stopped sending (invisible, or far away) vanish instead of standing still.
-      p.hidden = p.alive && p.team !== me.team && state.serverTime - p.seenAt > 0.4;
+      if (p === me) return;
+      updatePresence(p);
+      if (p.hidden || !p.snaps || !p.snaps.length) return;
       var s = p.snaps, i = s.length - 1;
       while (i > 0 && s[i - 1].t > rt) i--;
       var b = s[i], a = i > 0 ? s[i - 1] : b;
@@ -186,26 +212,27 @@
         if (e.st) { s = world.structById(e.st); pr.r = W.STRUCT_RADIUS.turret; if (s) { s.flash = 1; s.angle = e.a[0]; } }
         world.spawnShot(pr, def, e.a);
         p.recoil = 1;
-        world.emit({ type: 'shot', player: p, weapon: e.w });
+        world.emit({ type: 'shot', player: p, weapon: e.w, x: e.x, y: e.y });
         return;
       case 'launch':
         p = byId(e.id);
         if (!p) return;
         world.spawnShell(proxy(p, e.x, e.y, Math.atan2(e.vy, e.vx)), Object.assign({}, e, { weapon: e.w || 'launcher', travel: e.tr }));
         p.recoil = 1;
-        world.emit({ type: 'launch', player: p });
+        world.emit({ type: 'launch', player: p, x: e.x, y: e.y });
         return;
       case 'throw':
         p = byId(e.id);
         if (!p) return;
         world.spawnGrenade(proxy(p, e.x, e.y, Math.atan2(e.vy, e.vx)), Object.assign({}, e, { weapon: e.w || 'grenade', item: e.it || null }));
         p.recoil = 0.7;
-        world.emit({ type: 'throw', player: p, item: e.it || null });
+        world.emit({ type: 'throw', player: p, item: e.it || null, x: e.x, y: e.y });
         return;
       case 'flame':
         p = byId(e.id); if (!p) return;
         world.flameFx(e.x, e.y, e.a, e.r);
         p.recoil = 0.4;
+        world.emit({ type: 'flame', player: p, x: e.x, y: e.y, angle: e.a, range: e.r });
         return;
       case 'command':
         p = byId(e.id); if (!p) return;
@@ -274,14 +301,16 @@
       case 'saved':
         p = byId(e.id);
         if (!p) return;
-        world.explosions.push({ x: p.x, y: p.y, r: 150, t: 0, dur: 0.7, ring: true, color: '#ffd23f' });
-        world.text(p.x, p.y - p.r - 30, 'SAVED!', '#ffd23f', 26);
+        if (!p.hidden) {
+          world.explosions.push({ x: p.x, y: p.y, r: 150, t: 0, dur: 0.7, ring: true, color: '#ffd23f' });
+          world.text(p.x, p.y - p.r - 30, 'SAVED!', '#ffd23f', 26);
+        }
         world.emit({ type: 'saved', player: p });
         return;
       case 'blocked':
         p = byId(e.id);
         if (!p) return;
-        world.text(p.x, p.y - p.r - 14, e.how === 'immune' ? 'IMMUNE' : 'BLOCKED', e.how === 'immune' ? '#7fe9ff' : '#cfd8e6', 16);
+        if (!p.hidden) world.text(p.x, p.y - p.r - 14, e.how === 'immune' ? 'IMMUNE' : 'BLOCKED', e.how === 'immune' ? '#7fe9ff' : '#cfd8e6', 16);
         world.emit({ type: 'blocked', player: p, how: e.how });
         return;
       case 'dmg':
@@ -350,6 +379,7 @@
   function applySync(m) {
     if (!state) return;
     var world = state.world, map = world.map;
+    if (typeof m.time === 'number') { state.serverTime = m.time; state.recvAt = performance.now() / 1000; }
     m.crates.forEach(function (c) { var crate = map.crates[c[0]]; if (!crate) return; crate.hp = c[1]; if (c[1] <= 0) crate.alive = false; });
     m.gone.forEach(function (id) { var pk = world.pickupById(id); if (pk) pk.alive = false; });
     (m.rocks || []).forEach(function (id) { if (map.rocks[id]) map.rocks[id].alive = false; });
@@ -363,6 +393,11 @@
       if (!p) return;
       setClassIfChanged(p, row[1]);
       p.alive = !!row[2]; p.downed = !!row[3]; p.x = row[4]; p.y = row[5]; p.dropT = 0;
+      // Sync restores the entire roster, including distant or invisible enemies.
+      // Only interest-filtered snapshots may reveal their bodies again.
+      p.snaps.length = 0;
+      p.seenAt = p === state.me ? state.serverTime : -1;
+      p.hidden = p !== state.me;
       if (p === state.me) { p.px = p.x; p.py = p.y; }
       if (!p.alive) p.deadT = 10;
     });
@@ -379,14 +414,17 @@
   }
 
   // ---------------------------------------------------------------- input
-  function latch(input) {
+  function latch(input, projectiles) {
     if (!state) return;
     var L = state.latch;
-    L.fp = L.fp || (state.world.aimedProjectile(state.me) ? Controls.lift(input, 'fire') : Controls.hit(input, 'fire'));
+    var projectile = state.world.aimedProjectile(state.me), fire = projectiles && projectiles.fire, gear = projectiles && projectiles.gear;
+    var released = projectile ? !!(fire && fire.released) : Controls.hit(input, 'fire');
+    if (released) { L.fp = true; L.ch = projectile ? fire.seconds : 0; }
     L.r = L.r || Controls.hit(input, 'reload');
     L.sw = L.sw || Controls.hit(input, 'swap');
     L.dp = L.dp || Controls.hit(input, 'drop');
-    L.u = L.u || (state.me.weapons.some(function (w) { return w.id === 'grenade'; }) ? Controls.lift(input, 'gear') : Controls.hit(input, 'gear'));
+    var grenadeGear = state.me.weapons.some(function (w) { return w.id === 'grenade'; });
+    if (grenadeGear ? !!(gear && gear.released) : Controls.hit(input, 'gear')) { L.u = true; L.uch = grenadeGear ? gear.seconds : 0; }
     if (Controls.hit(input, 'weapon1')) L.sl = 0;
     if (Controls.hit(input, 'weapon2')) L.sl = 1;
     L.cy += input.wheel;
@@ -400,12 +438,14 @@
     var a = Math.atan2(aim.y - (me.y + me.oy), aim.x - (me.x + me.ox)), d = U.clamp(Math.hypot(aim.x - me.x, aim.y - me.y), 40, 3000);
     var intent = blocked ? { mx: 0, my: 0 } : {
       mx: (Controls.down(input, 'right') ? 1 : 0) - (Controls.down(input, 'left') ? 1 : 0),
-      my: (Controls.down(input, 'down') ? 1 : 0) - (Controls.down(input, 'up') ? 1 : 0)
+      my: (Controls.down(input, 'down') ? 1 : 0) - (Controls.down(input, 'up') ? 1 : 0),
+      sprint: Controls.down(input, 'sprint')
     };
     var act = !blocked && !mapOpen;
     var msg = {
-      t: 'in', s: ++state.seq, mx: intent.mx, my: intent.my, a: Math.round(a * 1000) / 1000, d: Math.round(d),
+      t: 'in', s: ++state.seq, mx: intent.mx, my: intent.my, sp: !!intent.sprint, a: Math.round(a * 1000) / 1000, d: Math.round(d),
       f: act && !state.world.aimedProjectile(me) && Controls.down(input, 'fire'), fp: (act && L.fp) || L.use, sc: !blocked && Controls.down(input, 'scope'),
+      ch: L.use ? 0 : L.ch, uch: L.uch,
       r: L.r, sl: L.sl, cy: L.cy, sw: L.sw, u: act && L.u, iv: !blocked && Controls.down(input, 'interact'),
       ht: L.ht, ip: L.ip, dp: act && L.dp
     };

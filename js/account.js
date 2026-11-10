@@ -5,7 +5,7 @@
   var W = window.Warz, Net = W.Net;
   var TOKEN = 'warz.session.v1', GUEST = 'warz.guest.v1';
   var user = null, name = null, friendsState = { friends: [], incoming: [], outgoing: [] };
-  var party = null, lobby = null, invites = [], config = { google: null, apple: null, appleRedirect: null, lobbyMin: 2, lobbyMax: 50 };
+  var party = null, lobby = null, invites = [], config = { google: null, apple: null, appleRedirect: null, lobbyMin: 1, lobbyMax: 50, bots: 0 };
   var listeners = [], onlineCount = 0;
 
   function read(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }

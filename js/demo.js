@@ -1,5 +1,6 @@
 /* warz.io: main-menu background. Spectates simulated soldiers fighting on a random island.
-   These soldiers exist only behind the menu: real matches have no bots yet. */
+   These soldiers exist only behind the menu. The bots that fill online matches are a different thing: they
+   run on the server (server/core/bots/). Offline Practice has neither. */
 (function () {
   'use strict';
   var W = window.Warz, U = W.U, WEAPONS = W.WEAPONS, CLASSES = W.CLASSES;
@@ -11,6 +12,10 @@
   var LVL1 = ['sniper', 'shotgunner', 'medic', 'grenadier'];
 
   function randomClass(rng) { return rng.chance(0.4) ? 'soldier' : rng.pick(LVL1); }
+  function chargeTime(distance, def) {
+    var launcher = def.kind === 'launcher', min = launcher ? def.minRange : 70, max = launcher ? def.range : WEAPONS.grenade.throwRange;
+    return U.clamp((distance - min) / (max - min), 0, 1) * W.CONFIG.projectileChargeTime;
+  }
 
   function spot(demo, radius) {
     var w = demo.world, rng = demo.rng;
@@ -37,7 +42,7 @@
         var d = Math.hypot(o.x - p.x, o.y - p.y);
         if (d < bd && world.lineClear(p.x, p.y, o.x, o.y)) { bd = d; best = o; }
       }
-      if (best !== ai.enemy) { ai.enemy = best; ai.aimErr = 0.32; ai.react = 0.25 + rng.next() * 0.4; }
+      if (best !== ai.enemy) { ai.enemy = best; ai.launchCharge = null; ai.nadeCharge = null; ai.aimErr = 0.32; ai.react = 0.25 + rng.next() * 0.4; }
     }
     var e = ai.enemy && ai.enemy.alive ? ai.enemy : null, w = p.weapons[p.slot], def = WEAPONS[w.id];
     if (e) {
@@ -49,7 +54,16 @@
       intent.aimY = p.y + Math.sin(ang) * dist;
       ai.react -= dt;
       var range = def.range || 500;
-      if (ai.react <= 0 && dist < range * 0.92) { intent.fire = true; intent.firePressed = rng.chance(0.08); }
+      if (ai.react <= 0 && dist < range * 0.92) {
+        if (def.kind === 'launcher') {
+          if (w.cooldown <= 0 && !w.reloading && w.ammo > 0) {
+            if (ai.launchCharge === undefined || ai.launchCharge === null) ai.launchCharge = world.time;
+            if (world.time - ai.launchCharge + 1e-8 >= chargeTime(dist, def)) {
+              intent.firePressed = true; intent.charge = Math.min(W.CONFIG.projectileChargeTime, world.time - ai.launchCharge); ai.launchCharge = null;
+            }
+          } else ai.launchCharge = null;
+        } else { ai.launchCharge = null; intent.fire = true; intent.firePressed = rng.chance(0.08); }
+      } else ai.launchCharge = null;
       var pref = PREF[p.classId], radial = dist > pref + 70 ? 1 : dist < pref - 70 ? -1 : 0, ux = dx / dist, uy = dy / dist;
       ai.strafeT -= dt;
       if (ai.strafeT <= 0) { ai.strafeT = 0.7 + rng.next() * 1.4; ai.strafe = rng.chance(0.5) ? 1 : -1; }
@@ -57,10 +71,16 @@
       intent.my = uy * radial + ux * ai.strafe * 0.8;
       if (p.grenades > 0) {
         ai.nadeT -= dt;
-        if (ai.nadeT <= 0 && dist > 200 && dist < 520) { intent.utility = true; ai.nadeT = 3 + rng.next() * 4; }
+        if (ai.nadeT <= 0 && p.throwCd <= 0 && dist > 200 && dist < 520) {
+          if (ai.nadeCharge === undefined || ai.nadeCharge === null) ai.nadeCharge = world.time;
+          if (world.time - ai.nadeCharge + 1e-8 >= chargeTime(dist, WEAPONS.grenade)) {
+            intent.utility = true; intent.utilityCharge = Math.min(W.CONFIG.projectileChargeTime, world.time - ai.nadeCharge); ai.nadeCharge = null; ai.nadeT = 3 + rng.next() * 4;
+          }
+        } else ai.nadeCharge = null;
       }
       if (p.classId === 'medic' && p.hp < p.maxHp - 30 && p.medkitCd <= 0) intent.utility = true;
     } else {
+      ai.launchCharge = null; ai.nadeCharge = null;
       ai.retarget -= dt;
       var tdx = ai.tx - p.x, tdy = ai.ty - p.y, td = Math.hypot(tdx, tdy) || 1;
       if (td < 70 || ai.retarget <= 0) {
@@ -122,6 +142,7 @@
         var s = spot(demo, 1000);
         world.respawn(p, s.x, s.y, randomClass(demo.rng));
         p.ai.enemy = null;
+        p.ai.launchCharge = null; p.ai.nadeCharge = null;
       }
     });
     demo.followT -= dt;

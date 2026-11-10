@@ -7,6 +7,7 @@ const base = new URL(process.argv[2] || 'https://warz-io.warz-io.workers.dev/');
 const files = ['index.html', 'js/config.js', 'js/class-combat.js', 'js/world.js', 'js/items.js',
   'js/main.js', 'js/online.js', 'js/render.js', 'js/input.js', 'js/controls.js', 'js/icons.js',
   'js/map.js', 'js/map-art.js', 'js/map-screen.js', 'js/hud.js', 'js/upgrade-tree.js',
+  'js/util.js', 'js/audio.js', 'js/inventory.js', 'js/net.js', 'js/account.js', 'js/menu.js', 'js/demo.js',
   'css/style.css', 'css/upgrade-tree.css'];
 await Promise.all(files.map(async file => {
   const response = await fetch(new URL(file + '?verify=' + Date.now(), base), { signal: AbortSignal.timeout(15000) });

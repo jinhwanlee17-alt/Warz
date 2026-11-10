@@ -6,7 +6,7 @@
   var params = new URLSearchParams(window.location.search);
   var canvas, renderer, input, demo, match = null, state = 'menu', last = 0, shake = 0, pauseOpen = false, toastTimer = null, denyAt = {}, acc = 0;
   var ITEMS = W.ITEMS, pending = { held: null, interact: false, use: false }, invHintShown = false;
-  var SAMPLE_KIT = ['bandage', 'firenade', 'turret'];
+  var chargeTracker = Controls.createChargeTracker(), projectileInput = { fire: {}, gear: {} };
 
   function $(id) { return document.getElementById(id); }
   function play(name, vol) { W.Audio.play(name, vol); }
@@ -67,8 +67,12 @@
   function beginMatchUi(world, player, label) {
     shake = 0;
     input.release();
+    chargeTracker.reset();
     W.Hud.reset(world, player, label);
     W.Hud.show(true);
+    $('practice-items').hidden = true;
+    document.querySelector('[data-test="items"]').setAttribute('aria-expanded', 'false');
+    syncPracticeTools();
     setScreen('play');
     blurActive();
   }
@@ -104,6 +108,7 @@
     $('test-status').textContent = '';
     if (match) $('pause-mode').textContent = 'Mode: ' + match.label + ' · island seed ' + match.seed + (match.online ? ' · ping ' + W.MatchNet.latency() + ' ms' : '');
     syncSoundButtons();
+    syncPracticeTools();
     input.release();
     if (pauseOpen) $('resume-btn').focus(); else blurActive();
   }
@@ -156,6 +161,15 @@
   // ---------------------------------------------------------------- controls
   function blockedNow() { return state !== 'play' || pauseOpen || W.UpgradeTree.isOpen() || W.Menu.anyOpen(); }
 
+  function sampleProjectiles() {
+    var p = match.player, st = match.online && Online.state();
+    var changing = Controls.hit(input, 'weapon1') || Controls.hit(input, 'weapon2') || Controls.hit(input, 'swap') || input.wheel ||
+      pending.held !== null || (st && st.latch.ht !== null);
+    var enabled = !changing && !blockedNow() && !W.MapScreen.isOpen() && !W.Inventory.isOpen() && p.alive && !p.downed && !p.mount && p.dropT <= 0;
+    projectileInput.fire = chargeTracker.sample(input, 'fire', match.world.aimedProjectile(p), enabled);
+    projectileInput.gear = chargeTracker.sample(input, 'gear', p.weapons.some(function (w) { return w.id === 'grenade'; }) ? 'grenade' : null, enabled);
+  }
+
   function localController(p) {
     var aim = renderer.screenToWorld(match.cam, input.mouse.x, input.mouse.y);
     if (blockedNow()) return { mx: 0, my: 0, aimX: aim.x, aimY: aim.y };
@@ -166,10 +180,12 @@
     var slot = Controls.hit(input, 'weapon1') ? 0 : Controls.hit(input, 'weapon2') ? 1 : null;
     var intent = {
       mx: mx, my: my, aimX: aim.x, aimY: aim.y,
-      fire: !mapOpen && !projectile && Controls.down(input, 'fire'), firePressed: (!mapOpen && (projectile ? Controls.lift(input, 'fire') : Controls.hit(input, 'fire'))) || pending.use,
+      fire: !mapOpen && !projectile && Controls.down(input, 'fire'), firePressed: (!mapOpen && (projectile ? projectileInput.fire.released : Controls.hit(input, 'fire'))) || pending.use,
+      charge: pending.use ? 0 : projectileInput.fire.seconds || 0,
+      utilityCharge: projectileInput.gear.seconds || 0,
       scope: Controls.down(input, 'scope'),
       reload: Controls.hit(input, 'reload'), slot: slot, cycle: input.wheel, swap: Controls.hit(input, 'swap'),
-      utility: !mapOpen && (p.weapons.some(function (w) { return w.id === 'grenade'; }) ? Controls.lift(input, 'gear') : Controls.hit(input, 'gear')),
+      utility: !mapOpen && (p.weapons.some(function (w) { return w.id === 'grenade'; }) ? projectileInput.gear.released : Controls.hit(input, 'gear')),
       held: pending.held, interactPressed: pending.interact, dropPressed: !mapOpen && Controls.hit(input, 'drop')
     };
     pending.held = null; pending.interact = false; pending.use = false;
@@ -294,8 +310,9 @@
     for (var i = 0; i < events.length; i++) {
       var e = events[i], mine = e.player === p;
       switch (e.type) {
-        case 'shot': play(e.weapon, mine ? 0.75 : spatial(e.player.x, e.player.y) * 0.7); break;
-        case 'launch': play('launcher', mine ? 0.8 : spatial(e.player.x, e.player.y)); break;
+        case 'shot': play(e.weapon, mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
+        case 'flame': play('flamethrower', mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
+        case 'launch': play('launcher', mine ? 0.8 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y)); break;
         case 'shell-land': play('throw', spatial(e.x, e.y) * 0.6); break;
         case 'throw': if (mine) play('throw'); break;
         case 'reload': if (mine) play('reload'); break;
@@ -440,14 +457,16 @@
 
   function aimingTrajectory() {
     if (!match || blockedNow() || W.MapScreen.isOpen() || W.Inventory.isOpen()) return null;
-    var p = match.player, gearAim = Controls.down(input, 'gear') && p.weapons.some(function (w) { return w.id === 'grenade'; });
-    var id = gearAim ? 'grenade' : Controls.down(input, 'fire') ? match.world.aimedProjectile(p) : null;
-    if (!id || !p.alive || p.downed || p.dropT > 0) return null;
-    return match.world.throwSolution(p, renderer.screenToWorld(match.cam, input.mouse.x, input.mouse.y), id);
+    var p = match.player, aiming = projectileInput.gear.held ? projectileInput.gear : projectileInput.fire;
+    var id = aiming.held ? aiming.id : null;
+    if (!id || !p.alive || p.downed || p.mount || p.dropT > 0) return null;
+    var aim = renderer.screenToWorld(match.cam, input.mouse.x, input.mouse.y);
+    aim.charge = aiming.seconds;
+    return match.world.throwSolution(p, aim, id);
   }
 
   function frame(now) {
-    var dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
+    var elapsed = Math.max(0, (now - last) / 1000), dt = Math.min(0.05, elapsed);
     last = now;
     try {
       if (state === 'menu' || !match) {
@@ -456,6 +475,7 @@
         handleKeys();
       } else if (!match.online) {
         handleKeys();
+        sampleProjectiles();
         match.world.update(dt);
         var events = match.world.events;
         match.world.events = [];
@@ -473,8 +493,11 @@
         }
       } else {
         handleKeys();
-        Online.latch(input);
-        acc += dt;
+        sampleProjectiles();
+        Online.latch(input, projectileInput);
+        // Keep the 20 Hz input clock on real time even if drawing a frame takes
+        // longer than 50 ms. Bound catch-up after a hidden tab or a long stall.
+        acc += Math.min(0.25, elapsed);
         var blocked = blockedNow(), mapOpen = W.MapScreen.isOpen() || W.Inventory.isOpen(), steps = 0;
         while (acc >= Online.STEP && steps++ < 5) { Online.step(input, renderer, blocked, mapOpen); acc -= Online.STEP; }
         if (acc >= Online.STEP) acc = 0;
@@ -498,8 +521,89 @@
     }
   }
 
+  // ---------------------------------------------------------------- Practice tools
+  function syncPracticeTools() {
+    var practice = match && !match.online;
+    $('test-tools-section').hidden = !practice;
+    if (!practice) return;
+    $('practice-storm').textContent = match.world.storm ? 'Disable storm' : 'Enable storm';
+    Array.prototype.forEach.call($('practice-item-slot').options, function (option, i) {
+      var item = match.player.items[i];
+      option.textContent = 'Item slot ' + (i + 1) + ' (' + Controls.primary('item' + (i + 1)) + ')' +
+        (item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
+    });
+  }
+
+  function describePracticeItem() {
+    var item = ITEMS[$('practice-item').value];
+    if (!item) return;
+    $('practice-item-quantity').max = item.stack;
+    $('practice-item-quantity').value = item.stack;
+    $('practice-item-detail').textContent = W.TIERS[item.tier].name + ' · Stack of up to ' + item.stack + '. ' + item.blurb;
+  }
+
+  function bindPracticeItems() {
+    var select = $('practice-item');
+    W.CRATE_ORDER.forEach(function (tier) {
+      var group = document.createElement('optgroup');
+      group.label = W.TIERS[tier].name;
+      W.ITEM_ORDER.forEach(function (id) {
+        var item = ITEMS[id];
+        if (item.tier !== tier) return;
+        var option = document.createElement('option');
+        option.value = id; option.textContent = item.name;
+        group.appendChild(option);
+      });
+      select.appendChild(group);
+    });
+    select.addEventListener('change', describePracticeItem);
+    describePracticeItem();
+    $('practice-items').addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (!match || match.online || !match.player.alive) return;
+      var item = ITEMS[select.value], slot = Number($('practice-item-slot').value);
+      if (!item || !Number.isInteger(slot) || slot < 0 || slot >= C.hotbarSize) return;
+      var n = Math.max(1, Math.min(item.stack, Math.floor(Number($('practice-item-quantity').value) || item.stack)));
+      match.player.items[slot] = { id: item.id, n: n };
+      match.player.shieldUp = false;
+      syncPracticeTools();
+      $('test-status').textContent = item.name + ' ×' + n + ' placed in item slot ' + (slot + 1) + '.';
+    });
+  }
+
+  function practiceStation() {
+    var p = match.player, world = match.world, station = world.nearestStation(p.x, p.y, Infinity);
+    if (!station) return 'There are no Upgrade Stations on this island.';
+    var landing = null, start = Math.atan2(p.y - station.y, p.x - station.x);
+    function clear(x, y) {
+      if (!U.insideIsland(x, y, p.r + 2, C.worldSize, C.cornerRadius) || world.inPond(x, y)) return false;
+      var free = true;
+      world.solids.query(x - p.r, y - p.r, x + p.r, y + p.r, function (s) {
+        if ((s.crate && !s.crate.alive) || (s.rock && !s.rock.alive) || (s.struct && !s.struct.alive)) return;
+        if (s.shape === 'circle' ? Math.hypot(x - s.x, y - s.y) < p.r + s.r + 1 : U.circleRectPush(x, y, p.r + 1, s.x, s.y, s.w, s.h)) free = false;
+      });
+      return free && !world.players.some(function (other) { return other !== p && other.alive && other.dropT <= 0 && Math.hypot(x - other.x, y - other.y) < p.r + other.r; });
+    }
+    for (var radius = C.stationCoreRadius + p.r + 12; radius < C.stationInteractRadius + p.r && !landing; radius += 16) {
+      for (var i = 0; i < 32; i++) {
+        var angle = start + i / 32 * U.TAU, x = station.x + Math.cos(angle) * radius, y = station.y + Math.sin(angle) * radius;
+        if (clear(x, y)) { landing = { x: x, y: y }; break; }
+      }
+    }
+    if (!landing) return 'No clear landing spot beside the nearest Upgrade Station.';
+    if (p.mount) world.dismount(p);
+    world.teleportFx(p.x, p.y, landing.x, landing.y);
+    p.x = p.px = landing.x; p.y = p.py = landing.y; p.vx = p.vy = p.ox = p.oy = 0; p.dropT = 0;
+    p.inPond = false; p.nearStation = station;
+    p.inStorm = !!world.storm && Math.hypot(p.x - world.storm.x, p.y - world.storm.y) > world.storm.r;
+    match.cam.x = p.x; match.cam.y = p.y; match.cam.zoom = 1;
+    chargeTracker.reset(); input.release(); shake = 0;
+    return 'Teleported to Upgrade Station ' + station.number + '.';
+  }
+
   // ---------------------------------------------------------------- boot
   function bindUi() {
+    bindPracticeItems();
     $('play-btn').addEventListener('click', function () { W.Audio.unlock(); W.Menu.openModePicker(); });
     $('settings-btn').addEventListener('click', function () { W.Audio.unlock(); W.Menu.openSettings('controls'); });
     $('friends-btn').addEventListener('click', function () { W.Menu.openFriends(); });
@@ -531,10 +635,24 @@
             break;
           case 'reset': world.setClass(p, 'soldier', false); msg = 'Back to Soldier. Upgrade again at any ready station.'; break;
           case 'items':
-            SAMPLE_KIT.forEach(function (id) { world.addItem(p, id, ITEMS[id].found); });
-            msg = 'Hotbar filled. Press ' + Controls.primary('inventory') + ' in the match to open your inventory.';
+            $('practice-items').hidden = !$('practice-items').hidden;
+            btn.setAttribute('aria-expanded', String(!$('practice-items').hidden));
+            if (!$('practice-items').hidden) { syncPracticeTools(); $('practice-item').focus(); }
+            msg = 'Choose an item, its quantity and one of your three item slots.';
             break;
           case 'armor': p.armor = Math.min(C.armorMax, p.armor + C.armorPlate); msg = 'Armor: ' + p.armor + '/' + C.armorMax + '.'; break;
+          case 'storm':
+            if (world.storm) {
+              match.practiceStorm = world.storm; world.storm = null;
+              world.players.forEach(function (other) { other.inStorm = false; });
+              msg = 'Storm disabled.';
+            } else {
+              world.storm = match.practiceStorm || new W.Storm(world);
+              msg = 'Storm enabled.';
+            }
+            syncPracticeTools();
+            break;
+          case 'station': msg = practiceStation(); break;
         }
         $('test-status').textContent = msg;
       });

@@ -6,6 +6,9 @@ freshly generated island, zombsroyale style. Collect tokens, upgrade at stations
 
 - **Online**: Solo, Duos, Trios, Squads with friends (invites) or random fill. Knocked-down teammates can be
   revived; medics heal the team. Accounts, friends and presence are live. Google and Apple sign-in are supported.
+- **Bots**: every online match has 50 players. Bots fill the seats real players don't take, and a bot gives up its
+  seat for every player who joins the lobby. They loot, upgrade, use items and fight like players, some better
+  than others. See **Bots** below.
 - **Free hosting**: the whole game (files + server) deploys to **Cloudflare Workers + Durable Objects** on the
   free plan. There is also a Node server for LAN play and tests. Both run the same code.
 - **Offline**: with no server, Play offers a solo Practice match that runs entirely in the browser.
@@ -16,15 +19,18 @@ freshly generated island, zombsroyale style. Collect tokens, upgrade at stations
 npm start                 # http://localhost:5180  (Node server: game files + matchmaking + matches)
 ```
 
-Open the address in two browser windows, press **Play → Solo** in both, and the match starts once the lobby
-countdown runs (defaults: 2+ players, 20 s). Friends on your Wi-Fi can join at `http://<your-ip>:5180`.
+Press **Play → Solo**: the lobby shows 50 players, and the match starts when the countdown runs out (20 s by
+default). Open the address in a second window and join the same lobby; a bot makes way for the second
+player while the displayed total stays at 50. Friends on your Wi-Fi can join at `http://<your-ip>:5180`.
 
 Other commands:
 
 ```
-npm test                  # Node suites: rules, map + simulation, teams, menu demo, controls, websocket, auth, full server
+npm test                  # Node suites: rules, map + simulation, teams, menu demo, controls, websocket, auth, full server, bots
+npm run test:bots         # only the bot suites: behaviours one at a time, whole 50-bot matches, lobby + match over sockets
 npm run qa                # headless Chrome: offline practice flow with screenshots in output/qa/
-npm run qa:online         # two headless Chrome tabs vs the Node server: accounts, friends, party, duos, solo duel
+npm run qa:online         # two headless Chrome tabs vs the Node server: accounts, friends, party, duos, solo duel (bots off)
+npm run qa:bots           # headless Chrome vs the Node server with bots: the 50-player lobby, a match among bots, a bot teammate
 npm run dev:cf            # the Cloudflare Worker locally (wrangler dev) at http://localhost:8787
 npm run dev               # static files only (no server; Practice works, online modes are disabled)
 ```
@@ -39,7 +45,7 @@ What runs where: static assets serve `index.html`, `js/` and `css/`; one **Hub**
 friends, parties and matchmaking; each match runs in its own **Match** Durable Object (20 Hz authoritative
 simulation, the same `js/world.js` the browser uses). Accounts are stored in the Hub's Durable Object storage.
 
-Settings live in `wrangler.toml` (`LOBBY_MIN`, `LOBBY_COUNTDOWN`, `LOBBY_MAX`) or as secrets:
+Settings live in `wrangler.toml` (`LOBBY_MIN`, `LOBBY_COUNTDOWN`, `LOBBY_MAX`, `BOT_FILL`, `BOT_SKILL`) or as secrets:
 
 ```
 npx wrangler secret put GOOGLE_CLIENT_ID
@@ -50,7 +56,10 @@ npx wrangler secret put PUBLIC_URL        # https://warz-io.<your-account>.worke
 **Free-plan budget** (as of late 2025): Durable Objects get 100,000 requests and 13,000 GB-seconds of
 duration per day. Every 20 incoming WebSocket messages count as one request, and a match object is "on" while it
 runs. In practice a group of friends can play for a few hours a day. Idle browser tabs disconnect from the hub
-after five minutes hidden so they don't eat the budget.
+after five minutes hidden so they don't eat the budget. With bots one player is enough to start a match, so every
+solo queue now turns a match object on for as long as that player stays in it (a match with nobody connected ends
+itself after ten seconds; bots never keep one running). The bots themselves are cheap: a whole 50-player tick takes
+about a quarter of a millisecond on a desktop CPU, and there are 50 ms to spend.
 
 ## Google sign-in (free, ~5 minutes)
 
@@ -81,7 +90,7 @@ The server verifies Apple's ID token the same way (issuer `https://appleid.apple
 
 | | |
 | --- | --- |
-| Lobby | up to 50 players; a match starts after the countdown once `LOBBY_MIN` players are queued |
+| Lobby | always 50 players: bots fill the seats real players don't take, and each player who joins takes a bot's seat (5 players wait with 45 bots; a sixth makes it 6 and 44). The countdown (`LOBBY_COUNTDOWN`, 20 s) starts with the first player in the queue; `LOBBY_MIN` real players (1) are needed to start. |
 | Modes | Solo, Duos, Trios, Squads. Teams: no friendly fire except commander airstrikes; grenades can damage their thrower, team medkit heals, knocked-down players bleed out in 30 s unless a teammate holds `E` next to them (medics revive twice as fast). When the last standing member falls, the team is out. |
 | Spawn | random Drop Station (16 per island, teams share one), 1.8 s parachute drop |
 | Start | Soldier: 100 HP, 0 armor, Basic AR + Basic Pistol |
@@ -93,6 +102,38 @@ The server verifies Apple's ID token the same way (issuer `https://appleid.apple
 | Storm | forms at 2:30, then shrinks in five steps; damage grows each step |
 | Map | Three times the previous width and height (nine times the area). M opens the full map: white arrow = you, blue = teammates, red = enemies revealed continuously by radar or drone. |
 | Placement | last team standing wins; everyone else gets their placement when their team is out |
+
+## Bots
+
+Bots live on the server, inside the match (`server/core/bots/`). Each one is an ordinary player whose inputs come
+from code instead of a socket: it returns the same move / aim / fire / item intent a browser sends, so every rule
+that applies to a player applies to a bot. Offline Practice has no bots.
+
+- **The lobby**: in team modes bots first fill the open spots on teams that have Fill switched on, then make up
+  whole teams until there are 50 players. A party with Fill off keeps its empty spots. Bots have ordinary names
+  and no special labels in the menus or match; the lobby shows one combined player count and fill bar.
+- **What they know**: only what a player's screen would show. No seeing under tree canopies or roofs, into smoke,
+  beyond the edge of the view, or invisible players; a muzzle flash, a bullet going past, radar and the drone give
+  people away exactly as they do to a player. Noticing takes a reaction time, aiming lags and wobbles.
+- **How good they are**: skill is rolled per bot. About a fifth are clearly weak, a bit over half average, a
+  fifth clearly better and one in twenty sharp. An average bot lands roughly one bullet in three on a strafing target and
+  most of them on one who stands still; the best one still takes a fifth of a second to react. Each also has its
+  own aggression, caution and class plan. `BOT_SKILL` (`"0"` easy … `"1"` hard, default `"0.5"`) slides the whole
+  lobby down or up and also sets how readily bots go after players who have left them alone.
+- **What they do**: land, open crates (indoor ones have to be found), pick up and swap items, save tokens for the
+  class they want and walk to an Upgrade Station, rotate ahead of the storm, keep out of fire, airstrikes and big
+  sentries (and shoot those down from outside their reach). In a fight they pick the right gun for the distance,
+  strafe, reload behind cover, back off and heal when it goes badly, and use what they carry with a purpose: a
+  boulder between them and the shooter and a snowbomb on the chaser to get away, smoke or a riot shield to revive
+  under fire, flashbang before a shotgun push, black hole then grenade, a teleporter pad left somewhere safe.
+- **Toward players**: nobody opens fire on a player in the first seconds after landing, bots do not gang up on
+  one player (a second bot team-mate joins a fight a moment after the first), and through the middle of a match
+  most bots leave a player alone unless shot at, crowded or met in the same room. As the circle shrinks they go
+  looking. A bot on your team follows you, fights who you fight and revives you.
+- **Pacing**: how readily bots fight *each other* follows a target curve for the number of players left, so a
+  match is still populated when the storm closes in (about 35 left at 2:30, 17 at 5:00, a winner at about 7:30).
+
+`BOT_FILL = "0"` turns bots off; with that, set `LOBBY_MIN` to the number of real players a match should wait for.
 
 ## Classes
 
@@ -118,7 +159,7 @@ You pick **one** Lvl 1 class per match; the other branches lock. Then spend 15 t
 | Any level 1 | Juggernaut | 150 HP, 25% slower; 5-damage minigun with 0.75-second spin-up and 20 rounds/second; basic pistol |
 | Any level 1 | Commander | 100 HP; 15-damage, 12-round pistol; radar grants the team +25% damage/speed/fire rate for 15 seconds, with a 45-second cooldown. Cursor airstrike warns for 5 seconds, radius 450, then deals 500 damage to everyone inside, including allies |
 
-Hold fire to preview any grenade or launcher arc, then release to throw over walls/buildings. Hold/release the gear key also aims the Grenadier's hand grenade. Grenades can damage their owner. Sentries target opposing players first, then crates. Foliage has no hidden center collision.
+Aim in a direction and release fire to throw a grenade or launcher shell. A quick tap gives a short throw; holding for 0.75 seconds reaches maximum range, with the preview growing as you charge. Mouse distance does not set range. Hand grenades reach 560 world units, the launcher 660, and Launcher II 700. Hold/release the gear key also charges the Grenadier's hand grenade. Grenades can damage their owner. Sentries target opposing players first, then crates. Foliage has no hidden center collision.
 
 ## Items
 
@@ -142,7 +183,7 @@ Your items drop where you die. All numbers live in `W.ITEMS` / `W.CRATES` in `js
 
 - One WebSocket to the **hub** for the menu (accounts, friends, parties, queue). When a match forms, the hub hands
   every player a one-time ticket; the client opens a second WebSocket to that **match**.
-- The match simulates at 20 Hz, accepts inputs (move, aim angle, buttons), and sends each player compact snapshots
+- The match simulates at 20 Hz, accepts inputs (move, aim angle, buttons; bots produce theirs in-process), and sends each player compact snapshots
   of what is near them plus replicated events (shots, blasts, damage, pickups, crate HP, station use, knocks, kills).
 - The browser predicts its own movement and reconciles with the server; other players are interpolated; bullets and
   grenades are mirrored cosmetically (hits are decided only on the server).
@@ -158,6 +199,7 @@ Your items drop where you die. All numbers live in `W.ITEMS` / `W.CRATES` in `js
 | `js/input.js`, `js/controls.js` | key/mouse state and rebindable actions |
 | `js/net.js`, `js/online.js`, `js/account.js`, `js/menu.js`, `js/main.js` | hub/match sockets, the online match mirror, account/party/lobby state, dialogs, app flow |
 | `server/core/` | platform-neutral server: `auth.mjs` (PBKDF2, sessions, Google/Apple token verification), `accounts.mjs`, `lobby.mjs`, `match.mjs`, `hub.mjs`, `sim.mjs` |
+| `server/core/bots/` | the bots: `index.mjs` (director: shared navigation, pacing, world events), `bot.mjs` (senses, decisions, steering, aim), `bot-combat.mjs`, `bot-loot.mjs`, `bot-items.mjs`, `nav.mjs` (grid + A*), `sense.mjs` (what a screen shows), `profile.mjs` (skill, personality, names) |
 | `server/cf/worker.mjs` | Cloudflare Worker + Durable Objects (`wrangler.toml`, `.assetsignore`) |
 | `server/node/index.mjs` | Node adapter (`ws.mjs` zero-dependency WebSocket server, JSON file store) |
 | `tests/`, `tools/` | Node smoke suites, headless-Chrome QA scripts |

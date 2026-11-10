@@ -57,6 +57,7 @@
     sniper: function (t, v) { noise(t, 0.45, 'lowpass', 2600, 300, 0.7, 0.8 * v); tone(t, 'sine', 140, 40, 0.3, 0.5 * v); noise(t + 0.05, 0.6, 'bandpass', 900, 300, 0.5, 0.15 * v); },
     shotgun: function (t, v) { noise(t, 0.3, 'lowpass', 1800, 250, 0.6, 0.85 * v); tone(t, 'sine', 120, 45, 0.2, 0.45 * v); },
     deagle: function (t, v) { noise(t, 0.2, 'bandpass', 1700, 500, 0.7, 0.7 * v); tone(t, 'sine', 180, 60, 0.15, 0.35 * v); },
+    flamethrower: function (t, v) { noise(t, 0.19, 'bandpass', 600, 1800, 0.5, 0.45 * v); tone(t, 'sine', 120, 65, 0.14, 0.12 * v); },
     launcher: function (t, v) { tone(t, 'sine', 240, 80, 0.16, 0.5 * v); noise(t, 0.12, 'lowpass', 900, 200, 0.6, 0.35 * v); },
     explosion: function (t, v) { noise(t, 0.9, 'lowpass', 1400, 120, 0.6, 0.95 * v); tone(t, 'sine', 90, 28, 0.6, 0.7 * v); },
     throw: function (t, v) { noise(t, 0.18, 'bandpass', 700, 2200, 1.4, 0.18 * v); },
@@ -95,6 +96,15 @@
     drone: function (t, v) { tone(t, 'square', 180, 260, 0.6, 0.08 * v, 0.1); tone(t, 'square', 183, 266, 0.6, 0.08 * v, 0.1); },
     mount: function (t, v) { noise(t, 0.06, 'highpass', 2000, 0, 0.7, 0.3 * v); tone(t + 0.07, 'square', 300, 0, 0.06, 0.08 * v); }
   };
+
+  // Upgraded weapons emit their own IDs; keep their firing sounds in the same
+  // weapon family instead of silently dropping those events.
+  SOUNDS.shotgun2 = SOUNDS.shotgun;
+  SOUNDS.sniper2 = SOUNDS.sniper;
+  SOUNDS.revolver = SOUNDS.deagle;
+  SOUNDS.minigun = SOUNDS.ar;
+  SOUNDS.commandpistol = SOUNDS.pistol;
+  SOUNDS.launcher2 = SOUNDS.launcher;
 
   function play(name, vol) {
     if (!ctx || muted || !SOUNDS[name] || ctx.state !== 'running') return;

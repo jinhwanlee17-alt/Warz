@@ -55,7 +55,7 @@
     var key = esc(Controls.primary('interact'));
     switch (it.kind) {
       case 'consume': return 'Hold it and click anywhere to use it, or press Use now.';
-      case 'throw': return 'Hold it and click where it should land (as far as a grenade throw).';
+      case 'throw': return 'Aim in a direction. Tap for a short throw, or hold for 0.75 seconds for maximum range, then release.';
       case 'place': return 'Hold it and click a free spot near you to place it.' + (it.struct === 'turret' ? ' Then stand next to it and press ' + key + ' to mount it.' : it.struct === 'teleporter' ? ' Place both pads to link them.' : '');
       case 'hold': return 'Hold it to raise the shield. Switch back to a weapon to lower it.';
       case 'target': return 'Hold it and click on the target.';

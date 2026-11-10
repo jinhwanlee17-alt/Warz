@@ -114,7 +114,7 @@ export class Hub {
     conn.sendJson({
       t: 'welcome', v: VERSION, user: conn.user ? this.accounts.publicUser(conn.user) : null, name: conn.name, online: this.conns.size,
       match: this.rejoinFor(conn),
-      config: { google: c.googleClientId || null, apple: c.appleClientId || null, appleRedirect: c.publicUrl ? c.publicUrl.replace(/\/$/, '') + '/' : null, lobbyMin: c.lobbyMin, lobbyMax: c.lobbyMax }
+      config: { google: c.googleClientId || null, apple: c.appleClientId || null, appleRedirect: c.publicUrl ? c.publicUrl.replace(/\/$/, '') + '/' : null, lobbyMin: c.lobbyMin, lobbyMax: c.lobbyMax, bots: this.lobby.botTarget() }
     });
   }
   authReply(conn, r) {
@@ -136,13 +136,14 @@ export class Hub {
   startMatch(spec) {
     const flat = [];
     spec.teams.forEach((t) => t.members.forEach((m) => flat.push(m)));
-    const plain = { mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams.map((t) => ({ members: t.members.map((m) => ({ userKey: m.userKey || null, name: m.name })) })) };
+    // Bot seats travel as { bot: true }; the match names and plays them. They get no ticket.
+    const plain = { mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams.map((t) => ({ members: t.members.map((m) => (m.bot ? { bot: true } : { userKey: m.userKey || null, name: m.name })) })) };
     const started = Promise.resolve().then(() => this.matchHost.start(plain));
     started.then(({ id, tickets }) => {
       const users = [];
       tickets.forEach((ticket, i) => {
         const m = flat[i];
-        if (!m) return;
+        if (!m || m.bot || !ticket) return;
         if (m.conn && m.conn.open) {
           m.conn.match = { id, ticket };
           m.conn.sendJson({ t: 'match-ticket', id, ticket, mode: spec.mode, teamSize: spec.teamSize });
@@ -151,7 +152,8 @@ export class Hub {
       });
       this.matchUsers.set(id, users);
       users.forEach((u) => this.pushFriendsAround(u));
-      if (this.log.info) this.log.info('match ' + id + ' started: ' + spec.mode + ', ' + spec.teams.length + ' teams, ' + flat.length + ' players');
+      const bots = flat.filter((m) => m.bot).length;
+      if (this.log.info) this.log.info('match ' + id + ' started: ' + spec.mode + ', ' + spec.teams.length + ' teams, ' + (flat.length - bots) + ' players' + (bots ? ' + ' + bots + ' bots' : ''));
     }).catch((err) => {
       this.log.error('could not start match: ' + (err && err.stack || err));
       flat.forEach((m) => m.conn && m.conn.open && m.conn.sendJson({ t: 'lobby-error', reason: 'start-failed' }));
