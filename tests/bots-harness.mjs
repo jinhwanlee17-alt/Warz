@@ -9,7 +9,7 @@ export const TICK = 1 / 20;
 // A real island with everything on it removed, so each test adds only what it is about.
 export function emptyMap(seed = 5, extra = {}) {
   const map = W.MapGen.generate(seed);
-  map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = []; map.stations = [];
+  map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = []; map.stations = []; map.vehicles = []; map.tanks = [];
   return Object.assign(map, extra);
 }
 

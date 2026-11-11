@@ -255,7 +255,7 @@ Object.assign(Bot.prototype, {
     const p = this.p, now = this.now, next = this.nextClass();
     const mine = !!next && p.tokens >= this.W.Rules.upgradeCostFor(next), mate = mine ? null : this.mateWantsStation();
     if (!mine && !mate) { this.station = null; return false; }
-    if (this.station && this.station.cls === (mine ? next : null) && now < this.station.checkAt) return true;
+    if (this.station && this.station.cls === (mine ? next : null) && now < this.station.checkAt && !this.inHazard(this.station.st.x, this.station.st.y)) return true;
     const speed = Math.max(120, this.speed()), lead = this.following(), keys = mine ? p.keys : mate.keys;
     let best = null, bt = Infinity;
     for (const st of this.world.map.stations) {
@@ -263,6 +263,7 @@ Object.assign(Bot.prototype, {
       const d = this.dist(st), travel = d / speed, wait = keys > 0 ? 0 : Math.max(0, st.cooldown - travel);
       if (wait > 25) continue;                                     // somebody just used it: try another, or keep looting
       if (!this.inZone(st.x, st.y, 40)) continue;
+      if (this.inHazard(st.x, st.y)) continue;                      // steering cannot enter a known sentry/fire danger zone
       if (lead && Math.hypot(st.x - lead.x, st.y - lead.y) > (lead.bot ? 1500 : 1300)) continue;   // a follower does not go shopping on its own
       const t = travel + wait * 1.3 + (this.station && this.station.st === st ? -2 : 0);
       if (t < bt) { bt = t; best = st; }
@@ -276,10 +277,29 @@ Object.assign(Bot.prototype, {
     const S = this.station, p = this.p, now = this.now;
     if (!S) { this.redecide = true; return; }
     const st = S.st;
-    if (p.nearStation !== st) { this.moveGoal = { x: st.x, y: st.y, tol: 88 }; S.browseAt = 0; return; }
+    // A danger can appear after choosing the errand. Drop it now instead of oscillating along its boundary;
+    // unlike an unreachable building, this station can be reconsidered as soon as the danger disappears.
+    if (this.inHazard(st.x, st.y)) { this.station = null; this.moveGoal = null; this.route = null; this.redecide = true; return; }
+    if (p.nearStation !== st && !(!S.cls && S.waitSpot)) { this.moveGoal = { x: st.x, y: st.y, tol: 88 }; S.browseAt = 0; return; }
     this.still = true;
     if (!this.target) this.look = st;
     if (!S.cls) {
+      // An escort standing at interaction range can pin the paying teammate just outside it.
+      // Wait to one side of their approach instead, keeping the station's entrance clear.
+      if (!S.waitSpot || !this.nav.freeAt(S.waitSpot.x, S.waitSpot.y)) {
+        const mate = this.mateWantsStation() || p, angle = Math.atan2(mate.y - st.y, mate.x - st.x);
+        const radius = this.W.CONFIG.stationInteractRadius + p.r * 3;
+        let best = null, distance = Infinity;
+        for (const turn of [Math.PI / 2, -Math.PI / 2, Math.PI / 3, -Math.PI / 3, Math.PI * 2 / 3, -Math.PI * 2 / 3]) {
+          const x = st.x + Math.cos(angle + turn) * radius, y = st.y + Math.sin(angle + turn) * radius;
+          if (!this.inZone(x, y, p.r) || !this.nav.freeAt(x, y) || this.nav.pondAt(x, y) || !this.nav.segmentClear(p.x, p.y, x, y)) continue;
+          if (this.mates.some((m) => m.alive && Math.hypot(m.x - x, m.y - y) < m.r + p.r + 20)) continue;
+          const d = Math.hypot(p.x - x, p.y - y);
+          if (d < distance) { distance = d; best = { x, y }; }
+        }
+        S.waitSpot = best;
+      }
+      if (S.waitSpot && !this.arrivedAt(S.waitSpot, 22)) { this.still = false; this.moveGoal = { x: S.waitSpot.x, y: S.waitSpot.y, tol: 18 }; }
       // Here for a teammate: wait while they use it, but not for ever (they may have found something better to do).
       if (!S.hereAt || now - (S.waitAt || 0) > 1) S.hereAt = now;
       S.waitAt = now;

@@ -12,19 +12,19 @@ function run(w, seconds, dt = .05) { for (let i = 0; i < Math.round(seconds / dt
 function player(w, cls, x = 4000, y = 4000, team) { const p = w.addPlayer({ classId: cls, x, y, team }); idle(p); return p; }
 
 const active = W.CLASS_ORDER.filter(id => CLASSES[id].tier === 2);
-t.equal(active.length, 7, 'seven level-two classes are playable');
+t.equal(active.length, 8, 'eight level-two classes are playable');
 for (const id of active) {
   const c = CLASSES[id], w = arena(), p = player(w, id);
   t.check(Rules.upgradeCheck({ from: c.parent, to: id, tokens: 15, keys: 0, stationCooldown: 0 }).ok, id + ' upgrades for fifteen tokens');
   t.equal(p.items.length + p.weapons.length, 5, id + ' preserves the five-slot hotbar');
-  t.check(p.weapons.every(slot => WEAPONS[slot.id] && W.BARRELS[slot.id]), id + ' has complete combat and drawing definitions');
+  t.check(p.weapons.every(slot => WEAPONS[slot.id] && (W.BARRELS[slot.id] || WEAPONS[slot.id].kind === 'melee')), id + ' has combat definitions and either barrel art or dedicated melee rendering');
   t.check(Number.isFinite(p.commandCd) && Number.isFinite(p.commandBuff), id + ' initializes serializable ability state');
 }
 t.check(!Rules.upgradeCheck({ from: 'medic', to: 'sniper2', tokens: 99, keys: 9, stationCooldown: 0 }).ok, 'unrelated level-two branches remain locked');
 for (const first of ['sniper','shotgunner','medic','grenadier']) {
-  t.equal(Rules.nextClasses(first).length, 4, first + ' has four active level-two choices');
+  t.equal(Rules.nextClasses(first).length, 5, first + ' has five active level-two choices');
   for (const shared of ['pyromancer','juggernaut','commander']) t.check(Rules.upgradeCheck({from:first,to:shared,tokens:15,keys:0,stationCooldown:0}).ok, first + ' can choose ' + shared);
-  t.check(Rules.classParents('armorcrew').includes(first) && !Rules.upgradeCheck({from:first,to:'armorcrew',tokens:99,keys:9,stationCooldown:0}).ok, first + ' sees planned armor crew without a playable vehicle class');
+  t.check(Rules.classParents('armorcrew').includes(first) && Rules.upgradeCheck({from:first,to:'armorcrew',tokens:15,keys:0,stationCooldown:0}).ok, first + ' can upgrade to Armor Crew for fifteen tokens');
 }
 {
   const w=arena(),p=player(w,'soldier'),st={id:0,x:p.x,y:p.y,cooldown:0};
@@ -38,8 +38,8 @@ for (const first of ['sniper','shotgunner','medic','grenadier']) {
   w.setClass(p,'commander',false);
   t.equal(p.upgradeFrom,'medic','reapplying the same shared class preserves its actual ancestor');
 }
-t.check(!CLASSES.armorcrew && W.CLASS_PLANNED.armorcrew.planned, 'vehicle-only armor crew remains a planned class');
-t.check(W.CLASS_PLANNED.armorcrew.vehicleTraits.damage === 1.35 && W.CLASS_PLANNED.armorcrew.vehicleTraits.fireRate === 1.15 && W.CLASS_PLANNED.armorcrew.vehicleTraits.repair === 1.5 && W.CLASS_PLANNED.armorcrew.vehicleTraits.speed === 1.35 && W.CLASS_PLANNED.armorcrew.vehicleTraits.excludesPlanes, 'all future vehicle traits are recorded, with planes excluded');
+t.check(CLASSES.armorcrew && !W.CLASS_PLANNED.armorcrew && W.CLASS_ORDER.length === 13, 'Armor Crew is one of thirteen playable classes');
+t.check(CLASSES.armorcrew.hp === 150 && W.ARMOR_CREW.damageMul === 1.05 && W.ARMOR_CREW.damageTakenMul === 0.9 && W.ARMOR_CREW.repairSecondsPer100.humvee === 3.5 && W.ARMOR_CREW.repairSecondsPer100.tank === 2, 'released Armor Crew uses its current health, vehicle damage, personal protection and vehicle-specific repair tuning');
 t.equal(WEAPONS.deagle.damage, 45, 'all classes share the 45-damage Deagle');
 t.check(Rules.shotgunDamage(0, WEAPONS.shotgun2) === 200 && Rules.shotgunDamage(560, WEAPONS.shotgun2) === 10, 'advanced shotgun damage spans 200 down to 10');
 

@@ -11,7 +11,7 @@ const started = Date.now();
 for (const seed of [1, 42, 9001, 123456, 777777]) {
   const m = MapGen.generate(seed);
   t.equal(m.stations.length, C.stationCount, 'seed ' + seed + ': ' + C.stationCount + ' upgrade stations');
-  t.equal(m.drops.length, 16, 'seed ' + seed + ': 16 drop stations');
+  t.equal(m.drops.length, 50, 'seed ' + seed + ': 50 Solo edge drop stations');
   t.check(m.stations.every((s) => W.U.insideIsland(s.x, s.y, 300, C.worldSize, C.cornerRadius)), 'seed ' + seed + ': stations on land');
   let minGap = Infinity;
   for (let i = 0; i < m.stations.length; i++) for (let j = i + 1; j < m.stations.length; j++) {
@@ -19,7 +19,7 @@ for (const seed of [1, 42, 9001, 123456, 777777]) {
   }
   t.check(minGap >= C.stationMinGap, 'seed ' + seed + ': stations spread out (closest pair ' + Math.round(minGap) + ')');
   t.check(m.buildings.length >= 18, 'seed ' + seed + ': towns have buildings (' + m.buildings.length + ')');
-  t.check(m.crates.length >= 40 && m.crates.length <= 110, 'seed ' + seed + ': crates are rarer (' + m.crates.length + ')');
+  t.equal(m.crates.length, C.regularCrateCount + 1, 'seed ' + seed + ': regular crate quota plus one legendary crate');
   const tokens = m.pickups.filter((p) => p.type === 'token').length;
   t.check(tokens >= 35 && tokens <= 100, 'seed ' + seed + ': fewer loose tokens (' + tokens + ')');
   t.check(m.pickups.filter((p) => p.type === 'key').length >= 3, 'seed ' + seed + ': a few station keys');

@@ -134,6 +134,29 @@ body.inventory-open .hud-bc, body.inventory-open .hud-bl { visibility: hidden; }
 #hud-feed .feed-storm { border-left-color: #c58bff; }
 #hud-feed .feed-muted { border-left-color: #8a93ad; color: #d5dbe7; }
 .hud-bl { position: absolute; left: 18px; bottom: 18px; width: 310px; }
+.vehicle-panel { margin-bottom: 10px; padding: 10px; border: 2px solid #97b274; border-radius: 12px; background: rgba(24, 37, 31, 0.94); }
+.repair-panel { margin-bottom: 10px; padding: 10px; border: 2px solid #83d7df; border-radius: 12px; background: rgba(21, 43, 45, 0.94); }
+.repair-panel > b { font: 400 20px var(--display); color: #a8f0ed; }
+.repair-panel small { display: block; margin-top: 6px; font-size: 11px; line-height: 1.35; color: #dcebe5; }
+.repair-panel small b { color: #ffd882; }
+.vehicle-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.vehicle-heading b { font: 400 20px var(--display); color: #e7f3c7; }
+.vehicle-heading span { color: #8fe6ed; font-size: 11px; }
+.bar-vehicle { height: 22px; }
+.bar-vehicle span { font-size: 11px; }
+.vehicle-seats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.vehicle-seats span { padding: 3px 5px; border: 1px solid #607362; border-radius: 4px; color: #98aa9d; font-size: 9px; }
+.vehicle-seats .occupied { color: #ebf3dd; background: #445b40; }
+.vehicle-seats .you { border-color: #8fe6ed; color: #aef8ff; }
+.vehicle-weapons { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 8px; }
+.vehicle-weapon { padding: 6px; border: 1px solid #607362; border-radius: 6px; color: #b3c1ae; background: #24342c; }
+.vehicle-weapon.active { border-color: #8fe6ed; color: #f1f8df; background: #3c5340; }
+.vehicle-weapon b, .vehicle-weapon span { display: block; font-size: 10px; }
+.vehicle-weapon b { margin-bottom: 4px; }
+.vehicle-weapon em { font-style: normal; color: #f6de84; }
+.vehicle-weapon kbd { font-size: 9px; padding: 1px 3px; }
+#hud.in-vehicle .slots { opacity: 0.42; }
+#hud.in-vehicle .slot.selected { transform: none; box-shadow: none; }
 .class-badge { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .class-badge-icon {
   width: 58px; height: 58px; border-radius: 50%; background: var(--panel); border: 2px solid var(--class-color);
@@ -395,6 +418,9 @@ body #vignette.hit:not(.low):not(.storm) { background: none; }
   .modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
+  #hud.in-vehicle .class-badge, #hud.in-vehicle .bar-stamina, #hud.in-vehicle .bar-armor { display: none; }
+  .vehicle-heading { flex-wrap: wrap; gap: 3px 8px; }
+  .vehicle-heading b { font-size: 17px; }
   .btn-play, .btn-settings { width: min(320px, calc(100vw - 48px)); }
   .controls, .test-tools, .death-stats, .account-grid, .sso { grid-template-columns: minmax(0, 1fr); }
   .bind-row { grid-template-columns: minmax(0, 1fr) 96px 96px; }
@@ -532,6 +558,13 @@ body.online-match #test-tools-section { display: none; }
   #hud:has(#hud-prompt:not([hidden])) .hud-bl { bottom: 310px; }
   .prompt { max-width: calc(100vw - 24px); font-size: 13px; white-space: normal; text-align: center; }
   .ammo small { max-width: 200px; font-size: 10px; }
+  #hud.in-tank .ammo { display: grid; grid-template-columns: auto auto; justify-content: center; gap: 2px 6px; }
+  #hud.in-tank .ammo > b { font-size: 36px; text-align: right; }
+  #hud.in-tank .ammo > span { white-space: nowrap; }
+  #hud.in-tank .ammo > small { grid-column: 1 / -1; max-width: calc(100vw - 32px); margin: 0; text-align: center; }
+  #hud.in-vehicle .team-panel, #hud.in-vehicle #hud-feed { display: none; }
+  #hud.in-vehicle .hud-bl, #hud.in-vehicle:has(#hud-prompt:not([hidden])) .hud-bl { top: 150px; bottom: auto; }
+  .bar-vehicle span { font-size: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

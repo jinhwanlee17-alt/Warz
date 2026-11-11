@@ -6,9 +6,9 @@
   W.VERSION = '0.1 test build';
 
   var CONFIG = W.CONFIG = {
-    worldSize: 6400 * 3,        // three times the original width and height (nine times the area)
-    cornerRadius: 760 * 3,
-    mapAreaScale: 9,            // preserve terrain coverage across the larger island
+    worldSize: 24000,          // 25% wider and taller than the previous 19,200-unit island
+    cornerRadius: 2850,
+    mapAreaScale: 14.0625,     // preserve terrain coverage across the expanded island
     beach: 210,
     lobbySize: 50,
     viewArea: 1800 * 1013,      // world area visible on screen at normal zoom
@@ -30,14 +30,16 @@
     stationMinGap: 520,
     tokenLoose: 40,             // tokens lying in the open
     keyLoose: 4,                // station keys lying in the open
-    regularCrateCount: 90,      // about 50% more crates than the former ~60, plus one central legendary crate
+    regularCrateCount: 210,     // thirty extra regular crates, plus one central legendary crate
     legendaryClearRadius: 240,  // an open approach to the single crate at the exact map centre
     crateInBuilding: 0.56,      // chance a building holds a crate (was 0.7)
     armorPlate: 25,             // armor granted by an armor plate pickup
     armorMax: 100,
     hotbarSize: 3,              // item slots; two class weapon/gear slots make five slots total
     bushes: false,              // temporarily removed
-    dropStationCount: 16,
+    dropStationCount: 50,      // Solo/default compatibility value
+    dropStationCounts: { 1: 50, 2: 25, 3: 16, 4: 12 },
+    dropCoastInset: 480,
     dropStationRadius: 104,
     stationPadRadius: 54,
     stationCoreRadius: 28,
@@ -50,6 +52,24 @@
     stormTick: 1
   };
 
+  W.VEHICLE = {
+    count: 8, hp: 1000, maxSpeed: CONFIG.playerSpeed * 2 * 0.7,
+    radius: 80, length: 132, width: 84, accel: 5, turnRate: 2.8,
+    crushSpeedRatio: 0.98, // acceleration approaches top speed; allow its final 2% for crate impacts
+    ramDamage: 65, ramCooldown: 0.8, interactRange: 52, exitGap: 12
+  };
+  W.PLAYER_ROCK = { hp: 1000 };
+  W.ARMOR_CREW = { damageMul: 1.05, damageTakenMul: 0.9, humveeSpeedMul: 1.15, tankFireRateMul: 1.15,
+    cannonMagazine: 2, cannonBurstInterval: 0.35, repairSecondsPer100: { humvee: 3.5, tank: 2 }, repairReach: 120, repairRevealMul: 2.5 };
+  W.TANK = {
+    count: 4, hp: 5000, maxSpeed: CONFIG.playerSpeed * CONFIG.sprintSpeedMul * 1.35 * 0.7,
+    radius: 105, length: 180, width: 132, accel: 5, turnRate: 2.8,
+    crushSpeedRatio: 0.98, ramDamage: 65, ramCooldown: 0.8,
+    cannonInterval: 3, cannonRange: 1400, cannonSpeed: 1800, cannonRadius: 75,
+    cannonMaxDamage: 500, cannonMinDamage: 75, mgInterval: 0.09, mgMagazine: 1000, mgReload: 4,
+    rockRamHullCost: 50, playerRockRamDamage: 100, playerRockRamHullCost: 75, collisionHullCost: 10
+  };
+  W.vehicleDef = function (v) { return v && v.type === 'tank' ? W.TANK : W.VEHICLE; };
 
   // Every gun has a magazine and reloads forever: ammo is infinite, magazines are not.
   var WEAPONS = W.WEAPONS = {
@@ -103,7 +123,7 @@
     medkit2: { id: 'medkit2', name: 'Advanced Medkit', kind: 'medkit', heal: 50, cooldown: 50, reviveFraction: 0.5, blurb: 'Heals you and nearby teammates for 50 HP; revives nearby downed teammates at half maximum HP.' },
     shotgun2: { id: 'shotgun2', name: 'Shotgun II', kind: 'gun', damageNear: 200, damageFar: 10, pointBlank: 70, mag: 5, fireInterval: 0.75, reload: 2.3, bulletSpeed: 1750, range: 560, spread: 0.2, pellets: 8, bulletRadius: 4.2, recoil: 160, blurb: '10–200 damage by distance, with one hit per target per blast.' },
     sniper2: { id: 'sniper2', name: 'Sniper Rifle II', kind: 'gun', damage: 95, damageMax: 300, damageRampRange: 2100, mag: 3, fireInterval: 0.25, reload: 2.2, bulletSpeed: 3800, range: 1000000, unlimitedRange: true, spread: 0, bulletRadius: 5, recoil: 150, zoom: 1.65, blurb: 'Three shots and wider scope. Damage rises from 95 to 300 over 2100 units; shots cross the entire island.' },
-    launcher2: { id: 'launcher2', name: 'Grenade Launcher II', kind: 'launcher', mag: 10, fireInterval: 0.6, reload: 2.5, projectileSpeed: 1100, range: 700, minRange: 140, explosion: { maxDamage: 70, radius: 150, demolition: true }, landFuse: 0.2, demolition: true, recoil: 80, blurb: 'Release to launch; hold 0.75 seconds for maximum range. 70 maximum blast damage, a 0.2-second landing fuse, and one-hit demolition of rocks and crates.' },
+    launcher2: { id: 'launcher2', name: 'Grenade Launcher II', kind: 'launcher', mag: 10, fireInterval: 0.6, reload: 2.5, projectileSpeed: 1100, range: 700, minRange: 140, explosion: { maxDamage: 70, radius: 150, demolition: true }, landFuse: 0.2, demolition: true, recoil: 80, blurb: 'Release to launch; hold 0.75 seconds for maximum range. 70 maximum blast damage, a 0.2-second landing fuse and one-hit crate demolition.' },
     flamethrower: { id: 'flamethrower', name: 'Flamethrower', kind: 'flame', damage: 10, damageMax: 50, damageStep: 5, fireInterval: 0.15, range: 375, halfAngle: 0.45, mag: 100, reload: 2.5, recoil: 0, blurb: 'A flame cone hits every enemy inside. Each 0.15-second tick grows from 10 to 50 damage; releasing fire resets the heat.' },
     revolver: { id: 'revolver', name: 'Heavy Revolver', kind: 'gun', damage: 75, mag: 5, fireInterval: 0.9, reload: 2.3, semiAuto: true, bulletSpeed: 2300, range: 980, spread: 0.015, bulletRadius: 7, recoil: 80, blurb: 'Five rounds, 75 damage. Slow, deliberate shots: click once per shot.' },
     minigun: { id: 'minigun', name: 'Minigun', kind: 'gun', damage: 5, mag: 100, fireInterval: 0.05, reload: 3.5, bulletSpeed: 1900, range: 900, spread: 0.12, bulletRadius: 4.5, recoil: 5, windup: 0.75, blurb: 'Hold fire to spin up for 0.75 seconds, then fire 20 rounds per second with moderate spread.' },
@@ -116,6 +136,10 @@
       blurb: 'Mounted gun.'
     }
   };
+
+  WEAPONS.tankmg = Object.assign({}, WEAPONS.turret, { id: 'tankmg', name: 'Tank Machine Gun', damage: 8, mag: 1000, reload: 4, fireInterval: 0.09, blurb: '1000 rounds; four-second reload. 8 damage per shot.' });
+  WEAPONS.hammer = { id: 'hammer', name: 'Repair Hammer', kind: 'melee', damage: 30, range: 90, halfAngle: 0.75,
+    fireInterval: 0.6, mag: 1, reload: 0, recoil: 0, blurb: '30 base melee damage. Use gear to repair 100 HP every 3.5 seconds on a Humvee or every 2 seconds on a tank. Nearby enemies can see you on their map while repairing.' };
 
   var CLASSES = W.CLASSES = {
     soldier: {
@@ -147,16 +171,17 @@
   Object.assign(CLASSES, {
     medic2: { id: 'medic2', name: 'Medic II', tier: 2, parent: 'medic', hp: 100, armor: 0, loadout: ['deagle', 'medkit2'], color: '#ff87b4', reviveSeconds: 2, reviveFraction: 0.5, description: 'Deagle and an advanced medkit. Heal 50 HP; revive teammates at half their maximum health.' },
     shotgunner2: { id: 'shotgunner2', name: 'Shotgunner II', tier: 2, parent: 'shotgunner', hp: 135, armor: 0, loadout: ['shotgun2', 'deagle'], color: '#ffae60', description: '135 HP, a 10–200 damage shotgun, and a 45-damage Deagle.' },
-    grenadier2: { id: 'grenadier2', name: 'Grenadier II', tier: 2, parent: 'grenadier', hp: 115, armor: 0, loadout: ['launcher2', 'grenade'], color: '#ffe47b', description: '115 HP and 70-damage launcher blasts with a faster fuse. Demolishes rocks and crates in one blast.' },
+    grenadier2: { id: 'grenadier2', name: 'Grenadier II', tier: 2, parent: 'grenadier', hp: 115, armor: 0, loadout: ['launcher2', 'grenade'], color: '#ffe47b', description: '115 HP and 70-damage launcher blasts with a faster fuse. Demolishes crates in one blast.' },
     sniper2: { id: 'sniper2', name: 'Sniper II', tier: 2, parent: 'sniper', hp: 95, armor: 0, loadout: ['sniper2', 'pistol'], color: '#9bffd0', description: 'Three-round rifle, wider scope and unlimited reach. Damage grows from 95 nearby to 300 at long range.' },
     pyromancer: { id: 'pyromancer', name: 'Pyromancer', tier: 2, parent: 'grenadier', hp: 135, armor: 0, speed: 0.9, loadout: ['flamethrower', 'revolver'], color: '#ff643b', description: '135 HP, 10% slower. A ramping flame cone burns groups; a 75-damage revolver covers longer shots.' },
     juggernaut: { id: 'juggernaut', name: 'Juggernaut', tier: 2, parent: 'shotgunner', hp: 150, armor: 0, speed: 0.75, loadout: ['minigun', 'pistol'], color: '#b1bdce', description: '150 HP, 25% slower. Spin up the minigun for 0.75 seconds to unleash 20 five-damage shots per second.' },
     commander: { id: 'commander', name: 'Commander', tier: 2, parent: 'sniper', hp: 100, armor: 0, loadout: ['commandpistol', 'commandradar'], color: '#a78bfa', description: 'A 15-damage pistol and command radar. Rally your team and call a delayed airstrike at the cursor. Airstrikes hit allies too.' }
   });
-  W.CLASS_ORDER = ['soldier', 'sniper', 'shotgunner', 'medic', 'grenadier', 'sniper2', 'commander', 'shotgunner2', 'juggernaut', 'medic2', 'grenadier2', 'pyromancer'];
-  W.CLASS_PLANNED = { armorcrew: { id: 'armorcrew', name: 'Armor Crewmember', tier: 2, parent: 'medic', planned: true, vehicleTraits: { damage: 1.35, fireRate: 1.15, repair: 1.5, speed: 1.35, excludesPlanes: true }, description: 'Reserved for vehicles: +35% damage, +15% fire rate, +50% repair and +35% speed. Planes excluded.' } };
-  ['pyromancer', 'juggernaut', 'commander'].forEach(function (id) { CLASSES[id].parents = ['sniper', 'shotgunner', 'medic', 'grenadier']; });
-  W.CLASS_PLANNED.armorcrew.parents = ['sniper', 'shotgunner', 'medic', 'grenadier'];
+  CLASSES.armorcrew = { id: 'armorcrew', name: 'Armor Crewmember', tier: 2, parent: 'medic', hp: 150, armor: 0,
+    loadout: ['hammer', 'pistol'], color: '#c5c98a', description: '150 HP and permanent 10% damage reduction. Hammer and pistol; +5% vehicle weapon damage, +15% Humvee speed, faster tank fire and two cannon rounds before a 3-second reload. Use gear to repair vehicles; nearby enemies see your location while repairing.' };
+  W.CLASS_ORDER = ['soldier', 'sniper', 'shotgunner', 'medic', 'grenadier', 'sniper2', 'commander', 'shotgunner2', 'juggernaut', 'medic2', 'grenadier2', 'pyromancer', 'armorcrew'];
+  W.CLASS_PLANNED = {};
+  ['pyromancer', 'juggernaut', 'commander', 'armorcrew'].forEach(function (id) { CLASSES[id].parents = ['sniper', 'shotgunner', 'medic', 'grenadier']; });
 
   // Crate tiers. `share` divides the regular crates (80/10/8/2); the one central legendary is separate. `tokens` is the drop range,
   // `armor` the chance of an armor plate, and `loot` the chance of an item of each rarity (one roll, one item at most).
@@ -214,8 +239,8 @@
 
     drone: { id: 'drone', name: 'Drone', tier: 'epic', kind: 'use', effect: 'drone', duration: 60, stack: 2, found: 1,
       blurb: 'Shows every player on the island to you and your team for 1 minute.' },
-    rock: { id: 'rock', name: 'Rock', tier: 'epic', kind: 'place', struct: 'rock', radius: 116, reach: 280, stack: 3, found: 1,
-      blurb: 'Place a huge boulder that blocks everyone. You or a teammate can reclaim it with the interact key.' },
+    rock: { id: 'rock', name: 'Rock', tier: 'epic', kind: 'place', struct: 'rock', hp: 1000, radius: 116, reach: 280, stack: 3, found: 1,
+      blurb: 'Place a 1000 HP boulder. Full-speed tank rams deal 100 damage; other attacks cannot hurt it. You or a teammate can reclaim it with the interact key.' },
     riotshield: { id: 'riotshield', name: 'Riot Shield', tier: 'epic', kind: 'hold', arc: 1.25, slow: 0.75, stack: 1, found: 1,
       blurb: 'Hold it up to block everything coming at your front. You move 75% slower while it is up.' },
     turret: { id: 'turret', name: 'Turret', tier: 'epic', kind: 'place', struct: 'turret', hp: 100, damage: 15, fireInterval: 0.09, reach: 150, stack: 2, found: 1,
@@ -259,16 +284,14 @@
     { id: 'overheal', w: 10 }, { id: 'invisibility', w: 8 }, { id: 'power', w: 7 }
   ];
 
-  // Class tree layout in a 1000 x 600 box. Vehicle-only Armor Crewmember remains a planned node.
+  // Class tree layout in a 1000 x 600 box.
   W.TREE_LAYOUT = {
     soldier: { x: 500, y: 510 },
     sniper: { x: 140, y: 305 }, shotgunner: { x: 380, y: 305 }, medic: { x: 620, y: 305 }, grenadier: { x: 860, y: 305 },
     sniper2: { x: 80, y: 78 }, commander: { x: 200, y: 78 }, shotgunner2: { x: 320, y: 78 }, juggernaut: { x: 440, y: 78 },
-    medic2: { x: 560, y: 78 }, grenadier2: { x: 800, y: 78 }, pyromancer: { x: 920, y: 78 }
+    medic2: { x: 560, y: 78 }, armorcrew: { x: 680, y: 78 }, grenadier2: { x: 800, y: 78 }, pyromancer: { x: 920, y: 78 }
   };
-  W.TREE_SOON = [
-    { id: 'armorcrew', parent: 'medic', x: 680, y: 78, name: 'Armor Crewmember' }
-  ];
+  W.TREE_SOON = [];
 
   W.MODES = [
     { id: 'solo', name: 'Solo', size: 1, blurb: 'Just you against the lobby.' },
@@ -277,14 +300,15 @@
     { id: 'squad', name: 'Squads', size: 4, blurb: 'Teams of four.' }
   ];
 
-  // Storm schedule in seconds after the match starts.
+  // Storm schedule in seconds after the match starts. Safe area is a fraction of the island's land,
+  // not a fraction of a circle's radius. Each pause is 30 seconds longer than the previous one.
   W.STORM = [
-    { start: 150, end: 195, radius: 2500, dps: 1 },
-    { start: 245, end: 285, radius: 1600, dps: 2 },
-    { start: 330, end: 365, radius: 950, dps: 4 },
-    { start: 405, end: 435, radius: 520, dps: 7 },
-    { start: 470, end: 495, radius: 230, dps: 10 },
-    { start: 525, end: 555, radius: 0, dps: 15 }
+    { start: 150, end: 195, safeArea: 0.8, dps: 1 },
+    { start: 375, end: 415, safeArea: 0.5, dps: 2 },
+    { start: 625, end: 660, safeArea: 0.2, dps: 4 },
+    { start: 900, end: 930, safeArea: 0.05, dps: 7 },
+    { start: 1200, end: 1225, safeArea: 0.025, dps: 10 },
+    { start: 1525, end: 1555, safeArea: 0, dps: 15 }
   ];
 
   // Barrel shapes in multiples of the player radius, shared by the canvas renderer and the SVG icons.
@@ -431,6 +455,7 @@
       if (w.kind === 'launcher') return '0–' + w.explosion.maxDamage + ' blast · ' + w.landFuse + ' s fuse · ' + w.mag + ' rounds · endless grenades';
       if (w.kind === 'throwable') return '×' + w.count + ' · 0–' + w.explosion.maxDamage + ' blast';
       if (w.kind === 'flame') return w.damage + '–' + w.damageMax + ' dmg per ' + w.fireInterval + ' s · area flame';
+      if (w.kind === 'melee') return w.damage + ' melee damage · ' + w.fireInterval + ' s between swings · vehicle repair';
       if (w.kind === 'ability') return '+25% team buffs · ' + w.cooldown + ' s cooldown · ' + w.strikeDamage + '-damage airstrike';
       return '+' + w.heal + ' HP · ' + w.cooldown + ' s cooldown';
     }

@@ -1,7 +1,9 @@
 // Client replication runs against server-shaped messages without a DOM. Damage
 // events are feedback, while snapshots own health, inventory and class state.
 import { loadWarz, suite } from './harness.mjs';
-const W = loadWarz(['config', 'util', 'map', 'world', 'items', 'class-combat', 'online']);
+import { Warz as ServerW } from '../server/core/sim.mjs';
+import { Match } from '../server/core/match.mjs';
+const W = loadWarz(['config', 'util', 'map', 'world', 'items', 'class-combat', 'online', 'map-art']);
 const t = suite('online replication'), Online = W.Online;
 const state = Online.start({ seed: 15, teamSize: 2, you: 1, rejoin: true, time: 0,
   players: [{ id: 1, name: 'Commander', team: 1 }, { id: 2, name: 'Teammate', team: 1 }, { id: 3, name: 'Enemy', team: 2 }] });
@@ -67,4 +69,79 @@ const solution = world.throwSolution(me, { x: 3500, y: 3200 }, 'launcher2');
 Online.applyEvent({ t: 'launch', id: me.id, w: 'launcher2', tr: solution.travel, ...solution });
 const shell = world.grenades[world.grenades.length - 1];
 t.check(shell.weapon === 'launcher2' && shell.targetX === solution.targetX && shell.flightTime === solution.flightTime && shell.landFuse === 0.2, 'online event decoder preserves the level-two launcher and exact arc');
+
+// Exercise the real globally visible map layer against authoritative snapshots,
+// including a connection that misses the entire tick containing the break event.
+function legendaryMarkers(client, big) {
+  let markers = 0;
+  const g = {};
+  g.measureText = text => ({ width: String(text).length * 8 });
+  for (const name of ['save', 'restore', 'beginPath', 'arc', 'rect', 'fill', 'stroke', 'setLineDash',
+    'translate', 'rotate', 'moveTo', 'lineTo', 'closePath', 'strokeRect', 'strokeText', 'fillText']) g[name] = () => {};
+  g.fillRect = function () { if (this.fillStyle === '#ffd44f') markers++; };
+  W.MapArt.overlay(g, client.world, client.me, big ? 800 : 180, { big });
+  return markers;
+}
+for (const skipBreak of [true, false]) {
+  const tag = skipBreak ? 'skipped break' : 'normal break';
+  const match = new Match({ W: ServerW, id: 'legendary-' + tag, mode: 'solo', teamSize: 1, seed: 57,
+    teams: [{ members: [{ name: 'Observer' }] }, { members: [{ name: 'Attacker' }] }], clock: false });
+  try {
+    const observer = match.players[0], attacker = match.players[1];
+    let client = Online.start(match.startMessage(observer, false)), received = 0, last;
+    const conn = { open: true, bufferedAmount: 0, close() {}, sendText(text) {
+      last = JSON.parse(text); received++; Online.applySnapshot(last);
+    } };
+    observer.net.conn = conn;
+    const actual = match.map.crates[match.map.legendaryCrateId];
+    const replica = client.world.map.crates[client.world.map.legendaryCrateId];
+    match.sendSnapshots([]);
+    t.check(last.lc === actual.hp && legendaryMarkers(client, false) === 1 && legendaryMarkers(client, true) === 1,
+      tag + ': first snapshot supplies healthy legendary state to both map sizes');
+    actual.hp -= 25;
+    match.sendSnapshots([]);
+    t.equal(replica.hp, actual.hp, tag + ': persistent state repairs missed partial damage');
+    replica.shake = 0.25;
+    match.sendSnapshots([]);
+    t.equal(replica.shake, 0.25, tag + ': unchanged HP does not restart hit feedback');
+    const legacy = { ...last }; delete legacy.lc;
+    Online.applySnapshot(legacy);
+    t.check(replica.alive && replica.hp === actual.hp, tag + ': old snapshots without legendary state remain compatible');
+
+    match.world.damageCrate(actual, actual.hp - 0.25, attacker.id, actual.x, actual.y);
+    match.sendSnapshots(match.world.events.splice(0));
+    t.check(actual.hp === 0.25 && last.lc === 1 && last.e.some(e => e.t === 'crate' && e.hp === 1),
+      tag + ': positive fractional HP stays positive in both persistent and event encoding');
+    t.check(replica.alive && legendaryMarkers(client, false) === 1 && legendaryMarkers(client, true) === 1 &&
+      !client.world.events.some(e => e.type === 'crate'), tag + ': final fraction of HP preserves the marker without premature break effects');
+    t.equal(match.syncMessage().crates.find(row => row[0] === actual.id)[1], 1,
+      tag + ': reconnect sync preserves a living crate at fractional HP');
+
+    const before = received;
+    if (skipBreak) conn.bufferedAmount = 96 * 1024 + 1;
+    match.world.damageCrate(actual, actual.hp, attacker.id, actual.x, actual.y);
+    match.sendSnapshots(match.world.events.splice(0));
+    if (skipBreak) {
+      t.check(received === before && replica.alive && legendaryMarkers(client, false) === 1,
+        tag + ': backpressure actually suppresses the break snapshot and leaves stale client state');
+      conn.bufferedAmount = 0;
+      match.sendSnapshots([]);
+      t.check(last.e.length === 0 && last.lc === 0, tag + ': a later event-free snapshot carries the permanent break');
+    }
+    t.check(!replica.alive && replica.hp === 0 && legendaryMarkers(client, false) === 0 && legendaryMarkers(client, true) === 0,
+      tag + ': both map markers disappear when authoritative HP reaches zero');
+    const breakCount = () => client.world.events.filter(e => e.type === 'crate' && e.crate.id === actual.id).length;
+    t.equal(breakCount(), 1, tag + ': recovery and ordinary delivery produce exactly one break effect');
+    const particles = client.world.particles.length;
+    replica.shake = 0.125;
+    match.sendSnapshots([]);
+    t.check(breakCount() === 1 && client.world.particles.length === particles && replica.shake === 0.125,
+      tag + ': repeated permanent state does not duplicate effects or shake');
+    client = Online.start(match.startMessage(observer, true));
+    Online.applySync(match.syncMessage());
+    match.sendSnapshots([]);
+    t.check(legendaryMarkers(client, false) === 0 && legendaryMarkers(client, true) === 0,
+      tag + ': rejoin keeps the destroyed legendary marker absent');
+  } finally { match.destroy(); }
+}
 t.done();

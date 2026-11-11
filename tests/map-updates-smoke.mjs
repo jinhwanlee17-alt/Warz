@@ -4,12 +4,16 @@ import { loadWarz, suite } from './harness.mjs';
 const W = loadWarz(['config', 'util', 'map', 'world', 'items', 'map-art']);
 const t = suite('map updates');
 const C = W.CONFIG;
-t.equal(C.worldSize, 19200, 'island is three times the original width and height');
-t.near(C.worldSize * C.worldSize / (6400 * 6400), 9, 1e-10, 'tripling both dimensions makes nine times the original area');
+t.equal(C.worldSize, 24000, 'island is twenty-five percent wider and taller than the previous island');
+t.near(C.worldSize / 19200, 1.25, 1e-10, 'both island dimensions grow by twenty-five percent');
+t.near(C.cornerRadius / 2280, 1.25, 1e-10, 'rounded corners grow with the island dimensions');
+t.near(C.worldSize * C.worldSize / (6400 * 6400), 14.0625, 1e-10, 'terrain density follows the full expanded area');
+t.equal(C.mapAreaScale, 14.0625, 'fractional terrain multiplier preserves the existing density');
 t.equal(C.stationCount, 9, 'nine upgrade stations are 75 percent fewer than before');
-t.equal(C.regularCrateCount, 90, 'ninety regular crates plus the central legendary');
+t.equal(C.regularCrateCount, 210, 'thirty additional regular crates bring the total to210 plus the central legendary');
+t.equal([1,2,3,4].map(size => C.dropStationCounts[size]).join(), '50,25,16,12', 'each mode has its requested coastal drop count');
 t.equal(W.CRATE_ORDER.map(id => W.CRATES[id].share).join(), '0.8,0.1,0.08,0.02,0', 'regular crate shares exclude the fixed legendary');
-for (const total of [0, 1, 2, 10, 91, 101, 1000]) {
+for (const total of [0, 1, 2, 10, 91, 101, 181, 211, 1000]) {
   const q = W.Rules.crateQuota(total), ordinary = Math.max(0, total - 1);
   t.equal(Object.values(q).reduce((sum, n) => sum + n, 0), total, `quota ${total}: no missing or extra crates`);
   t.equal(q.legendary, total > 0 ? 1 : 0, `quota ${total}: at most one legendary`);
@@ -17,13 +21,16 @@ for (const total of [0, 1, 2, 10, 91, 101, 1000]) {
 }
 const hundred = W.Rules.crateQuota(101);
 t.equal(['common','rare','epic','mythic'].map(id => hundred[id]).join(), '80,10,8,2', '100 regular crates split exactly 80/10/8/2');
+const expandedQuota = W.Rules.crateQuota(211);
+t.equal(W.CRATE_ORDER.map(id => expandedQuota[id]).join(), '168,21,17,4,1', '210 regular crates retain their rarity shares with one reserved legendary');
 
 const seeds = [1, 42, 57, 79, 991, 9001, 31337, 123456, 777777, 0xffffffff];
 const started = Date.now();
 for (const seed of seeds) {
   const map = W.MapGen.generate(seed), center = map.size / 2;
   const legendary = map.crates.filter(c => c.tier === 'legendary');
-  t.equal(map.crates.length, C.regularCrateCount + 1, `seed ${seed}: exactly 91 crates`);
+  t.equal(map.size, 24000, `seed ${seed}: generated map uses the expanded dimensions`);
+  t.equal(map.crates.length, 211, `seed ${seed}: exactly210 regular crates and one legendary`);
   t.equal(legendary.length, 1, `seed ${seed}: one legendary crate`);
   t.check(legendary[0].x === center && legendary[0].y === center, `seed ${seed}: legendary is at the exact centre`);
   t.equal(map.legendaryCrateId, legendary[0].id, `seed ${seed}: centre crate identifier is stable`);
@@ -46,15 +53,30 @@ for (const seed of seeds) {
   }
   t.check(separated, `seed ${seed}: crate hitboxes never overlap`);
   t.equal(map.stations.length,C.stationCount,`seed ${seed}: upgrade station count preserved`);
-  t.equal(map.drops.length,16,`seed ${seed}: sixteen distributed spawns preserved`);
+  t.equal(map.drops.length,50,`seed ${seed}: fifty coastal Solo drop stations`);
+  t.equal(map.teamSize,1,`seed ${seed}: omitted mode defaults toSolo`);
   for (const list of [map.drops,map.stations,map.crates]) {
     const quadrants=new Set(list.map(o=>(o.x>=center?1:0)+(o.y>=center?2:0)));
     t.equal(quadrants.size,4,`seed ${seed}: key locations cover every map quadrant`);
   }
-  t.check(map.trees.length===2700 && map.rocks.length===1260 && map.ponds.length>=36, `seed ${seed}: terrain coverage scales with the expanded area`);
+  t.check(map.trees.length===4219 && map.rocks.length===1969 && [56,70,84].includes(map.ponds.length), `seed ${seed}: terrain density rounds to the nearest whole object`);
+  t.equal(map.patches.length, 9141, `seed ${seed}: ground decoration density follows the expanded area`);
+  t.check(['x','y'].every(axis => map.rocks.some(o=>o[axis]>19200) && map.rocks.some(o=>o[axis]<4800)), `seed ${seed}: terrain reaches both new outer edges`);
 }
 t.check(Date.now()-started<5000, 'expanded maps still generate promptly');
 t.equal(JSON.stringify(W.MapGen.generate(57)),JSON.stringify(W.MapGen.generate(57)),'same seed rebuilds the full map identically');
+for (const [teamSize,count] of [[1,50],[2,25],[3,16],[4,12]]) {
+  const modeMap = W.MapGen.generate(57, teamSize), perimeter = W.MapGen.edgeLength();
+  t.equal(modeMap.teamSize,teamSize,`team size ${teamSize}: map stores its mode`);
+  t.equal(modeMap.drops.length,count,`team size ${teamSize}: exact coastal drop count`);
+  t.check(modeMap.drops.every((drop,i) => {
+    const next = modeMap.drops[(i+1)%count], gap = ((next.edgeDistance-drop.edgeDistance)%perimeter+perimeter)%perimeter;
+    return Math.abs(gap-perimeter/count)<1e-7;
+  }),`team size ${teamSize}: every coastal arc gap is identical`);
+  t.check(modeMap.drops.every(drop => W.U.insideIsland(drop.x,drop.y,C.dropCoastInset-0.001,C.worldSize,C.cornerRadius)),`team size ${teamSize}: all drops remain on land at the coastal inset`);
+  const required = Math.max(C.dropStationRadius+90,(Math.ceil(C.lobbySize/count)-1)*250+110);
+  t.check(modeMap.drops.every(drop => drop.clearRadius===required),`team size ${teamSize}: shared-pad capacity has a reserved clearing`);
+}
 
 // Capture actual arrow paths, transforms and fill alpha from MapArt.overlay.
 // This exercises both map modes without relying on their implementation names.
@@ -67,7 +89,8 @@ function drawing() {
     arc(){this.path.push(['arc']);},rect(){this.path.push(['rect']);},
     translate(x,y){this.x+=x;this.y+=y;},rotate(a){this.angle+=a;},
     fill(){fills.push({path:this.path.map(p=>p.slice()),color:this.fillStyle,alpha:this.globalAlpha,x:this.x,y:this.y,angle:this.angle});},
-    stroke(){},fillRect(){},setLineDash(){},strokeText(){},fillText(){}};
+    stroke(){},fillRect(){},strokeRect(){},setLineDash(){},strokeText(){},fillText(){},
+    measureText(text){return {width:String(text).length*Number((this.font||'13px').match(/[\d.]+/)[0])*0.58};}};
   return {g,fills,stack};
 }
 const map = W.MapGen.generate(123), world = new W.World({map,teams:true,storm:false});

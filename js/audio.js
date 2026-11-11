@@ -52,6 +52,8 @@
   }
 
   var SOUNDS = {
+    hammer: function (t, v) { noise(t, 0.1, 'bandpass', 600, 1800, 0.8, 0.2 * v); tone(t + 0.06, 'triangle', 280, 85, 0.11, 0.28 * v); noise(t + 0.06, 0.06, 'highpass', 2600, 0, 0.7, 0.12 * v); },
+    repair: function (t, v) { noise(t, 0.16, 'highpass', 3600, 1800, 0.6, 0.16 * v); tone(t, 'triangle', 880, 660, 0.08, 0.06 * v); },
     ar: function (t, v) { noise(t, 0.09, 'bandpass', 2400, 900, 0.8, 0.55 * v); tone(t, 'square', 160, 70, 0.05, 0.06 * v); },
     pistol: function (t, v) { noise(t, 0.07, 'bandpass', 3200, 1400, 0.9, 0.45 * v); tone(t, 'triangle', 300, 120, 0.05, 0.08 * v); },
     sniper: function (t, v) { noise(t, 0.45, 'lowpass', 2600, 300, 0.7, 0.8 * v); tone(t, 'sine', 140, 40, 0.3, 0.5 * v); noise(t + 0.05, 0.6, 'bandpass', 900, 300, 0.5, 0.15 * v); },
@@ -105,6 +107,8 @@
   SOUNDS.minigun = SOUNDS.ar;
   SOUNDS.commandpistol = SOUNDS.pistol;
   SOUNDS.launcher2 = SOUNDS.launcher;
+  SOUNDS.tankmg = SOUNDS.turret;
+  SOUNDS.melee = SOUNDS.hammer;
 
   function play(name, vol) {
     if (!ctx || muted || !SOUNDS[name] || ctx.state !== 'running') return;

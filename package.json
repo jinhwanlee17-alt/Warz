@@ -8,8 +8,8 @@
     "dev": "node tools/serve.js",
     "dev:cf": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node tests/rules-smoke.mjs && node tests/map-updates-smoke.mjs && node tests/world-smoke.mjs && node tests/items-smoke.mjs && node tests/projectiles-smoke.mjs && node tests/classes-smoke.mjs && node tests/render-smoke.mjs && node tests/icons-smoke.mjs && node tests/demo-smoke.mjs && node tests/controls-smoke.mjs && node tests/charge-input-smoke.mjs && node tests/audio-smoke.mjs && node tests/ws-smoke.mjs && node tests/auth-smoke.mjs && node tests/online-replication-smoke.mjs && node tests/online-presence-smoke.mjs && node tests/input-timing-smoke.mjs && node tests/server-smoke.mjs && node tests/bots-smoke.mjs && node tests/bots-match-smoke.mjs && node tests/bots-server-smoke.mjs",
-    "test:bots": "node tests/bots-smoke.mjs && node tests/bots-match-smoke.mjs && node tests/bots-server-smoke.mjs",
+    "test": "node tests/rules-smoke.mjs && node tests/map-updates-smoke.mjs && node tests/edge-drops-smoke.mjs && node tests/map-markers-smoke.mjs && node tests/vehicles-smoke.mjs && node tests/vehicle-driving-smoke.mjs && node tests/vehicles-online-smoke.mjs && node tests/tanks-smoke.mjs && node tests/tanks-online-smoke.mjs && node tests/rocks-smoke.mjs && node tests/tank-render-smoke.mjs && node tests/armorcrew-smoke.mjs && node tests/armorcrew-vehicles-smoke.mjs && node tests/armorcrew-online-smoke.mjs && node tests/armorcrew-render-smoke.mjs && node tests/storm-smoke.mjs && node tests/world-smoke.mjs && node tests/items-smoke.mjs && node tests/projectiles-smoke.mjs && node tests/classes-smoke.mjs && node tests/render-smoke.mjs && node tests/icons-smoke.mjs && node tests/demo-smoke.mjs && node tests/controls-smoke.mjs && node tests/sprint-smoke.mjs && node tests/charge-input-smoke.mjs && node tests/audio-smoke.mjs && node tests/ws-smoke.mjs && node tests/auth-smoke.mjs && node tests/online-replication-smoke.mjs && node tests/online-presence-smoke.mjs && node tests/input-timing-smoke.mjs && node tests/server-smoke.mjs && node tests/bots-smoke.mjs && node tests/bots-accuracy-smoke.mjs && node tests/bots-match-smoke.mjs && node tests/bots-server-smoke.mjs",
+    "test:bots": "node tests/bots-smoke.mjs && node tests/bots-accuracy-smoke.mjs && node tests/bots-match-smoke.mjs && node tests/bots-server-smoke.mjs",
     "qa": "node tools/qa.js",
     "qa:online": "node tools/qa-online.mjs",
     "qa:bots": "node tools/qa-bots.mjs",
@@ -18,9 +18,17 @@
     "qa:airstrike": "node tools/qa-airstrike.cjs",
     "qa:presence": "node tools/qa-presence.mjs",
     "qa:turret": "node tools/qa-turret.mjs",
+    "qa:sprint": "node tools/qa-sprint.mjs",
+    "qa:practice": "node tools/qa-practice.mjs",
     "qa:items": "node tools/qa-items.cjs",
     "qa:level2": "node tools/qa-level2.cjs",
-    "qa:map-tree": "node tools/qa-map-tree.cjs"
+    "qa:map-tree": "node tools/qa-map-tree.cjs",
+    "qa:storm": "node tools/qa-storm.mjs",
+    "qa:vehicles": "node tools/qa-vehicles.mjs",
+    "qa:driving": "node tools/qa-driving.mjs",
+    "qa:map-layout": "node tools/qa-map-layout.mjs",
+    "qa:tanks": "node tools/qa-tanks.mjs",
+    "qa:armorcrew": "node tools/qa-armorcrew.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.158.0"

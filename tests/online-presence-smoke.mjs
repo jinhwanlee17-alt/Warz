@@ -46,7 +46,7 @@ try {
   t.near(remote.y, actual.y, 0.11, 'first appearance uses the received y');
   const previousX = remote.x;
 
-  actual.x = human.x < 9600 ? 18000 : 1000;
+  actual.x = human.x < world.map.size / 2 ? world.map.size - 1200 : 1200;
   match.world.time += 0.5;
   const beforeStaleText = world.texts.length;
   const beforeStaleEvents = world.events.length;
@@ -62,7 +62,7 @@ try {
   t.check(!remote.hidden && remote.snaps.length === 1, 'reappearance clears the obsolete interpolation history');
   t.near(remote.x, actual.x, 0.11, 'even a short reappearance does not briefly draw the old position');
 
-  actual.x = human.x < 9600 ? 18000 : 1000;
+  actual.x = human.x < world.map.size / 2 ? world.map.size - 1200 : 1200;
   match.world.time += 0.5;
   match.sendSnapshots([]);
   Online.applyEvent({ t: 'death', id: remote.id, k: human.id, c: 'ar', wd: false });

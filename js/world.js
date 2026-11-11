@@ -36,6 +36,8 @@
     this.cleanupT = 5;
     this.solids = new U.SpatialHash(256);
     this.buildSolids();
+    this.vehicles = [];
+    if (this.initVehicles) this.initVehicles();
     if (this.remote) this.storm = { remote: true, x: C.worldSize / 2, y: C.worldSize / 2, r: C.worldSize, next: null, state: 'waiting', timeLeft: 0, dps: 0, phase: 0 };
     else this.storm = (this.demo || opts.storm === false) ? null : new Storm(this);
   }
@@ -47,6 +49,7 @@
     m.rocks.forEach(function (r, index) {
       if (r.id === undefined) r.id = index;
       if (r.alive === undefined) r.alive = true;
+      delete r.hp; delete r.maxHp; // Natural rocks are binary cover, including maps from older clients.
       if (r.alive) h.insert({ type: 'rock', shape: 'circle', x: r.x, y: r.y, r: r.r, rock: r }, r.x - r.r, r.y - r.r, r.x + r.r, r.y + r.r);
     });
     // Green foliage is cover art, not an invisible central collision post.
@@ -78,6 +81,7 @@
       inPond: false, inStorm: false, nearStation: null, scoping: false,
       stamina: C.staminaMax, sprintExhausted: false, sprintRestT: 0, sprinting: false,
       team: o.team || 0, downed: false, downT: 0, revive: 0, wantsRevive: false,
+      vehicle: 0, vehicleSeat: null, vehicleWeapon: 0, repairVehicle: 0, meleeSwing: 0, meleeAngle: o.angle || 0,
       ox: 0, oy: 0, snaps: null,
       stats: { damage: 0, crateDamage: 0, crates: 0, tokens: 0, shots: 0, hits: 0, kills: 0, knocks: 0, revives: 0, upgrades: 0, healed: 0 }
     };
@@ -119,6 +123,7 @@
   };
 
   World.prototype.respawn = function (p, x, y, classId) {
+    if (p.vehicle && this.exitVehicle) this.exitVehicle(p, true);
     p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.alive = true; p.deadT = 0; p.hitFlash = 0;
     p.downed = false; p.downT = 0; p.revive = 0;
     p.stamina = C.staminaMax; p.sprintExhausted = false; p.sprintRestT = 0; p.sprinting = false;
@@ -143,6 +148,7 @@
       else if (p.alive) this.updatePlayer(p, dt);
       else p.deadT += dt;
     }
+    if (this.updateVehicles) this.updateVehicles(dt);
     if (!this.remote) {
       this.separatePlayers();
       if (this.teams) this.updateRevives(dt);
@@ -157,6 +163,7 @@
 
   // Client mirror: timers and flashes only; positions and state come from snapshots.
   World.prototype.cosmeticTick = function (p, dt) {
+    p.meleeSwing = Math.max(0, (p.meleeSwing || 0) - dt);
     p.recoil = Math.max(0, p.recoil - dt * 7);
     p.hitFlash = Math.max(0, p.hitFlash - dt * 6);
     p.healFlash = Math.max(0, p.healFlash - dt * 1.4);
@@ -171,6 +178,7 @@
 
   World.prototype.updatePlayer = function (p, dt) {
     var intent = (p.controller && p.controller(p, this, dt)) || IDLE;
+    p.meleeSwing = Math.max(0, (p.meleeSwing || 0) - dt);
     p.recoil = Math.max(0, p.recoil - dt * 7);
     p.hitFlash = Math.max(0, p.hitFlash - dt * 6);
     p.healFlash = Math.max(0, p.healFlash - dt * 1.4);
@@ -204,9 +212,10 @@
       this.moveStep(p, intent, dt);
       return;
     }
+    if (p.vehicle && this.updateVehiclePlayer) { this.tickStamina(p, IDLE, dt); this.updateVehiclePlayer(p, intent, dt); return; }
     if (p.mount) { this.tickStamina(p, IDLE, dt); this.updateMounted(p, intent, dt); return; } // on a turret: aim and fire it, no walking
     if (intent.interactPressed) this.pressInteract(p);
-    if (p.mount) { this.tickStamina(p, IDLE, dt); return; }
+    if (p.mount || p.vehicle) { this.tickStamina(p, IDLE, dt); return; }
     if (intent.held !== undefined && intent.held !== null) this.selectItem(p, intent.held);
     p.scoping = !!intent.scope && p.held < 0 && !!WEAPONS[cur.id].zoom;
     if (intent.slot !== undefined && intent.slot !== null) this.switchSlot(p, intent.slot);
@@ -224,7 +233,7 @@
   World.prototype.tickStamina = function (p, intent, dt) {
     p.sprinting = false;
     if (!p.alive || !(dt > 0)) return 1;
-    var moving = !!(intent.mx || intent.my), canSprint = !p.downed && !p.mount && p.dropT <= 0;
+    var moving = !!(intent.mx || intent.my), canSprint = !p.downed && !p.mount && !p.vehicle && p.dropT <= 0;
     var wants = moving && !!intent.sprint && canSprint, left = dt, sprintTime = 0, epsilon = 1e-9;
     if (p.stamina <= 0) { p.stamina = 0; p.sprintExhausted = true; }
     if (p.stamina >= C.staminaMax) { p.stamina = C.staminaMax; p.sprintExhausted = false; }
@@ -257,7 +266,7 @@
 
   // Movement and stamina: shared by the authoritative world and local prediction/replay.
   World.prototype.moveStep = function (p, intent, dt) {
-    if (!p.alive || p.mount || p.dropT > 0) { this.tickStamina(p, IDLE, dt); return; }
+    if (!p.alive || p.mount || p.vehicle || p.dropT > 0) { this.tickStamina(p, IDLE, dt); return; }
     var mx = intent.mx || 0, my = intent.my || 0, len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
     p.inPond = this.inPond(p.x, p.y);
@@ -279,7 +288,7 @@
       var rate = 0;
       for (var j = 0; j < this.players.length; j++) {
         var r = this.players[j];
-        if (r === d || r.team !== d.team || !r.alive || r.downed || !r.wantsRevive || r.dropT > 0) continue;
+        if (r === d || r.team !== d.team || !r.alive || r.downed || r.vehicle || !r.wantsRevive || r.dropT > 0) continue;
         if (Math.hypot(r.x - d.x, r.y - d.y) > REVIVE_RANGE + r.r) continue;
         var candidateRate = 1 / (CLASSES[r.classId].reviveSeconds || (r.classId === 'medic' ? 2 : 4));
         if (candidateRate > rate || (candidateRate === rate && CLASSES[r.classId].reviveFraction)) { rate = candidateRate; d.reviver = r; }
@@ -295,10 +304,12 @@
   };
 
   World.prototype.downPlayer = function (p, src, cause) {
+    if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     p.downed = true; p.downT = DOWNED_TIME; p.hp = DOWNED_HP; p.revive = 0; p.reviver = null;
     p.vx = 0; p.vy = 0; p.scoping = false;
     p.sprinting = false;
-    if (p.mount) this.dismount(p);
+    if (p.mount) this.dismount(p, true);
+    if (p.vehicle && this.exitVehicle) this.exitVehicle(p, true);
     p.held = -1; p.shieldUp = false; p.regen = 0;
     var w = p.weapons[p.slot];
     if (w && w.reloading) { w.reloading = false; w.reloadT = 0; }
@@ -331,10 +342,14 @@
   };
 
   World.prototype.collide = function (p) {
+    if (p.mount && this.structById) {
+      var seat = this.structById(p.mount);
+      if (seat && seat.alive) { p.x = seat.x; p.y = seat.y; p.vx = p.vy = 0; return; }
+    }
     for (var iter = 0; iter < 3; iter++) {
       var moved = false;
       this.solids.query(p.x - p.r, p.y - p.r, p.x + p.r, p.y + p.r, function (s) {
-        if ((s.crate && !s.crate.alive) || (s.rock && !s.rock.alive) || (s.struct && !s.struct.alive)) return;
+        if ((s.crate && (!s.crate.alive || (p.vehicleCrates && p.vehicleCrates[s.crate.id]))) || (s.rock && (!s.rock.alive || (p.vehicleRocks && p.vehicleRocks[s.rock.id]))) || (s.struct && (!s.struct.alive || (p.vehicleStructRocks && p.vehicleStructRocks[s.struct.id])))) return;
         var px, py;
         if (s.shape === 'circle') {
           var dx = p.x - s.x, dy = p.y - s.y, d = Math.hypot(dx, dy), min = s.r + p.r;
@@ -356,16 +371,17 @@
       if (!moved) break;
     }
     U.clampToIsland(p, p.r, C.worldSize, C.cornerRadius);
+    if (this.collideVehicles) this.collideVehicles(p);
   };
 
   World.prototype.separatePlayers = function () {
     var ps = this.players;
     for (var i = 0; i < ps.length; i++) {
       var a = ps[i];
-      if (!a.alive || a.dropT > 0) continue;
+      if (!a.alive || a.dropT > 0 || a.vehicle || a.mount) continue;
       for (var j = i + 1; j < ps.length; j++) {
         var b = ps[j];
-        if (!b.alive || b.dropT > 0) continue;
+        if (!b.alive || b.dropT > 0 || b.vehicle || b.mount) continue;
         var dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = a.r + b.r;
         if (d >= min || d < 1e-4) continue;
         var push = (min - d) / 2, nx = dx / d, ny = dy / d;
@@ -480,7 +496,7 @@
 
   // One deterministic ground path + height arc for the preview, server and mirror.
   World.prototype.aimedProjectile = function (p) {
-    if (p.mount) return null; // Mounted fire belongs to the turret, regardless of the equipped weapon.
+    if (p.mount || p.vehicle) return null; // Mounted fire belongs to the turret, regardless of the equipped weapon.
     var held = this.heldItem(p);
     if (held) return held.kind === 'throw' ? held.id : null;
     var w = p.weapons[p.slot], def = w && WEAPONS[w.id];
@@ -645,19 +661,28 @@
     });
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
-      if (!p.alive || p.id === ownerId || p.dropT > 0) continue;
+      if (!p.alive || p.id === ownerId || p.dropT > 0 || p.vehicle) continue;
       // Hidden client replicas have no current position; only the server can hit them.
       if (this.remote && p.hidden) continue;
       if (teamed && p.team === ownerTeam) continue;
       var t = U.segCircle(x1, y1, x2, y2, p.x, p.y, p.r + br);
       if (t >= 0 && t < bestT) { bestT = t; best = null; bestPlayer = p; }
     }
+    var owner = this.playerById(ownerId), vehicles = this.vehicles || [];
+    for (var j = 0; j < vehicles.length; j++) {
+      var v = vehicles[j];
+      if (this.remote && v.hidden) continue;
+      if (owner && owner.vehicle === v.id) continue;
+      if (!v.wreck && teamed && this.vehicleTeam && this.vehicleTeam(v) === ownerTeam) continue;
+      var vt = U.segCircle(x1, y1, x2, y2, v.x, v.y, v.r + br);
+      if (vt >= 0 && vt < bestT) { bestT = vt; bestPlayer = null; best = { type: 'vehicle', shape: 'circle', x: v.x, y: v.y, r: v.r, vehicle: v }; }
+    }
     if (!best && !bestPlayer) return null;
     return { t: bestT, solid: best, player: bestPlayer };
   };
 
   // Walls, rocks and placed structures block explosions and line of sight.
-  World.prototype.lineClear = function (x1, y1, x2, y2, ignore, demolition) {
+  World.prototype.lineClear = function (x1, y1, x2, y2, ignore, demolition, ignoreVehicle) {
     var clear = true;
     this.solids.query(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), function (s) {
       if (!clear || (ignore && (s === ignore || s.rock === ignore || s.struct === ignore)) || (s.type !== 'wall' && s.type !== 'rock' && s.type !== 'struct')) return;
@@ -667,6 +692,14 @@
       var t = s.shape === 'circle' ? U.segCircle(x1, y1, x2, y2, s.x, s.y, s.r) : U.segRect(x1, y1, x2, y2, s.x, s.y, s.w, s.h);
       if (t >= 0 && t < 0.999) clear = false;
     });
+    var vehicles = this.vehicles || [];
+    for (var i = 0; clear && i < vehicles.length; i++) {
+      var v = vehicles[i];
+      if (this.remote && v.hidden) continue;
+      if (v === ignore || v === ignoreVehicle || (ignore && ignore.vehicle === v)) continue;
+      var t = U.segCircle(x1, y1, x2, y2, v.x, v.y, v.r);
+      if (t >= 0 && t < 0.999) clear = false;
+    }
     return clear;
   };
 
@@ -687,12 +720,13 @@
   };
 
   World.prototype.bulletHit = function (b, hit, hx, hy) {
-    var target = null, key = null, struct = null;
+    var target = null, key = null, struct = null, vehicle = null;
     if (hit.player) { target = hit.player; key = 'p' + target.id; }
     else if (hit.solid.type === 'crate') { target = hit.solid.crate; key = 'c' + target.id; }
     else if (hit.solid.type === 'struct' && hit.solid.struct.maxHp) { struct = hit.solid.struct; key = 's' + struct.id; }
-    if (!target && !struct) { this.sparks(hx, hy, b.dx, b.dy, SPARK[hit.solid.type] || '#dddddd', 4); return; }
-    var color = hit.player ? target.color : struct ? SPARK.rock : SPARK.crate;
+    else if (hit.solid.type === 'vehicle') { vehicle = hit.solid.vehicle; key = 'v' + vehicle.id; }
+    if (!target && !struct && !vehicle) { this.sparks(hx, hy, b.dx, b.dy, SPARK[hit.solid.type] || '#dddddd', 4); return; }
+    var color = hit.player ? target.color : vehicle ? '#c8d0ad' : struct ? SPARK.rock : SPARK.crate;
     if (this.remote) { this.sparks(hx, hy, b.dx, b.dy, color, 5); return; } // damage arrives from the server
     if (b.shot) {
       if (b.shot.hit[key]) return; // one shotgun blast damages each target once; extra pellets are absorbed
@@ -702,7 +736,12 @@
     var dmg = weapon && weapon.pellets ? Rules.shotgunDamage(distance, weapon) : b.damage;
     if (weapon && weapon.damageRampRange) dmg = weapon.damage + (weapon.damageMax - weapon.damage) * U.clamp(distance / weapon.damageRampRange, 0, 1);
     if (hit.player) this.damagePlayer(target, dmg, b.owner, b.weapon, hx, hy, { x: hx - b.dx * 40, y: hy - b.dy * 40 });
-    else if (struct) this.damageStruct(struct, dmg, b.owner, hx, hy);
+    else if (vehicle && this.damageVehicle) {
+      var occupants = b.shot ? Object.keys(vehicle.seats).map(function (seat) { return vehicle.seats[seat]; }) : [];
+      this.damageVehicle(vehicle, dmg, b.owner, b.weapon, hx, hy);
+      if (b.shot && vehicle.wreck) occupants.forEach(function (id) { if (id) b.shot.hit['p' + id] = true; });
+    }
+    else if (struct) this.damageStruct(struct, dmg, b.owner, hx, hy, b.weapon);
     else this.damageCrate(target, dmg, b.owner, hx, hy);
     this.sparks(hx, hy, b.dx, b.dy, color, 5);
   };
@@ -779,6 +818,24 @@
     this.grenades = out;
   };
 
+  // Natural map rocks are intact or broken by a tank. They have no health or partial damage state.
+  World.prototype.damageMapRock = function (rock, cause, sourceId, hx, hy) {
+    if (this.remote || !rock || rock.alive === false || this.map.rocks.indexOf(rock) < 0 || (cause !== 'tankram' && cause !== 'tank-cannon')) return false;
+    return this.destroyRock(rock, sourceId);
+  };
+  World.prototype.damageMapRocksInArea = function (x, y, radius, cause, sourceId, throughCover) {
+    if (this.remote || (cause !== 'tankram' && cause !== 'tank-cannon')) return 0;
+    var candidates = [], self = this;
+    this.solids.query(x - radius, y - radius, x + radius, y + radius, function (s) {
+      if (s.type !== 'rock' || !s.rock || !s.rock.alive || Math.hypot(s.x - x, s.y - y) - s.r > radius) return;
+      if (candidates.indexOf(s.rock) < 0) candidates.push(s.rock);
+    });
+    var hits = candidates.filter(function (rock) { return throughCover || self.lineClear(x, y, rock.x, rock.y, rock); });
+    // Determine cover before breaking anything, so one blast cannot propagate through a rock it just removed.
+    var damaged = 0;
+    hits.forEach(function (rock) { if (self.damageMapRock(rock, cause, sourceId)) damaged++; });
+    return damaged;
+  };
   World.prototype.destroyRock = function (rock, sourceId) {
     if (!rock || rock.alive === false) return false;
     rock.alive = false;
@@ -788,43 +845,43 @@
     return true;
   };
 
-  // Explosions hurt their owner; other teammates stay protected. Demolition
-  // shells remove every rock/crate reached by their blast, including map rocks.
+  // Explosions hurt their owner; other teammates stay protected. Launcher II demolishes crates,
+  // while only a tank cannon breaks natural rocks and portable boulders stay solid.
   World.prototype.explode = function (x, y, ex, ownerId, cause) {
-    var R = ex.radius, self = this, crates = [], i;
+    var R = ex.radius, self = this, crates = [], hitMounts = {}, i;
     var owner = ownerId ? this.playerById(ownerId) : null, ownerTeam = owner ? owner.team : null;
     if (!this.remote) {
       for (i = 0; i < this.players.length; i++) {
         var p = this.players[i];
-        if (!p.alive || p.dropT > 0 || (p.id !== ownerId && ownerTeam !== null && p.team === ownerTeam)) continue;
+        if (!p.alive || p.vehicle || p.dropT > 0 || (p.id !== ownerId && ownerTeam !== null && p.team === ownerTeam)) continue;
         var d = Math.hypot(p.x - x, p.y - y) - p.r;
-        if (d >= R || !this.lineClear(x, y, p.x, p.y)) continue;
+        if (d >= R || !this.lineClear(x, y, p.x, p.y, p.mount ? this.structById(p.mount) : null)) continue;
         var dmg = Rules.explosionDamage(ex.maxDamage, R, d);
-        if (dmg > 0) this.damagePlayer(p, dmg, ownerId, cause, p.x, p.y - p.r, { x: x, y: y });
+        if (dmg > 0) { if (p.mount) hitMounts[p.mount] = true; this.damagePlayer(p, dmg, ownerId, cause, p.x, p.y - p.r, { x: x, y: y }); }
       }
       // Collect first, then damage: lineClear queries the same spatial hash.
-      var structs = [], rocks = [];
+      var structs = [];
       this.solids.query(x - R, y - R, x + R, y + R, function (s) {
         if (s.type === 'crate' && s.crate.alive) crates.push(s);
-        else if (ex.demolition && s.type === 'rock' && s.rock && s.rock.alive) rocks.push(s.rock);
-        else if (s.type === 'struct' && s.struct.alive && ((ex.demolition && s.struct.kind === 'rock') || (s.struct.maxHp && (ownerTeam === null || s.struct.team !== ownerTeam)))) structs.push(s.struct);
-      });
-      rocks.forEach(function (rock) {
-        if (Math.hypot(rock.x - x, rock.y - y) - rock.r < R && self.lineClear(x, y, rock.x, rock.y, rock, true)) self.destroyRock(rock, ownerId);
+        else if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && (ownerTeam === null || s.struct.team !== ownerTeam)) structs.push(s.struct);
       });
       crates.forEach(function (s) {
         var nx = U.clamp(x, s.x, s.x + s.w), ny = U.clamp(y, s.y, s.y + s.h), d2 = Math.hypot(x - nx, y - ny);
-        if (d2 >= R || !self.lineClear(x, y, nx, ny, null, ex.demolition)) return;
+        if (d2 >= R || !self.lineClear(x, y, nx, ny)) return;
         var dmg2 = ex.demolition ? s.crate.hp : Rules.explosionDamage(ex.maxDamage, R, d2);
         if (dmg2 > 0) self.damageCrate(s.crate, dmg2, ownerId, s.crate.x, s.crate.y - s.h / 2);
       });
       structs.forEach(function (s) {
+        if (hitMounts[s.id]) return;
         var d3 = Math.hypot(x - s.x, y - s.y) - s.r;
-        if (d3 >= R || !self.lineClear(x, y, s.x, s.y, s, ex.demolition)) return;
-        if (ex.demolition && s.kind === 'rock') { self.destroyStruct(s, ownerId); return; }
+        if (d3 >= R || !self.lineClear(x, y, s.x, s.y, s)) return;
         var dmg3 = Rules.explosionDamage(ex.maxDamage, R, Math.max(0, d3));
-        if (dmg3 > 0) self.damageStruct(s, dmg3, ownerId, s.x, s.y - s.r);
+        if (dmg3 > 0) self.damageStruct(s, dmg3, ownerId, s.x, s.y - s.r, cause);
       });
+      if (this.damageVehiclesInArea) this.damageVehiclesInArea(x, y, R, function (v) {
+        return Rules.explosionDamage(ex.maxDamage, R, Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r));
+      }, ownerId, cause, { lineOfSight: true });
+      if (cause === 'tank-cannon') this.damageMapRocksInArea(x, y, R, cause, ownerId, false);
     }
     this.explosions.push({ x: x, y: y, r: R, t: 0, dur: 0.6, power: ex.maxDamage });
     var big = ex.maxDamage >= 80;
@@ -842,6 +899,16 @@
   // damage: it ignores shields, armor, potions and overheal. The storm and snow ignore potions too.
   World.prototype.damagePlayer = function (p, amount, sourceId, cause, hx, hy, from) {
     if (!p.alive || amount <= 0) return;
+    if (cause === 'poison' && p.vehiclePoisonProtectionAt === this.time) return;
+    if (p.vehicle && this.damageVehicle) {
+      var vehicle = this.vehicleById(p.vehicle);
+      if (vehicle && !vehicle.wreck) {
+        if (cause === 'poison' && vehicle.poisonAt === this.time) return;
+        if (cause === 'poison') vehicle.poisonAt = this.time;
+        this.damageVehicle(vehicle, amount, sourceId, cause, hx, hy);
+        return;
+      }
+    }
     var src = sourceId ? this.playerById(sourceId) : null, fx = p.fx;
     var trueDamage = cause === 'lightning', raw = cause === 'storm' || cause === 'snow';
     if (!trueDamage && !raw) {
@@ -852,10 +919,12 @@
         this.emit({ type: 'blocked', player: p, how: 'shield', source: src });
         return;
       }
-      if (src && src !== p && cause !== 'airstrike') amount *= this.damageMul(src);
+      if (src && src !== p && cause !== 'airstrike' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg') amount *= this.damageMul(src);
       amount = Math.round(amount * this.reduceMul(p) * 10) / 10;
       if (amount <= 0) return;
     }
+    // The Armor Crew passive is permanent personal protection, including true damage and the storm.
+    if (p.classId === 'armorcrew') amount = Math.round(amount * W.ARMOR_CREW.damageTakenMul * 10) / 10;
     var absorbed = trueDamage ? 0 : Math.min(p.armor, amount);
     p.armor -= absorbed;
     p.hp -= amount - absorbed;
@@ -910,9 +979,9 @@
 
   World.prototype.damageCrate = function (c, amount, sourceId, hx, hy) {
     if (!c.alive || amount <= 0) return;
+    var src = sourceId ? this.playerById(sourceId) : null;
     c.hp -= amount;
     c.shake = 1;
-    var src = sourceId ? this.playerById(sourceId) : null;
     if (src) src.stats.crateDamage += amount;
     this.text(hx, hy - 6, String(Math.round(amount)), damageColor(amount), damageSize(amount));
     this.emit({ type: 'crate-hp', crate: c, hp: Math.max(0, c.hp), source: src, amount: amount, x: hx, y: hy });
@@ -1018,7 +1087,7 @@
       if (this.demo || this.remote || pk.type === 'item' || pk.lockT > 0) continue;
       for (var j = 0; j < players.length; j++) {
         var p = players[j];
-        if (!p.alive || p.dropT > 0 || p.downed) continue;
+        if (!p.alive || p.dropT > 0 || p.downed || p.vehicle) continue;
         var dx = p.x - pk.x, dy = p.y - pk.y, d = Math.hypot(dx, dy);
         if (d >= magnet) continue;
         if (!this.wantsPickup(p, pk)) continue;
@@ -1046,7 +1115,7 @@
     return true;
   };
   World.prototype.collect = function (p, pk) {
-    if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || !pk || !pk.alive || pk.lockT > 0 || !this.wantsPickup(p, pk)) return false;
+    if (this.remote || !p || !p.alive || p.downed || p.vehicle || p.dropT > 0 || !pk || !pk.alive || pk.lockT > 0 || !this.wantsPickup(p, pk)) return false;
     if (pk.type === 'item' && (p.mount || Math.hypot(pk.x - p.x, pk.y - p.y) > W.ItemRules.PICKUP_RANGE || !this.lineClear(p.x, p.y, pk.x, pk.y))) return false;
     pk.alive = false;
     var total = 0;
@@ -1177,18 +1246,63 @@
   };
 
   // ---------------------------------------------------------------- storm
+  var stormLand = null;
+  function stormLandShape() {
+    var S = C.worldSize, corner = C.cornerRadius;
+    if (stormLand && stormLand.size === S && stormLand.corner === corner) return stormLand;
+    // Midpoint strips follow the same rounded square as insideIsland. These are computed once,
+    // and only used while choosing the six circles, never during a gameplay update.
+    var count = 2048, step = S / count, coast = new Float64Array(count);
+    for (var i = 0; i < count; i++) {
+      var x = (i + 0.5) * step, edge = Math.min(x, S - x);
+      coast[i] = edge < corner ? corner - Math.sqrt(corner * corner - (corner - edge) * (corner - edge)) : 0;
+    }
+    stormLand = { size: S, corner: corner, step: step, coast: coast, area: S * S - (4 - Math.PI) * corner * corner };
+    return stormLand;
+  }
+
+  function stormSafeArea(x, y, r, land) {
+    if (r <= 0) return 0;
+    if (U.insideIsland(x, y, r, land.size, land.corner)) return Math.PI * r * r;
+    var step = land.step, coast = land.coast, S = land.size, rr = r * r, sum = 0;
+    var first = Math.max(0, Math.ceil((x - r) / step - 0.5));
+    var last = Math.min(coast.length - 1, Math.floor((x + r) / step - 0.5));
+    for (var i = first; i <= last; i++) {
+      var dx = (i + 0.5) * step - x, half = Math.sqrt(Math.max(0, rr - dx * dx));
+      sum += Math.max(0, Math.min(S - coast[i], y + half) - Math.max(coast[i], y - half));
+    }
+    return sum * step;
+  }
+
+  function stormRadius(x, y, target, limit, land) {
+    if (target <= 0) return 0;
+    var lo = 0, hi = limit;
+    for (var i = 0; i < 28; i++) {
+      var mid = (lo + hi) * 0.5;
+      if (stormSafeArea(x, y, mid, land) < target) lo = mid;
+      else hi = mid;
+    }
+    return hi;
+  }
+
   function Storm(world) {
-    var S = C.worldSize, rng = world.rng, phases = W.STORM;
+    var S = C.worldSize, rng = world.rng, phases = W.STORM, land = stormLandShape();
     this.world = world;
     this.circles = [{ x: S / 2, y: S / 2, r: S * 0.75 }];
     for (var i = 0; i < phases.length; i++) {
-      var prev = this.circles[i], r = phases[i].radius, room = i === 0 ? 700 : prev.r - r, x = prev.x, y = prev.y;
+      var prev = this.circles[i], target = phases[i].safeArea * land.area;
+      // A circle needs at least this much radius to contain the requested land area. Reject
+      // centers that cannot fit the target wholly inside the previous safe circle.
+      var room = Math.max(0, prev.r - Math.sqrt(target / Math.PI)), x = prev.x, y = prev.y, limit = prev.r;
       for (var t = 0; t < 60; t++) {
-        var a = rng.next() * U.TAU, d = Math.sqrt(rng.next()) * Math.max(0, room);
+        var a = rng.next() * U.TAU, d = Math.sqrt(rng.next()) * room;
         var cx = prev.x + Math.cos(a) * d, cy = prev.y + Math.sin(a) * d;
-        if (U.insideIsland(cx, cy, Math.max(500, Math.min(r, 900)), S, C.cornerRadius)) { x = cx; y = cy; break; }
+        if (!U.insideIsland(cx, cy, C.playerRadius, S, C.cornerRadius)) continue;
+        var available = Math.max(0, prev.r - d);
+        if (target > 0 && stormSafeArea(cx, cy, available, land) < target) continue;
+        x = cx; y = cy; limit = available; break;
       }
-      this.circles.push({ x: x, y: y, r: r });
+      this.circles.push({ x: x, y: y, r: stormRadius(x, y, target, limit, land) });
     }
     this.x = S / 2; this.y = S / 2; this.r = S * 0.75;
     this.next = this.circles[1];
@@ -1229,7 +1343,7 @@
     var players = this.world.players;
     for (j = 0; j < players.length; j++) {
       p = players[j];
-      p.inStorm = p.alive && Math.hypot(p.x - this.x, p.y - this.y) > this.r;
+      p.inStorm = p.alive && (this.r <= 0 || Math.hypot(p.x - this.x, p.y - this.y) > this.r);
     }
     this.tick -= dt;
     if (this.tick <= 0) {
@@ -1237,8 +1351,9 @@
       if (this.dps > 0) {
         for (j = 0; j < players.length; j++) {
           p = players[j];
-          if (p.alive && p.inStorm && p.dropT <= 0) this.world.damagePlayer(p, this.dps * C.stormTick, null, 'storm');
+          if (p.alive && !p.vehicle && p.inStorm && p.dropT <= 0) this.world.damagePlayer(p, this.dps * C.stormTick, null, 'storm');
         }
+        if (this.world.damageVehiclesInStorm) this.world.damageVehiclesInStorm(this, this.dps * C.stormTick);
       }
     }
   };

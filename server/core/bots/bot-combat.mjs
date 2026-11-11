@@ -6,7 +6,7 @@ import { Bot, clamp, lerp, TAU } from './bot.mjs';
 const BANDS = {
   ar: [240, 520, 900], pistol: [200, 430, 760], commandpistol: [200, 430, 760], sniper: [620, 1050, 1700], sniper2: [700, 1300, 2600],
   shotgun: [0, 150, 420], shotgun2: [0, 170, 440], deagle: [240, 560, 900], revolver: [260, 600, 900],
-  launcher: [300, 600, 740], launcher2: [320, 680, 820], flamethrower: [0, 190, 290], minigun: [200, 480, 820], turret: [0, 900, 1050]
+  launcher: [300, 560, 660], launcher2: [320, 600, 700], flamethrower: [0, 190, 290], minigun: [200, 480, 820], turret: [0, 900, 1050]
 };
 const TOO_CLOSE = { sniper: 260, sniper2: 260, launcher: 210, launcher2: 210 };   // step back (or swap) inside this
 const CLOSE = { shotgun: 1, shotgun2: 1, flamethrower: 1 };
@@ -165,8 +165,11 @@ Object.assign(Bot.prototype, {
     const p = this.p, def = this.weaponDef(), o = rec.ref;
     const mount = p.mount ? this.world.structById(p.mount) : null, ox = mount ? mount.x : p.x, oy = mount ? mount.y : p.y;
     let ok;
-    if (def.kind === 'flame') ok = this.world.lineClear(ox, oy, o.x, o.y);
-    else { const hit = this.world.sweep(ox, oy, o.x, o.y, def.bulletRadius || 5, p.id, p.team); ok = !!hit && !!hit.player; }
+    if (def.kind === 'flame') ok = this.world.lineClear(ox, oy, o.x, o.y, o.vehicle ? this.world.vehicleById(o.vehicle) : null);
+    else {
+      const hit = this.world.sweep(ox, oy, o.x, o.y, def.bulletRadius || 5, p.id, p.team);
+      ok = !!hit && (!!hit.player || !!(o.vehicle && hit.solid && hit.solid.vehicle && hit.solid.vehicle.id === o.vehicle && !hit.solid.vehicle.wreck));
+    }
     this.shotFor = rec.id; this.shotAt = now; this.shotOk = ok;
     return ok;
   },

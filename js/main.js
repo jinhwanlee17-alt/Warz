@@ -37,7 +37,7 @@
     closeOverlays(true);
     Online.stop();
     var seed = params.get('seed') ? (Number(params.get('seed')) >>> 0) : ((Math.random() * 2147483647) | 0);
-    var map = W.MapGen.generate(seed), world = new W.World({ map: map });
+    var map = W.MapGen.generate(seed, 1), world = new W.World({ map: map });
     var drop = map.drops[world.rng.int(0, map.drops.length - 1)];
     var a = world.rng.range(0, U.TAU), off = world.rng.range(0, 40);
     var player = world.addPlayer({
@@ -165,7 +165,7 @@
     var p = match.player, st = match.online && Online.state();
     var changing = Controls.hit(input, 'weapon1') || Controls.hit(input, 'weapon2') || Controls.hit(input, 'swap') || input.wheel ||
       pending.held !== null || (st && st.latch.ht !== null);
-    var enabled = !changing && !blockedNow() && !W.MapScreen.isOpen() && !W.Inventory.isOpen() && p.alive && !p.downed && !p.mount && p.dropT <= 0;
+    var enabled = !changing && !blockedNow() && !W.MapScreen.isOpen() && !W.Inventory.isOpen() && p.alive && !p.downed && !p.mount && !p.vehicle && p.dropT <= 0;
     projectileInput.fire = chargeTracker.sample(input, 'fire', match.world.aimedProjectile(p), enabled);
     projectileInput.gear = chargeTracker.sample(input, 'gear', p.weapons.some(function (w) { return w.id === 'grenade'; }) ? 'grenade' : null, enabled);
   }
@@ -179,7 +179,7 @@
     var my = (Controls.down(input, 'down') ? 1 : 0) - (Controls.down(input, 'up') ? 1 : 0);
     var slot = Controls.hit(input, 'weapon1') ? 0 : Controls.hit(input, 'weapon2') ? 1 : null;
     var intent = {
-      mx: mx, my: my, aimX: aim.x, aimY: aim.y,
+      mx: mx, my: my, sprint: Controls.down(input, 'sprint'), aimX: aim.x, aimY: aim.y,
       fire: !mapOpen && !projectile && Controls.down(input, 'fire'), firePressed: (!mapOpen && (projectile ? projectileInput.fire.released : Controls.hit(input, 'fire'))) || pending.use,
       charge: pending.use ? 0 : projectileInput.fire.seconds || 0,
       utilityCharge: projectileInput.gear.seconds || 0,
@@ -192,9 +192,9 @@
     return intent;
   }
   // Hotbar and interact presses go to the local simulation, or to the server during an online match.
-  function selectHotbar(i) { if (!match) return; if (match.online) Online.selectItem(i); else pending.held = i; }
+  function selectHotbar(i) { if (!match || match.player.vehicle) return; if (match.online) Online.selectItem(i); else pending.held = i; }
   function useHotbar(i) {
-    if (!match) return;
+    if (!match || match.player.vehicle) return;
     var already = match.player.held === i;
     if (match.online) Online.useItem(already ? null : i);
     else { if (!already) pending.held = i; pending.use = true; }
@@ -233,11 +233,11 @@
     var p = match.player, i;
     for (i = 1; i <= C.hotbarSize; i++) if (Controls.hit(input, 'item' + i)) selectHotbar(i - 1);
     if (W.Inventory.isOpen()) return;
-    // E: dismount > revive (held) > loose item > turret mount > upgrade station.
+    // E: leave seat > revive (held) > loose item/rock > vehicle/turret > upgrade station.
     if (Controls.hit(input, 'interact') && p.alive && !p.downed && p.dropT <= 0) {
-      if (p.mount) sendInteract();
+      if (p.mount || p.vehicle) sendInteract();
       else if (downedTeammateNear(p, match.world)) return; // holding the key revives; the server handles it
-      else if (match.world.nearestItemPickup(p) || match.world.nearestRecoverableRock(p) || match.world.nearestMountable(p)) sendInteract();
+      else if (match.world.nearestItemPickup(p) || match.world.nearestRecoverableRock(p) || match.world.nearestMountable(p) || match.world.nearestVehicleSeat(p)) sendInteract();
       else if (p.nearStation) {
         W.UpgradeTree.open({ world: match.world, player: p, station: p.nearStation });
         input.release();
@@ -265,6 +265,7 @@
       fullhp: 'Already at full health.',
       nogrenades: 'Out of grenades.',
       nogear: 'Soldiers have no gear. Medics (medkit) and Grenadiers (grenades) use ' + Controls.primary('gear') + '.',
+      repairtarget: 'Stand near a damaged Humvee or tank to repair it.',
       full: 'Your item slots are full. Select an item and press ' + Controls.primary('drop') + ' to drop its stack' + (e.item && ITEMS[e.item] ? ' and make room for the ' + ITEMS[e.item].name : '') + '.',
       blocked: 'No room to place that there. Try a clear spot closer to you.',
       notarget: 'Click on an enemy within reach to call it down.',
@@ -311,6 +312,45 @@
       var e = events[i], mine = e.player === p;
       switch (e.type) {
         case 'shot': play(e.weapon, mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
+        case 'melee': play('hammer', mine ? 0.75 : spatial(e.x, e.y) * 0.7); break;
+        case 'repair':
+          if (mine && e.active) {
+            play('hammer', 0.5);
+            var repairSeconds = W.ARMOR_CREW.repairSecondsPer100[e.vehicle && e.vehicle.type === 'tank' ? 'tank' : 'humvee'];
+            W.Hud.feed('Repairing 100 HP every ' + repairSeconds + ' seconds. ' + Controls.primary('gear') + ' to stop. Nearby enemies can see your map marker while you repair.', 'info');
+          }
+          break;
+        case 'vehicle-shot': play('turret', mine ? 0.75 : spatial(e.x, e.y) * 0.7); break;
+        case 'tank-shell':
+          if (e.op === 'spawn') play('launcher', e.shell.owner === p.id ? 0.9 : spatial(e.shell.x, e.shell.y));
+          break;
+        case 'vehicle': {
+          var vehicle = e.vehicle;
+          if (!vehicle) break;
+          if (mine && (e.op === 'enter' || e.op === 'exit')) {
+            chargeTracker.reset(); pending.held = null; pending.use = false;
+            projectileInput.fire = {}; projectileInput.gear = {};
+            play(e.op === 'enter' ? 'mount' : 'switch', 0.7);
+            if (e.op === 'enter') {
+              var tank = vehicle.type === 'tank', name = tank ? 'Tank' : 'Humvee';
+              var role = e.seat === 'driver' ? 'Drive with your movement keys.' + (tank ? ' 1: cannon · 2: machine gun (when its crew seat is free).' : '')
+                : e.seat === 'gunner' ? 'Aim and hold fire to use the machine gun.'
+                : tank && e.seat === 'rearLeft' ? (match.world.vehicleTeamSize() === 2 ? '1: cannon · 2: machine gun. Aim and hold fire.' : 'Aim and hold fire to use the cannon.') : 'Your driver controls the ' + name + '.';
+              W.Hud.feed(role + ' ' + Controls.primary('interact') + ' to get out. The ' + name + ' protects you while seated.', 'info');
+            }
+          } else if ((e.op === 'reload' || e.op === 'reloaded') && p.vehicle === vehicle.id) {
+            play(e.op, 0.7);
+          } else if (e.op === 'repair') {
+            play('repair', mine ? 0.35 : spatial(vehicle.x, vehicle.y) * 0.25);
+          } else if (e.op === 'hp') {
+            if (p.vehicle === vehicle.id) { play('hurt', 0.6); W.Hud.hurt(); shake = Math.max(shake, 0.2); }
+            else if (e.source === p) play('hit', 0.7);
+          } else if (e.op === 'wreck') {
+            play('explosion', spatial(vehicle.x, vehicle.y));
+            shake = Math.max(shake, U.clamp(1 - Math.hypot(vehicle.x - p.x, vehicle.y - p.y) / 750, 0, 1) * 0.6);
+          }
+          break;
+        }
         case 'flame': play('flamethrower', mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
         case 'launch': play('launcher', mine ? 0.8 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y)); break;
         case 'shell-land': play('throw', spatial(e.x, e.y) * 0.6); break;
@@ -459,7 +499,7 @@
     if (!match || blockedNow() || W.MapScreen.isOpen() || W.Inventory.isOpen()) return null;
     var p = match.player, aiming = projectileInput.gear.held ? projectileInput.gear : projectileInput.fire;
     var id = aiming.held ? aiming.id : null;
-    if (!id || !p.alive || p.downed || p.mount || p.dropT > 0) return null;
+    if (!id || !p.alive || p.downed || p.mount || p.vehicle || p.dropT > 0) return null;
     var aim = renderer.screenToWorld(match.cam, input.mouse.x, input.mouse.y);
     aim.charge = aiming.seconds;
     return match.world.throwSolution(p, aim, id);
@@ -592,6 +632,7 @@
     }
     if (!landing) return 'No clear landing spot beside the nearest Upgrade Station.';
     if (p.mount) world.dismount(p);
+    if (p.vehicle) world.exitVehicle(p, true);
     world.teleportFx(p.x, p.y, landing.x, landing.y);
     p.x = p.px = landing.x; p.y = p.py = landing.y; p.vx = p.vy = p.ox = p.oy = 0; p.dropT = 0;
     p.inPond = false; p.nearStation = station;

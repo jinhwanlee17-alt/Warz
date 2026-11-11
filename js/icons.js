@@ -4,7 +4,8 @@
   var W = window.Warz, U = W.U;
 
   function barrelSvg(weaponId, cx, cy, r) {
-    var b = W.BARRELS[weaponId], out = '';
+    if (weaponId === 'hammer') return '<g transform="rotate(24 ' + cx + ' ' + cy + ')" stroke="#26333c" stroke-width="3"><rect x="' + (cx + r * 0.4) + '" y="' + (cy - r * 0.12) + '" width="' + r * 1.5 + '" height="' + r * 0.24 + '" rx="2" fill="#b9874c"/><rect x="' + (cx + r * 1.55) + '" y="' + (cy - r * 0.55) + '" width="' + r * 0.6 + '" height="' + r * 1.1 + '" rx="3" fill="#aab9c0"/></g>';
+    var b = W.BARRELS[weaponId] || {}, out = '';
     var style = 'fill="#9aa1a9" stroke="#5d646c" stroke-width="3" stroke-linejoin="round"';
     if (b.parts) {
       b.parts.forEach(function (p) {
@@ -23,6 +24,7 @@
     if (classId === 'pyromancer') return '<path d="M44 42C62 61 52 70 44 69C29 67 34 56 39 52L40 61Z" fill="' + c + '"/>';
     if (classId === 'juggernaut') return '<path d="M34 45H54L52 61L44 69L36 61Z" fill="none" stroke="' + c + '" stroke-width="3"/>';
     if (classId === 'commander') return '<path d="M34 52L44 46L54 52M34 59L44 53L54 59M34 66L44 60L54 66" fill="none" stroke="' + c + '" stroke-width="3"/>';
+    if (classId === 'armorcrew') return '<g transform="rotate(-32 ' + cx + ' ' + cy + ')" fill="' + c + '"><rect x="' + (cx - r * 0.1) + '" y="' + cy + '" width="' + r * 0.2 + '" height="' + r * 0.6 + '" rx="1"/><rect x="' + (cx - r * 0.45) + '" y="' + (cy - r * 0.35) + '" width="' + r * 0.9 + '" height="' + r * 0.35 + '" rx="2"/></g>';
     if (classId === 'medic') {
       var a = r * 0.16, b = r * 0.5;
       return '<rect x="' + (cx - a) + '" y="' + (cy - b) + '" width="' + a * 2 + '" height="' + b * 2 + '" fill="' + c + '"/>' +
@@ -61,6 +63,7 @@
   }
 
   var WEAPON_ART = {
+    hammer: '<g transform="rotate(-28 32 16)"><rect x="9" y="13" width="36" height="7" rx="2" fill="#bc8c53"/><rect x="38" y="3" width="16" height="26" rx="3"/><rect x="40" y="5" width="4" height="22" fill="#b9cbd5"/></g>',
     ar: '<polygon points="2,11 13,13 13,19 2,22"/><rect x="13" y="12" width="34" height="7" rx="1"/><rect x="47" y="13.5" width="15" height="3.5"/>' +
       '<polygon points="26,19 32,19 30,29 24,29"/><polygon points="36,19 41,19 40,26 35,26"/><rect x="20" y="9" width="9" height="3"/>',
     pistol: '<rect x="18" y="9" width="31" height="8" rx="2"/><polygon points="20,17 30,17 28,30 18,30"/><path d="M30 17h6v3a3 3 0 0 1-3 3h-3z"/>',

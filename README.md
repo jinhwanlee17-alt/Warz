@@ -57,8 +57,9 @@ npx wrangler secret put PUBLIC_URL        # https://warz-io.<your-account>.worke
 duration per day. Every 20 incoming WebSocket messages count as one request, and a match object is "on" while it
 runs. In practice a group of friends can play for a few hours a day. Idle browser tabs disconnect from the hub
 after five minutes hidden so they don't eat the budget. With bots one player is enough to start a match, so every
-solo queue now turns a match object on for as long as that player stays in it (a match with nobody connected ends
-itself after ten seconds; bots never keep one running). The bots themselves are cheap: a whole 50-player tick takes
+solo queue now turns a match object on for as long as that player stays in it (a match everyone has left ends
+itself after ten seconds; a player whose connection merely dropped is waited for while their body stands, 25 seconds;
+bots never keep a match running). The bots themselves are cheap: a whole 50-player tick takes
 about a quarter of a millisecond on a desktop CPU, and there are 50 ms to spend.
 
 ## Google sign-in (free, ~5 minutes)
@@ -92,15 +93,21 @@ The server verifies Apple's ID token the same way (issuer `https://appleid.apple
 | --- | --- |
 | Lobby | always 50 players: bots fill the seats real players don't take, and each player who joins takes a bot's seat (5 players wait with 45 bots; a sixth makes it 6 and 44). The countdown (`LOBBY_COUNTDOWN`, 20 s) starts with the first player in the queue; `LOBBY_MIN` real players (1) are needed to start. |
 | Modes | Solo, Duos, Trios, Squads. Teams: no friendly fire except commander airstrikes; grenades can damage their thrower, team medkit heals, knocked-down players bleed out in 30 s unless a teammate holds `E` next to them (medics revive twice as fast). When the last standing member falls, the team is out. |
-| Spawn | random Drop Station (16 per island, teams share one), 1.8 s parachute drop |
+| Spawn | evenly spaced coastal Drop Stations: 50 Solo, 25 Duos, 16 Trios, 12 Squads; 1.8 s parachute drop. Teammates land together; extra partial/no-fill teams receive separate nearby coastal positions |
 | Start | Soldier: 100 HP, 0 armor, Basic AR + Basic Pistol |
 | Tokens | a few in the open, in buildings and inside every crate. **8 tokens buy level 1; 15 tokens buy level 2.** |
-| Crates | 90 regular crates: 80% common, 10% rare, 8% epic, 2% mythic (whole-crate rounding). Exactly one legendary crate at the center drops all four legendary items and announces its destruction to everyone. |
+| Crates | 210 regular crates: 80% common, 10% rare, 8% epic, 2% mythic (whole-crate rounding). Exactly one legendary crate at the center drops all four legendary items and announces its destruction to everyone. Its gold marker appears on both maps until the crate breaks. |
 | Items | One five-slot hotbar: two weapons/class gear (`1`–`2`) and three items (`3`–`5`). Press `E` near an item to pick it up; select an item and left click to use it or `Q` to drop its entire stack. `Tab` opens item details. Class weapons stay with you. See **Items** below. |
 | Upgrade Stations | 9 per island (glowing blue hexagons). `E` opens the class tree. A used station recharges for **1:30** unless you spend a **station key**. |
 | Ammo | infinite; magazines reload automatically |
-| Storm | forms at 2:30, then shrinks in five steps; damage grows each step |
-| Map | Three times the previous width and height (nine times the area). M opens the full map: white arrow = you, blue = teammates, red = enemies revealed continuously by radar or drone. |
+| Humvees | Eight per island on a slightly varied inner ring, 1,000 HP each. WASD steers through gradual curves at up to 378 units/s (30% slower than the previous speed). At cruising speed the hull crushes contacted crates of every tier, releasing their normal loot; slower vehicles stop against crates. Ram damage is 65 × current speed / maximum speed. E boards from any side or exits. Seats fill in order: driver, machine gunner if equipped, then rear passengers, limited by the match team size. Solo vehicles have only a driver seat. In team modes every Humvee has two rear passenger seats; two also have a separate Turret I gunner position on the side. The hull absorbs damage for all occupants. A destroyed Humvee ejects its crew and remains an indestructible, solid wreck. |
+| Tanks | Four per island near the inner ring; 5,000 HP and smooth steering at up to 382.725 units/s (30% slower than the previous speed). One driver can move and fire: `1` selects the cannon (infinite shells, 3-second interval, 75-unit blast radius, 75-500 damage with 500 on a direct hit); `2` selects the machine gun (Turret I fire rate, 8 damage, 1,000 rounds, 4-second reload). In Duos the second rider controls both weapons with 1/2. In Trios and Squads the second rider operates the cannon, the third operates the machine gun, and the fourth is a passenger. E boards from any side into the first available seat; occupied weapon seats take precedence over the driver. All riders are protected by the hull. |
+| Vehicle impacts | Humvees and tanks lose 10 HP per crate crushed or player rammed. A full-speed tank instantly breaks natural rocks, loses 50 hull HP and halves its speed. A full-speed ram into a player-placed rock deals 100 rock damage, costs 75 hull HP and stops the tank completely, including the hit that breaks the rock. |
+| Rocks | Natural rocks have no HP, health bar or damage stages: they are intact until a tank cannon or full-speed tank ram breaks them outright. Other attacks leave them intact. Player-placed rocks have 1,000 HP, health bars and damage cracks; they take 100 damage per full-speed tank ram and break at 0 HP. Their owner or teammates can still reclaim them. |
+| Armor Crewmember | Available from any level-one class for 15 tokens: 150 HP, permanent 10% personal damage reduction, 30-damage melee hammer and regular pistol. Humvee driving is 15% faster; vehicle weapons deal 5% more damage; tank weapons fire 15% faster. The cannon holds two rounds with a short firing gap and a fixed 3-second reload. F/G toggles nearby vehicle repair: 100 HP every 3.5 seconds for a Humvee, or every 2 seconds for a tank. Moving, attacking, changing tools, boarding, or completing repair stops it. Repairing exposes the crew member on the map to enemies within 2.5 smoke radii (1125 units), only while repair continues and that enemy remains in range. The armor HUD bar is removed. |
+| Placed turrets | Larger 38-unit platforms seat the player at their center immediately on placement. Hold fire to operate; `E` dismounts to a clear position. |
+| Storm | Safe island area: 100% initially, then 80%, 50%, 20%, 5%, 2.5%, and 0%. Each circle shifts within the previous circle. Waits before closing are 2:30, 3:00, 3:30, 4:00, 4:30, and 5:00; closure durations are 45, 40, 35, 30, 25, and 30 seconds. Damage grows each step. |
+| Map | 24,000 units wide and tall: 25% wider and taller than the previous 19,200-unit island, with the same terrain density. M opens the full map: white arrow = you, blue = teammates, red = enemies revealed continuously by radar or drone. |
 | Placement | last team standing wins; everyone else gets their placement when their team is out |
 
 ## Bots
@@ -116,8 +123,10 @@ that applies to a player applies to a bot. Offline Practice has no bots.
   beyond the edge of the view, or invisible players; a muzzle flash, a bullet going past, radar and the drone give
   people away exactly as they do to a player. Noticing takes a reaction time, aiming lags and wobbles.
 - **How good they are**: skill is rolled per bot. About a fifth are clearly weak, a bit over half average, a
-  fifth clearly better and one in twenty sharp. An average bot lands roughly one bullet in three on a strafing target and
-  most of them on one who stands still; the best one still takes a fifth of a second to react. Each also has its
+  fifth clearly better and one in twenty sharp. Clear, in-range shots target roughly 60-90% accuracy by skill,
+  including close targets; movement, distance and cover can reduce actual hits. Aim errors change the firing
+  direction, and ordinary projectile collision determines hits. The best bot still takes about a fifth of a
+  second to react. Each also has its
   own aggression, caution and class plan. `BOT_SKILL` (`"0"` easy … `"1"` hard, default `"0.5"`) slides the whole
   lobby down or up and also sets how readily bots go after players who have left them alone.
 - **What they do**: land, open crates (indoor ones have to be found), pick up and swap items, save tokens for the
@@ -134,10 +143,12 @@ that applies to a player applies to a bot. Offline Practice has no bots.
   match is still populated when the storm closes in (about 35 left at 2:30, 17 at 5:00, a winner at about 7:30).
 
 `BOT_FILL = "0"` turns bots off; with that, set `LOBBY_MIN` to the number of real players a match should wait for.
+(A match never starts with one player and nobody to play against: without bots, or with a fill no bigger than one
+team, the lobby waits for a second player whatever `LOBBY_MIN` says.)
 
 ## Classes
 
-You pick **one** Lvl 1 class per match; the other branches lock. Then spend 15 tokens on the matching class upgrade or Pyromancer, Juggernaut or Commander. Each level-one class shows five choices including the planned Armor Crewmember. Armor Crewmember remains planned for vehicles; see [vehicle requirements](docs/vehicle-design.md).
+You pick **one** Lvl 1 class per match; the other branches lock. Then spend 15 tokens on the matching class upgrade or Pyromancer, Juggernaut or Commander. Each level-one class shows five playable choices, including Armor Crewmember. See [Armor Crewmember rules](docs/vehicle-design.md).
 
 | Class | HP | Loadout |
 | --- | --- | --- |
@@ -154,10 +165,10 @@ You pick **one** Lvl 1 class per match; the other branches lock. Then spend 15 t
 | Medic | Medic II | 100 HP; Deagle (45 damage); medkit heals 50 HP and revives allies at 50% maximum HP |
 | Shotgunner | Shotgunner II | 135 HP; shotgun 10–200 damage; Deagle (45 damage) |
 | Sniper | Sniper II | 95 HP; wider scope; 3-round rifle with unlimited island range and damage rising from 95 to 300 over 2,100 units |
-| Grenadier | Grenadier II | 115 HP; launcher 0–70 damage with 0.2-second landing fuse; destroys rocks and crates in one blast |
+| Grenadier | Grenadier II | 115 HP; launcher 0–70 damage with 0.2-second landing fuse; destroys crates in one blast |
 | Any level 1 | Pyromancer | 135 HP, 10% slower; splash flamethrower ticks every 0.15 seconds, ramping 10/15/20/…/50 damage; 75-damage, 5-round revolver |
 | Any level 1 | Juggernaut | 150 HP, 25% slower; 5-damage minigun with 0.75-second spin-up and 20 rounds/second; basic pistol |
-| Any level 1 | Commander | 100 HP; 15-damage, 12-round pistol; radar grants the team +25% damage/speed/fire rate for 15 seconds, with a 45-second cooldown. Cursor airstrike warns for 5 seconds, radius 450, then deals 500 damage to everyone inside, including allies |
+| Any level 1 | Commander | 100 HP; 15-damage, 12-round pistol; radar grants the team +25% damage/speed/fire rate for 15 seconds, with a 45-second cooldown. Cursor airstrike warns for 5 seconds, radius 225, then deals 250 damage to everyone inside, including allies |
 
 Aim in a direction and release fire to throw a grenade or launcher shell. A quick tap gives a short throw; holding for 0.75 seconds reaches maximum range, with the preview growing as you charge. Mouse distance does not set range. Hand grenades reach 560 world units, the launcher 660, and Launcher II 700. Hold/release the gear key also charges the Grenadier's hand grenade. Grenades can damage their owner. Sentries target opposing players first, then crates. Foliage has no hidden center collision.
 

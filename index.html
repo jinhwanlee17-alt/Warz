@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/upgrade-tree.css">
+  <link rel="stylesheet" href="css/style.css?v=20261110j">
+  <link rel="stylesheet" href="css/upgrade-tree.css?v=20261110j">
 </head>
 <body data-screen="menu">
   <canvas id="game" tabindex="-1" aria-label="warz.io battlefield"></canvas>
@@ -60,12 +60,22 @@
     <div class="hud-bl">
       <div class="team-panel" id="hud-team" hidden></div>
       <div class="buffs" id="hud-buffs" aria-live="polite"></div>
+      <div class="repair-panel" id="hud-repair" hidden>
+        <b id="hud-repair-name">Repairing vehicle</b>
+        <div class="bar bar-vehicle"><i id="hud-repair-fill"></i><span id="hud-repair-text"></span></div>
+        <small id="hud-repair-note"></small>
+      </div>
+      <div class="vehicle-panel" id="hud-vehicle" hidden>
+        <div class="vehicle-heading"><b id="hud-vehicle-name">Humvee</b><span id="hud-vehicle-role">Driver</span></div>
+        <div class="bar bar-vehicle"><i id="hud-vehicle-fill"></i><span id="hud-vehicle-text">1000 / 1000 Vehicle HP</span></div>
+        <div class="vehicle-seats" id="hud-vehicle-seats" aria-label="Vehicle seats"></div>
+        <div class="vehicle-weapons" id="hud-vehicle-weapons" aria-label="Tank weapons" hidden></div>
+      </div>
       <div class="class-badge">
         <span class="class-badge-icon" id="hud-class-icon"></span>
         <div><b id="hud-class-name">Soldier</b><small id="hud-class-tier">LVL 0</small></div>
       </div>
       <div class="bar bar-stamina" id="hud-stamina" title="If stamina runs out, wait until it fully refills before sprinting again."><i id="hud-stamina-fill"></i><span id="hud-stamina-text">100 / 100 Stamina</span></div>
-      <div class="bar bar-armor"><i id="hud-armor-fill"></i><span id="hud-armor-text">0 Armor</span></div>
       <div class="bar bar-hp"><i id="hud-hp-fill"></i><span id="hud-hp-text">100 / 100 HP</span></div>
     </div>
 
@@ -281,6 +291,7 @@
       <h3>Controls</h3>
       <dl class="controls">
         <div><dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Move</dd></div>
+        <div><dt><kbd>L Shift</kbd></dt><dd>Sprint while moving. Empty stamina must refill completely.</dd></div>
         <div><dt>Mouse</dt><dd>Aim (your barrel points at the cursor)</dd></div>
         <div><dt>Left click</dt><dd>Shoot (hold for auto)</dd></div>
         <div><dt>Right click</dt><dd>Scope (Sniper: hold to zoom out)</dd></div>
@@ -290,13 +301,13 @@
         <div><dt><kbd>E</kbd></dt><dd>Pick up item &middot; Upgrade Station &middot; mount a turret &middot; hold to revive a teammate</dd></div>
         <div><dt><kbd>Q</kbd></dt><dd>Drop the held item stack</dd></div>
         <div><dt><kbd>Tab</kbd></dt><dd>Inventory and item details</dd></div>
-        <div><dt><kbd>3</kbd>&hellip;<kbd>0</kbd> <kbd>-</kbd> <kbd>=</kbd></dt><dd>Hotbar items (hold one, then click to use it)</dd></div>
+        <div><dt><kbd>3</kbd> <kbd>4</kbd> <kbd>5</kbd></dt><dd>Hotbar items (hold one, then click to use it)</dd></div>
         <div><dt><kbd>M</kbd></dt><dd>Island map</dd></div>
       </dl>
       <p class="modal-note">Defaults shown. Rebind anything in Settings.</p>
       <button type="button" id="mute-btn" class="btn btn-ghost btn-small btn-inline">Sound: on</button>
       <div id="test-tools-section">
-        <h3>Test tools <small>practice only</small></h3>
+        <h3>Practice tools</h3>
         <div class="test-tools">
           <button type="button" data-test="tokens">+8 tokens</button>
           <button type="button" data-test="key">+1 station key</button>
@@ -334,27 +345,28 @@
     </div>
   </section>
 
-  <script src="js/config.js"></script>
-  <script src="js/util.js"></script>
-  <script src="js/map.js"></script>
-  <script src="js/world.js"></script>
-  <script src="js/items.js"></script>
-  <script src="js/class-combat.js"></script>
-  <script src="js/render.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/input.js"></script>
-  <script src="js/controls.js"></script>
-  <script src="js/icons.js"></script>
-  <script src="js/map-art.js"></script>
-  <script src="js/hud.js"></script>
-  <script src="js/inventory.js"></script>
-  <script src="js/map-screen.js"></script>
-  <script src="js/upgrade-tree.js"></script>
-  <script src="js/net.js"></script>
-  <script src="js/online.js"></script>
-  <script src="js/account.js"></script>
-  <script src="js/menu.js"></script>
-  <script src="js/demo.js"></script>
-  <script src="js/main.js"></script>
+  <script src="js/config.js?v=20261110j"></script>
+  <script src="js/util.js?v=20261110j"></script>
+  <script src="js/map.js?v=20261110j"></script>
+  <script src="js/world.js?v=20261110j"></script>
+  <script src="js/items.js?v=20261110j"></script>
+  <script src="js/class-combat.js?v=20261110j"></script>
+  <script src="js/vehicles.js?v=20261110j"></script>
+  <script src="js/render.js?v=20261110j"></script>
+  <script src="js/audio.js?v=20261110j"></script>
+  <script src="js/input.js?v=20261110j"></script>
+  <script src="js/controls.js?v=20261110j"></script>
+  <script src="js/icons.js?v=20261110j"></script>
+  <script src="js/map-art.js?v=20261110j"></script>
+  <script src="js/hud.js?v=20261110j"></script>
+  <script src="js/inventory.js?v=20261110j"></script>
+  <script src="js/map-screen.js?v=20261110j"></script>
+  <script src="js/upgrade-tree.js?v=20261110j"></script>
+  <script src="js/net.js?v=20261110j"></script>
+  <script src="js/online.js?v=20261110j"></script>
+  <script src="js/account.js?v=20261110j"></script>
+  <script src="js/menu.js?v=20261110j"></script>
+  <script src="js/demo.js?v=20261110j"></script>
+  <script src="js/main.js?v=20261110j"></script>
 </body>
 </html>

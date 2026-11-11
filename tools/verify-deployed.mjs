@@ -4,13 +4,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const base = new URL(process.argv[2] || 'https://warz-io.warz-io.workers.dev/');
-const files = ['index.html', 'js/config.js', 'js/class-combat.js', 'js/world.js', 'js/items.js',
+const page = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const linkedAssets = new Map([...page.matchAll(/(?:src|href)="((?:js|css)\/[^"\s]+)"/g)].map(m => [m[1].split('?')[0], m[1]]));
+const files = ['index.html', 'js/config.js', 'js/class-combat.js', 'js/vehicles.js', 'js/world.js', 'js/items.js',
   'js/main.js', 'js/online.js', 'js/render.js', 'js/input.js', 'js/controls.js', 'js/icons.js',
   'js/map.js', 'js/map-art.js', 'js/map-screen.js', 'js/hud.js', 'js/upgrade-tree.js',
   'js/util.js', 'js/audio.js', 'js/inventory.js', 'js/net.js', 'js/account.js', 'js/menu.js', 'js/demo.js',
   'css/style.css', 'css/upgrade-tree.css'];
 await Promise.all(files.map(async file => {
-  const response = await fetch(new URL(file + '?verify=' + Date.now(), base), { signal: AbortSignal.timeout(15000) });
+  const url = new URL(linkedAssets.get(file) || file, base);
+  url.searchParams.set('verify', Date.now());
+  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!response.ok) throw new Error(file + ' HTTP ' + response.status);
   if (!Buffer.from(await response.arrayBuffer()).equals(fs.readFileSync(path.join(root, file)))) throw new Error(file + ' differs from the tested local source');
 }));

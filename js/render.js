@@ -187,8 +187,10 @@
     for (i = 0; i < map.stations.length; i++) if (visible(v, map.stations[i].x, map.stations[i].y, 80)) this.drawStationCore(ctx, map.stations[i], t);
     this.drawZones(ctx, world, v, t, false, viewer);
     this.drawStructures(ctx, world, v, t, viewer);
+    this.drawVehicles(ctx, world, v, t, viewer);
     this.drawGrenades(ctx, world, v, t, false);
     this.drawBullets(ctx, world, v);
+    this.drawTankShells(ctx, world, v);
     for (i = 0; i < world.players.length; i++) {
       var p = world.players[i];
       if (p.dropT <= 0 && !p.hidden && visible(v, p.x, p.y, 90)) this.drawPlayer(ctx, p, t, opts);
@@ -593,6 +595,7 @@
   };
 
   Renderer.prototype.drawRock = function (ctx, r, path) {
+    if (r.alive === false) return;
     ctx.save();
     ctx.translate(r.x + 5, r.y + 7);
     ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fill(path);
@@ -603,6 +606,34 @@
     ctx.scale(0.6, 0.6);
     ctx.fillStyle = PAL.rockShine; ctx.fill(path);
     ctx.restore();
+  };
+
+  Renderer.prototype.drawRockHealth = function (ctx, r) {
+    if (r.alive === false) return;
+    if (Number.isFinite(r.maxHp) && r.maxHp > 0) {
+      var hp = Number.isFinite(r.hp) ? r.hp : r.maxHp, damaged = hp < r.maxHp, heavy = hp < 600;
+      if (damaged) {
+        ctx.save(); ctx.translate(r.x, r.y);
+        ctx.strokeStyle = heavy ? '#505a63' : '#6c737b'; ctx.lineWidth = heavy ? 4 : 2;
+        ctx.beginPath();
+        if (heavy) {
+          ctx.moveTo(-r.r * 0.56, -r.r * 0.35); ctx.lineTo(-r.r * 0.2, -r.r * 0.08); ctx.lineTo(-r.r * 0.32, r.r * 0.2); ctx.lineTo(r.r * 0.04, r.r * 0.48);
+          ctx.moveTo(-r.r * 0.2, -r.r * 0.08); ctx.lineTo(r.r * 0.16, -r.r * 0.25); ctx.lineTo(r.r * 0.5, -r.r * 0.08);
+          ctx.moveTo(r.r * 0.16, -r.r * 0.25); ctx.lineTo(r.r * 0.27, -r.r * 0.56);
+          ctx.moveTo(r.r * 0.28, r.r * 0.1); ctx.lineTo(r.r * 0.48, r.r * 0.32); ctx.lineTo(r.r * 0.36, r.r * 0.5);
+        } else {
+          ctx.moveTo(-r.r * 0.4, -r.r * 0.08); ctx.lineTo(-r.r * 0.18, r.r * 0.02); ctx.lineTo(-r.r * 0.24, r.r * 0.16);
+          ctx.moveTo(r.r * 0.18, -r.r * 0.3); ctx.lineTo(r.r * 0.34, -r.r * 0.2);
+        }
+        ctx.stroke(); ctx.restore();
+      }
+      var bw = Math.max(48, Math.min(96, r.r * 1.7)), by = r.y - r.r - 17, ratio = U.clamp(hp / r.maxHp, 0, 1);
+      ctx.fillStyle = 'rgba(20,24,30,0.75)'; roundRect(ctx, r.x - bw / 2 - 2, by - 2, bw + 4, 9, 4); ctx.fill();
+      ctx.fillStyle = heavy ? '#ffd23f' : '#a7c5d8'; roundRect(ctx, r.x - bw / 2, by, Math.max(2, bw * ratio), 5, 2.5); ctx.fill();
+      ctx.font = '11px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(20,24,30,0.8)';
+      var label = Math.ceil(hp) + ' / ' + r.maxHp;
+      ctx.strokeText(label, r.x, by - 5); ctx.fillStyle = '#e7edf2'; ctx.fillText(label, r.x, by - 5);
+    }
   };
 
   Renderer.prototype.drawCanopies = function (ctx, map, v, viewer, dt) {
@@ -640,6 +671,10 @@
       ctx.beginPath(); ctx.moveTo(-r * 0.45, -r * 0.45); ctx.lineTo(r * 0.45, -r * 0.45); ctx.lineTo(r * 0.38, r * 0.2); ctx.lineTo(0, r * 0.55); ctx.lineTo(-r * 0.38, r * 0.2); ctx.closePath(); ctx.stroke();
     } else if (classId === 'commander') {
       for (var ci = -1; ci <= 1; ci++) { ctx.beginPath(); ctx.moveTo(-r * 0.4, ci * r * 0.25); ctx.lineTo(0, ci * r * 0.25 - r * 0.2); ctx.lineTo(r * 0.4, ci * r * 0.25); ctx.stroke(); }
+    } else if (classId === 'armorcrew') {
+      ctx.save(); ctx.rotate(-0.55);
+      roundRect(ctx, -r * 0.1, -r * 0.08, r * 0.2, r * 0.65, r * 0.06); ctx.fill();
+      roundRect(ctx, -r * 0.45, -r * 0.4, r * 0.9, r * 0.32, r * 0.08); ctx.fill(); ctx.restore();
     } else if (classId === 'medic') {
       var a = r * 0.16, b = r * 0.5;
       ctx.fillRect(-a, -b, a * 2, b * 2);
@@ -662,8 +697,26 @@
     }
   }
 
+  Renderer.prototype.drawHammer = function (ctx, r, recoil) {
+    var swing = U.clamp(recoil || 0, 0, 1);
+    ctx.save();
+    if (swing > 0.15) {
+      ctx.strokeStyle = 'rgba(255,236,168,' + (swing * 0.5).toFixed(2) + ')'; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.arc(0, 0, r * 2, -0.9, 0.5 - swing, false); ctx.stroke();
+    }
+    ctx.rotate(swing > 0.02 ? 0.5 - swing * 1.4 : 0.5);
+    ctx.fillStyle = '#b9874c'; ctx.strokeStyle = '#65452c'; ctx.lineWidth = 3;
+    roundRect(ctx, r * 0.45, -r * 0.13, r * 1.55, r * 0.26, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#56636b'; ctx.strokeStyle = '#25333c';
+    roundRect(ctx, r * 1.62, -r * 0.55, r * 0.65, r * 1.1, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#becbd0'; roundRect(ctx, r * 1.7, -r * 0.44, r * 0.18, r * 0.86, 2); ctx.fill();
+    ctx.fillStyle = '#705236'; ctx.fillRect(r * 0.65, -r * 0.13, r * 0.12, r * 0.26); ctx.fillRect(r * 0.85, -r * 0.13, r * 0.12, r * 0.26);
+    ctx.restore();
+  };
+
   Renderer.prototype.drawWeapon = function (ctx, weaponId, r, recoil, spin, time) {
-    var b = W.BARRELS[weaponId], kick = -recoil * r * 0.22;
+    if (weaponId === 'hammer') { this.drawHammer(ctx, r, recoil); return; }
+    var b = W.BARRELS[weaponId] || {}, kick = -recoil * r * 0.22;
     ctx.lineWidth = 3.5;
     ctx.fillStyle = PAL.barrel;
     ctx.strokeStyle = PAL.barrelEdge;
@@ -717,7 +770,7 @@
   };
 
   Renderer.prototype.drawPlayer = function (ctx, p, t, opts) {
-    if (p.hidden) return;
+    if (p.hidden || p.vehicle) return; // Occupants are drawn in their seats by drawVehicle.
     var r = p.r, scale = 1, alpha = 1, lift = 0, drop = p.dropT > 0 ? p.dropT / C.dropDuration : 0;
     var px = p.x + (p.ox || 0), py = p.y + (p.oy || 0); // ox/oy: smoothed correction toward the server position
     var invisible = p.fx && p.fx.invisible > 0, held = p.held >= 0 && p.items && p.items[p.held] ? W.ITEMS[p.items[p.held].id] : null;
@@ -750,8 +803,10 @@
     ctx.scale(scale * (p.downed ? 0.9 : 1), scale * (p.downed ? 0.9 : 1));
     if (!p.downed && !p.mount) {
       ctx.save();
-      ctx.rotate(p.angle);
-      if (held) this.drawHeld(ctx, held, r, p.recoil, p.shieldUp); else this.drawWeapon(ctx, p.weapons[p.slot].id, r, p.recoil, p.minigunSpin, t);
+      var hammerSwing = p.meleeSwing > 0 ? U.clamp(p.meleeSwing / 0.24, 0, 1) : 0;
+      ctx.rotate(hammerSwing && !p.repairVehicle ? p.meleeAngle : p.angle);
+      if (p.repairVehicle) this.drawHammer(ctx, r, 0.5 + 0.5 * Math.sin(t * 13));
+      else if (held) this.drawHeld(ctx, held, r, p.recoil, p.shieldUp); else this.drawWeapon(ctx, p.weapons[p.slot].id, r, p.weapons[p.slot].id === 'hammer' ? hammerSwing : p.recoil, p.minigunSpin, t);
       ctx.restore();
     }
     ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
@@ -789,6 +844,7 @@
     }
     if (drop > 0) this.drawParachute(ctx, r, drop, p.color, t);
     ctx.restore();
+    if (p.repairVehicle && p.alive && !p.downed) this.drawRepair(ctx, p, px, py, t);
     if (!p.alive || drop > 0) return;
     if (p.hp < p.maxHp || p.downed) {
       var bw = r * 2.3, bx = px - bw / 2, by = py + r + 11, k = U.clamp(p.hp / p.maxHp, 0, 1);
@@ -809,6 +865,19 @@
       ctx.fillStyle = p.downed ? '#ff8a7a' : mate ? '#8cff6a' : '#ffffff';
       ctx.fillText(label, px, py - r - 16);
     }
+  };
+
+  Renderer.prototype.drawRepair = function (ctx, p, x, y, t) {
+    var angle = p.angle, hx = x + Math.cos(angle) * p.r * 2.2, hy = y + Math.sin(angle) * p.r * 2.2;
+    ctx.save(); ctx.translate(hx, hy);
+    var pulse = 0.6 + Math.sin(t * 26) * 0.3;
+    ctx.fillStyle = 'rgba(117,225,255,' + pulse.toFixed(2) + ')'; ctx.beginPath(); ctx.arc(0, 0, 7 + pulse * 3, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#ffe893'; ctx.lineWidth = 2;
+    for (var i = 0; i < 5; i++) {
+      var a = t * 4 + i * TAU / 5, length = 11 + (Math.sin(t * 19 + i) + 1) * 6;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a) * 7, Math.sin(a) * 7); ctx.lineTo(Math.cos(a) * length, Math.sin(a) * length); ctx.stroke();
+    }
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, TAU); ctx.fill(); ctx.restore();
   };
 
   // ---------------------------------------------------------------- items: held, structures, zones, strikes, reveals
@@ -933,6 +1002,196 @@
     }
   };
 
+  // ---------------------------------------------------------------- vehicles
+  Renderer.prototype.drawTank = function (ctx, world, car, t, viewer, access) {
+    var x = car.x + (car.ox || 0), y = car.y + (car.oy || 0), angle = car.angle + (car.oa || 0), wreck = car.wreck;
+    var edge = '#27342b', body = wreck ? '#505551' : '#6f8151', cannonFlash = car.cannonFlash || 0, flash = car.flash || 0;
+    if (!wreck && car.hitFlash > 0) body = mix(body, '#ffffff', Math.min(1, car.hitFlash) * 0.65);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+    ctx.fillStyle = 'rgba(9,17,14,0.28)'; roundRect(ctx, -92, -61, 190, 132, 16); ctx.fill();
+    // Continuous track belts and their tread blocks distinguish the tank from wheeled vehicles.
+    for (var side = -1; side <= 1; side += 2) {
+      var ty = side * 54 - 12;
+      ctx.fillStyle = wreck ? '#272d2c' : '#303936'; ctx.strokeStyle = '#1d2926'; ctx.lineWidth = 4;
+      roundRect(ctx, -90, ty, 180, 24, 10); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = wreck ? '#424a46' : '#657064'; ctx.lineWidth = 4;
+      var travel = Math.hypot(car.vx || 0, car.vy || 0) > 3 ? (t * 45) % 14 : 0;
+      for (var tread = 0; tread < 12; tread++) {
+        var tx = -80 + (tread * 14 + travel) % 164;
+        ctx.beginPath(); ctx.moveTo(tx, ty + 5); ctx.lineTo(tx, ty + 19); ctx.stroke();
+      }
+    }
+    ctx.beginPath(); ctx.moveTo(-83, -43); ctx.lineTo(62, -48); ctx.lineTo(86, -31); ctx.lineTo(86, 31);
+    ctx.lineTo(62, 48); ctx.lineTo(-83, 43); ctx.closePath();
+    ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 5; ctx.fill(); ctx.stroke();
+    ctx.fillStyle = wreck ? '#61685b' : '#9ba56b';
+    ctx.beginPath(); ctx.moveTo(53, -39); ctx.lineTo(77, -27); ctx.lineTo(77, 27); ctx.lineTo(53, 39); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = wreck ? '#373e39' : '#485c3d'; ctx.lineWidth = 4;
+    for (var vent = 0; vent < 5; vent++) {
+      ctx.beginPath(); ctx.moveTo(-73 + vent * 7, -30); ctx.lineTo(-73 + vent * 7, 30); ctx.stroke();
+    }
+    ctx.fillStyle = wreck ? '#313a38' : '#5c8b83'; roundRect(ctx, 36, -34, 21, 20, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = wreck ? '#777466' : '#fff0b2'; ctx.fillRect(78, -28, 6, 9); ctx.fillRect(78, 19, 6, 9);
+    ctx.strokeStyle = '#394c36'; ctx.lineWidth = 4; ctx.fillStyle = wreck ? '#3c443c' : '#83945e';
+    ctx.beginPath(); ctx.arc(0, 0, 37, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.rotate((Number.isFinite(car.cannonAngle) ? car.cannonAngle : car.angle) - angle + (wreck ? 0.25 : 0));
+    var recoil = cannonFlash * 9;
+    ctx.fillStyle = wreck ? '#626962' : '#a3ae82'; ctx.strokeStyle = edge; ctx.lineWidth = 4;
+    roundRect(ctx, 20 - recoil, -9, 94, 18, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = wreck ? '#393f3c' : '#556747'; roundRect(ctx, 100 - recoil, -12, 19, 24, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = body; roundRect(ctx, -27, -27, 64, 54, 13); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = wreck ? '#747a6d' : '#b5be8d'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-17, -18); ctx.lineTo(18, -18); ctx.lineTo(27, -11); ctx.stroke();
+    if (!wreck && cannonFlash > 0.05) {
+      ctx.fillStyle = '#ffe487'; ctx.beginPath(); ctx.moveTo(119 - recoil, -10); ctx.lineTo(145 + cannonFlash * 16, -18);
+      ctx.lineTo(137 + cannonFlash * 12, 0); ctx.lineTo(145 + cannonFlash * 16, 18); ctx.lineTo(119 - recoil, 10); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff8d6'; ctx.beginPath(); ctx.ellipse(125, 0, 19 * cannonFlash, 7, 0, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+    // The machine gun has its own pivot and aim; its operator never turns the main cannon.
+    ctx.save(); ctx.translate(0, 26); ctx.rotate((Number.isFinite(car.gunAngle) ? car.gunAngle : car.angle) - angle + (wreck ? -0.4 : 0));
+    ctx.fillStyle = wreck ? '#444d4b' : '#72818a'; ctx.strokeStyle = '#25332e'; ctx.lineWidth = 3;
+    roundRect(ctx, 6 - flash * 3, -4, 48, 8, 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#3c4b43'; roundRect(ctx, -9, -9, 24, 18, 4); ctx.fill(); ctx.stroke();
+    if (!wreck && flash > 0.05) {
+      ctx.fillStyle = '#ffe487'; ctx.beginPath(); ctx.moveTo(53, -4); ctx.lineTo(70 + flash * 7, -9); ctx.lineTo(64, 0); ctx.lineTo(70 + flash * 7, 9); ctx.lineTo(53, 4); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    var seats = car.seats || {}, offsets = { driver: [43, -24], gunner: [0, 26], rearLeft: [-20, -28], rearRight: [-48, 24] };
+    Object.keys(offsets).forEach(function (seat) {
+      var at = offsets[seat], p = seats[seat] && world.playerById(seats[seat]);
+      if (wreck || !seats[seat]) return;
+      ctx.fillStyle = '#293c32'; ctx.strokeStyle = '#a4af82'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(at[0], at[1], 15, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = p ? p.color : '#b4bec9'; ctx.strokeStyle = p ? p.outline : '#35434b'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(at[0], at[1], 11, 0, TAU); ctx.fill(); ctx.stroke();
+      if (p && p.isLocal) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(at[0], at[1], 15, 0, TAU); ctx.stroke(); }
+    });
+    if (wreck) {
+      ctx.fillStyle = 'rgba(18,24,23,0.45)'; ctx.beginPath(); ctx.ellipse(7, 0, 33, 25, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#222d27'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(56, -35); ctx.lineTo(40, -15); ctx.lineTo(61, 5); ctx.lineTo(48, 34); ctx.moveTo(-72, -23); ctx.lineTo(-55, -3); ctx.lineTo(-67, 26); ctx.stroke();
+    }
+    ctx.restore();
+    this.drawVehicleInfo(ctx, world, car, viewer, access);
+  };
+
+  Renderer.prototype.drawVehicle = function (ctx, world, car, t, viewer, access) {
+    if (car.type === 'tank') { this.drawTank(ctx, world, car, t, viewer, access); return; }
+    var x = car.x + (car.ox || 0), y = car.y + (car.oy || 0), angle = car.angle + (car.oa || 0), wreck = car.wreck;
+    var mine = viewer && viewer.vehicle === car.id, r = car.r || 80, flash = car.flash || 0;
+    var edge = wreck ? '#24282c' : '#28352b', body = wreck ? '#4e5151' : '#778754';
+    if (!wreck && car.hitFlash > 0) body = mix(body, '#ffffff', Math.min(1, car.hitFlash) * 0.65);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+    ctx.fillStyle = 'rgba(9,17,14,0.26)';
+    roundRect(ctx, -68, -39, 140, 88, 12); ctx.fill();
+    for (var side = -1; side <= 1; side += 2) {
+      for (var axle = -1; axle <= 1; axle += 2) {
+        var wheelX = axle > 0 ? 31 : -53, wheelY = side * 42 - 8;
+        ctx.fillStyle = '#252b2e'; ctx.strokeStyle = '#151c22'; ctx.lineWidth = 3;
+        roundRect(ctx, wheelX, wheelY, 29, 16, 5); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = wreck ? '#414649' : '#647078'; ctx.lineWidth = 2;
+        for (var tread = 0; tread < 4; tread++) {
+          var at = wheelX + 5 + tread * 6;
+          ctx.beginPath(); ctx.moveTo(at, wheelY + 4); ctx.lineTo(at, wheelY + 12); ctx.stroke();
+        }
+      }
+    }
+    ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 5;
+    roundRect(ctx, -66, -39, 132, 78, 9); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = wreck ? '#666660' : '#a3ad76';
+    roundRect(ctx, 30, -32, 30, 64, 5); ctx.fill();
+    ctx.strokeStyle = wreck ? '#363b39' : '#657345'; ctx.lineWidth = 3;
+    for (var rib = 0; rib < 3; rib++) {
+      ctx.beginPath(); ctx.moveTo(38 + rib * 7, -19); ctx.lineTo(38 + rib * 7, 19); ctx.stroke();
+    }
+    ctx.fillStyle = wreck ? '#292f32' : '#8ebdc3'; ctx.strokeStyle = edge; ctx.lineWidth = 3;
+    roundRect(ctx, 10, -31, 20, 62, 4); ctx.fill(); ctx.stroke();
+    if (!wreck) { ctx.fillStyle = 'rgba(220,249,249,0.45)'; ctx.fillRect(13, -26, 5, 50); }
+    ctx.fillStyle = wreck ? '#3c413e' : '#5d714c';
+    roundRect(ctx, -25, -31, 34, 62, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = wreck ? '#55564e' : '#89986a';
+    roundRect(ctx, -60, -31, 29, 62, 4); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = wreck ? '#363b36' : '#b1ba88'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-56, -22); ctx.lineTo(-35, -22); ctx.moveTo(-56, 22); ctx.lineTo(-35, 22); ctx.stroke();
+    // Bumpers, lights and door handles keep the front and access sides readable.
+    ctx.fillStyle = '#465254'; ctx.strokeStyle = edge; ctx.lineWidth = 3;
+    roundRect(ctx, 65, -32, 7, 64, 3); ctx.fill(); ctx.stroke();
+    roundRect(ctx, -73, -32, 7, 64, 3); ctx.fill(); ctx.stroke();
+    for (var side = -1; side <= 1; side += 2) {
+      ctx.fillStyle = wreck ? '#787365' : '#fff0af'; ctx.fillRect(61, side * 24 - 6, 5, 12);
+      ctx.fillStyle = wreck ? '#573f39' : '#d66b55'; ctx.fillRect(-66, side * 26 - 4, 4, 8);
+      ctx.strokeStyle = '#d3d9bb'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(-16, side * 36); ctx.lineTo(-7, side * 36); ctx.moveTo(-48, side * 36); ctx.lineTo(-39, side * 36); ctx.stroke();
+    }
+    var seats = car.seats || {}, seatOffsets = { driver: [20, -20], rearLeft: [-35, -24], rearRight: [-35, 24] };
+    Object.keys(seatOffsets).forEach(function (seat) {
+      if (wreck || !seats[seat]) return;
+      var p = world.playerById(seats[seat]), at = seatOffsets[seat];
+      ctx.beginPath(); ctx.arc(at[0], at[1], 11, 0, TAU);
+      ctx.fillStyle = p ? p.color : '#b4bec9'; ctx.fill(); ctx.strokeStyle = p ? p.outline : '#35434b'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.arc(at[0] - 3, at[1] - 3, 4, 0, TAU); ctx.fill();
+      if (p && p.isLocal) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(at[0], at[1], 14, 0, TAU); ctx.stroke(); }
+    });
+    if (car.armed) {
+      ctx.fillStyle = wreck ? '#33383b' : '#4c5b56'; ctx.strokeStyle = '#263136'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0, 0, 21, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.rotate((Number.isFinite(car.gunAngle) ? car.gunAngle : car.angle) - angle + (wreck ? 0.48 : 0));
+      ctx.fillStyle = wreck ? '#5b6061' : '#a0b0bb';
+      roundRect(ctx, 6 - flash * 3, -6, 56, 12, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#43515a'; ctx.fillRect(46 - flash * 3, -8, 11, 16);
+      roundRect(ctx, -12, -13, 27, 26, 5); ctx.fill(); ctx.stroke();
+      if (!wreck && seats.gunner) {
+        var gunner = world.playerById(seats.gunner);
+        ctx.fillStyle = gunner ? gunner.color : '#b4bec9'; ctx.strokeStyle = gunner ? gunner.outline : '#35434b'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(-8, 0, 11, 0, TAU); ctx.fill(); ctx.stroke();
+        if (gunner && gunner.isLocal) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(-8, 0, 14, 0, TAU); ctx.stroke(); }
+      }
+      if (!wreck && flash > 0.05) {
+        ctx.fillStyle = '#ffe487'; ctx.beginPath(); ctx.moveTo(61, -6); ctx.lineTo(75 + flash * 9, -11); ctx.lineTo(69, 0); ctx.lineTo(75 + flash * 9, 11); ctx.lineTo(61, 6); ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    if (wreck) {
+      ctx.strokeStyle = '#20282a'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(35, -26); ctx.lineTo(46, -7); ctx.lineTo(31, 10); ctx.lineTo(43, 29); ctx.moveTo(-51, -23); ctx.lineTo(-35, 3); ctx.lineTo(-53, 20); ctx.stroke();
+      ctx.fillStyle = 'rgba(24,29,30,0.3)'; ctx.beginPath(); ctx.arc(37, 0, 20, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+    this.drawVehicleInfo(ctx, world, car, viewer, access);
+  };
+
+  Renderer.prototype.drawVehicleInfo = function (ctx, world, car, viewer, access) {
+    var x = car.x + (car.ox || 0), y = car.y + (car.oy || 0), wreck = car.wreck, r = car.r || 80;
+    var mine = viewer && viewer.vehicle === car.id, tank = car.type === 'tank';
+    if (access && access.vehicle.id === car.id && !wreck) {
+      ctx.strokeStyle = '#7fe9ff'; ctx.fillStyle = 'rgba(12,30,39,0.7)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(access.x + (car.ox || 0), access.y + (car.oy || 0), 17, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.font = '16px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#ffffff';
+      ctx.fillText(access.seat === 'driver' ? 'D' : access.seat === 'gunner' ? 'G' : tank && access.seat === 'rearLeft' ? 'C' : 'R', access.x + (car.ox || 0), access.y + (car.oy || 0));
+    }
+    var nearby = viewer && Math.hypot(viewer.x - car.x, viewer.y - car.y) < 300;
+    if (mine || nearby || (!wreck && car.hp < car.maxHp)) {
+      var ratio = U.clamp(car.hp / car.maxHp, 0, 1), by = y - r - 16;
+      if (!wreck) {
+        ctx.fillStyle = '#263136'; roundRect(ctx, x - 54, by, 108, 12, 6); ctx.fill();
+        ctx.fillStyle = ratio > 0.5 ? '#a9d878' : ratio > 0.25 ? '#ffd23f' : '#ff715e';
+        roundRect(ctx, x - 51, by + 3, Math.max(2, 102 * ratio), 6, 3); ctx.fill();
+      }
+      ctx.font = '14px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,25,27,0.85)';
+      var label = wreck ? (tank ? 'TANK WRECK' : 'WRECK') : tank ? 'Tank' : car.armed ? 'Humvee · Turret I' : 'Humvee';
+      ctx.strokeText(label, x, y + r + 19); ctx.fillStyle = wreck ? '#9ba2a3' : mine ? '#8ee4f0' : '#eff5d5'; ctx.fillText(label, x, y + r + 19);
+    }
+  };
+
+  Renderer.prototype.drawVehicles = function (ctx, world, view, t, viewer) {
+    var cars = world.vehicles || [], access = viewer && !viewer.vehicle && world.nearestVehicleSeat ? world.nearestVehicleSeat(viewer) : null;
+    for (var i = 0; i < cars.length; i++) {
+      var car = cars[i];
+      if (!car.hidden && visible(view, car.x + (car.ox || 0), car.y + (car.oy || 0), (car.r || 80) + 90)) this.drawVehicle(ctx, world, car, t, viewer, access);
+    }
+  };
+
   Renderer.prototype.drawStructures = function (ctx, world, v, t, viewer) {
     var list = world.structures;
     for (var i = 0; i < list.length; i++) {
@@ -966,7 +1225,8 @@
         this.drawEmplacement(ctx, s, tier, mine);
       }
       ctx.restore();
-      if (s.maxHp && s.hp < s.maxHp) {
+      if (s.kind === 'rock') this.drawRockHealth(ctx, s);
+      if (s.kind !== 'rock' && s.maxHp && s.hp < s.maxHp) {
         var bw = s.r * 2.4, k = s.hp / s.maxHp;
         ctx.fillStyle = 'rgba(20,24,30,0.75)'; roundRect(ctx, s.x - bw / 2 - 2, s.y - s.r - 18, bw + 4, 9, 4); ctx.fill();
         ctx.fillStyle = k > 0.5 ? '#7ee05c' : k > 0.25 ? '#ffd23f' : '#ff5a4f'; roundRect(ctx, s.x - bw / 2, s.y - s.r - 16, Math.max(2, bw * k), 5, 2.5); ctx.fill();
@@ -1163,6 +1423,20 @@
       ctx.fillStyle = b.color; ctx.fill();
       ctx.lineWidth = 2.5; ctx.strokeStyle = b.outline; ctx.stroke();
     }
+  };
+
+  Renderer.prototype.drawTankShells = function (ctx, world, view) {
+    (world.tankShells || []).forEach(function (shell) {
+      if (!visible(view, shell.x, shell.y, 90)) return;
+      var tail = Math.min(74, shell.traveled || 0), dx = shell.dx, dy = shell.dy;
+      ctx.strokeStyle = 'rgba(255,224,139,0.7)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(shell.x - dx * tail, shell.y - dy * tail); ctx.lineTo(shell.x, shell.y); ctx.stroke();
+      ctx.save(); ctx.translate(shell.x, shell.y); ctx.rotate(Math.atan2(dy, dx));
+      ctx.fillStyle = '#c9b66c'; ctx.strokeStyle = '#4b5535'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, 0, 11, 5.5, 0, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff2bf'; ctx.fillRect(4, -3, 4, 6);
+      ctx.restore();
+    });
   };
 
   Renderer.prototype.drawGrenades = function (ctx, world, v, t, airborne) {

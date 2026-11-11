@@ -28,13 +28,19 @@ vm.createContext(sandbox);
 for (const file of ['config', 'audio']) vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', file + '.js'), 'utf8'), sandbox);
 const W = sandbox.Warz;
 W.Audio.unlock();
-for (const weapon of Object.values(W.WEAPONS).filter(w => ['gun', 'flame', 'launcher', 'turret'].includes(w.kind))) {
+for (const weapon of Object.values(W.WEAPONS).filter(w => ['gun', 'flame', 'launcher', 'turret', 'melee'].includes(w.kind))) {
   context.currentTime += 1;
   const before = sources.length, gains = ramps.length;
   W.Audio.play(weapon.id, 0.75);
   const created = sources.slice(before);
   t.check(created.length > 0 && created.every(n => n.started && Number.isFinite(n.stopAt)), weapon.name + ' starts and stops actual audio sources');
   t.check(ramps.slice(gains).some(v => v > 0.01), weapon.name + ' has a nonzero audio envelope');
+}
+for (const name of ['melee', 'repair']) {
+  context.currentTime += 1;
+  const count = sources.length;
+  W.Audio.play(name, .5);
+  t.check(sources.slice(count).length > 0 && sources.slice(count).every(n => n.started && Number.isFinite(n.stopAt)), name + ' feedback has bounded Web Audio sources');
 }
 let before = sources.length;
 W.Audio.setMuted(true); context.currentTime += 1; W.Audio.play('shotgun2');

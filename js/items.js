@@ -6,7 +6,7 @@
   'use strict';
   var W = window.Warz, U = W.U, C = W.CONFIG, ITEMS = W.ITEMS, CRATES = W.CRATES, WEAPONS = W.WEAPONS, Rules = W.Rules, World = W.World;
   var FX_KEYS = W.FX_KEYS = ['energy', 'speed', 'strength', 'shield', 'poison', 'invisible', 'power', 'immune', 'reduce', 'deathImmune', 'radar', 'flash'];
-  var MOUNT_RANGE = 96, PICKUP_RANGE = 85, DROP_LOCK = 0.35, TURRET_R = 24, SENTRY_R = 20, FIRE_TICK = 0.25, POISON_TICK = 0.5, SNOW_TICK = 1, SNOW_MIN_DPS = 2;
+  var MOUNT_RANGE = 96, PICKUP_RANGE = 85, DROP_LOCK = 0.35, TURRET_R = 38, SENTRY_R = 20, FIRE_TICK = 0.25, POISON_TICK = 0.5, SNOW_TICK = 1, SNOW_MIN_DPS = 2;
   var ZONE_COLORS = { fire: '#ff7a2a', smoke: '#9aa0a8', snow: '#bfe9ff' };
   var SAVED_HP = 30;
 
@@ -24,7 +24,9 @@
   };
   World.prototype.resetItems = function (p) { this.initItems(p); };
   World.prototype.clearItemState = function (p) {
-    if (p.mount) this.dismount(p);
+    if (this.stopVehicleRepair) this.stopVehicleRepair(p);
+    if (p.mount) this.dismount(p, true);
+    if (p.vehicle && this.exitVehicle) this.exitVehicle(p, true);
     p.held = -1; p.fx = freshFx(); p.regen = 0; p.regenAcc = 0; p.shieldUp = false; p.inSnow = false; p.snowT = 0; p.tpT = 0; p.tpProgress = 0; p.poisonT = 0;
   };
   World.prototype.dropItems = function (p) {
@@ -73,7 +75,7 @@
   World.prototype.heldItem = function (p) { return p.held >= 0 && p.items[p.held] ? ITEMS[p.items[p.held].id] : null; };
   // Drop the whole selected item stack. Class weapons are never ground loot.
   World.prototype.dropHeld = function (p) {
-    if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || p.mount) return false;
+    if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle) return false;
     var index = p.held, stack = index >= 0 && p.items[index];
     if (!stack || !ITEMS[stack.id] || stack.n <= 0) { this.emit({ type: 'deny', player: p, reason: 'noitem' }); return false; }
     var angle = Number.isFinite(p.angle) ? p.angle : 0, spot = null;
@@ -94,7 +96,7 @@
   // Capacity is deliberately not considered here: a nearby full-stack item must
   // still show a prompt and produce a useful "full" response when E is pressed.
   World.prototype.nearestItemPickup = function (p) {
-    if (!p || !p.alive || p.downed || p.dropT > 0 || p.mount) return null;
+    if (!p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle) return null;
     var best = null, bd = PICKUP_RANGE;
     for (var i = 0; i < this.map.pickups.length; i++) {
       var pk = this.map.pickups[i];
@@ -106,7 +108,7 @@
   };
   // Hotbar key: select that slot, or press it again to go back to your weapon.
   World.prototype.selectItem = function (p, idx) {
-    if (p.mount || p.downed) return;
+    if (p.mount || p.vehicle || p.downed) return;
     if (idx < 0 || idx === p.held) {
       if (p.held >= 0) { p.held = -1; this.emit({ type: 'switch', player: p }); }
       return;
@@ -121,7 +123,8 @@
 
   // Clicking with an item selected uses it. The riot shield just needs to be held.
   World.prototype.useHeld = function (p, intent) {
-    var it = this.heldItem(p);
+    if (p.vehicle) return false;
+    var held = p.held, it = this.heldItem(p);
     if (!it) { p.held = -1; return false; }
     if (!intent.firePressed || p.itemCd > 0 || it.kind === 'hold') return false;
     var ok = false;
@@ -131,7 +134,7 @@
     else if (it.kind === 'target') ok = this.targetItem(p, it, intent);
     else if (it.kind === 'use') ok = this.activateItem(p, it);
     if (!ok) return false;
-    this.takeItem(p, p.held, 1);
+    this.takeItem(p, held, 1);
     p.itemCd = 0.4;
     p.recoil = 0.6;
     this.emit({ type: 'item-used', player: p, item: it.id });
@@ -256,7 +259,7 @@
       }
     }
     var held = this.heldItem(p);
-    p.shieldUp = !p.mount && !p.downed && !!held && held.kind === 'hold';
+    p.shieldUp = !p.mount && !p.vehicle && !p.downed && !!held && held.kind === 'hold';
   };
 
   // ---------------------------------------------------------------- throwables
@@ -332,7 +335,7 @@
 
   World.prototype.pullEverything = function (x, y, R, team) {
     var self = this, victims = this.players.filter(function (p) {
-      return p.alive && p.dropT <= 0 && !p.mount && (team === null || p.team !== team) && Math.hypot(p.x - x, p.y - y) - p.r < R;
+      return p.alive && p.dropT <= 0 && !p.mount && !p.vehicle && (team === null || p.team !== team) && Math.hypot(p.x - x, p.y - y) - p.r < R;
     });
     victims.forEach(function (p, i) {
       var a = i / Math.max(1, victims.length) * U.TAU, d = victims.length > 1 ? 28 : 0;
@@ -381,16 +384,17 @@
       z.tick += FIRE_TICK;
       for (j = 0; j < players.length; j++) {
         p = players[j];
-        if (!p.alive || p.dropT > 0 || (p.id !== z.owner && z.team !== null && z.team !== undefined && p.team === z.team)) continue;
+        if (!p.alive || p.vehicle || p.dropT > 0 || (p.id !== z.owner && z.team !== null && z.team !== undefined && p.team === z.team)) continue;
         inside = Math.hypot(p.x - z.x, p.y - z.y) - p.r * 0.5 < z.r;
         if (inside) this.damagePlayer(p, z.dps * FIRE_TICK, z.owner, 'fire', p.x, p.y - p.r);
       }
+      if (this.damageVehiclesInArea) this.damageVehiclesInArea(z.x, z.y, z.r, z.dps * FIRE_TICK, z.owner, 'fire', { team: z.team });
     }
     this.zones = out;
     if (this.remote) return;
     for (j = 0; j < players.length; j++) {
       p = players[j];
-      if (!p.inSnow || !p.alive) { p.snowT = 0; p.snowTick = 0; continue; }
+      if (!p.inSnow || !p.alive || p.vehicle) { p.snowT = 0; p.snowTick = 0; continue; }
       p.snowT += dt;
       if (p.snowT < ITEMS.snowbomb.graceTime) continue;
       p.snowTick -= dt;
@@ -399,6 +403,7 @@
       var dps = Math.max(SNOW_MIN_DPS, this.storm && this.storm.dps ? this.storm.dps : 0);
       this.damagePlayer(p, dps * SNOW_TICK, null, 'snow');
     }
+    if (this.updateVehicleSnow) this.updateVehicleSnow(dt);
   };
   World.prototype.zoneAmbience = function (z, dt) {
     var n = z.kind === 'smoke' ? 0 : Math.min(4, Math.round(z.r / 150 * (z.kind === 'fire' ? 2.2 : 1.3)));
@@ -428,6 +433,7 @@
     var r = it.radius || W.STRUCT_RADIUS[it.struct] || 30, pad = it.struct === 'teleporter';
     if (!this.spotFree(ax, ay, r, pad)) { this.emit({ type: 'deny', player: p, reason: 'blocked' }); return false; }
     var s = this.addStruct({ kind: it.struct, item: it.id, x: ax, y: ay, r: r, owner: p.id, team: p.team, hp: it.hp || 0, maxHp: it.hp || 0, angle: p.angle });
+    if (it.struct === 'turret') this.mountTurret(p, s);
     if (pad) {
       var open = p.openPad ? this.structById(p.openPad) : null;
       if (open && open.alive && !open.pair) {
@@ -447,6 +453,11 @@
       else if (U.circleRectPush(x, y, r, s.x, s.y, s.w, s.h)) free = false;
     });
     if (!free) return false;
+    for (i = 0; i < (this.vehicles || []).length; i++) {
+      var vehicle = this.vehicles[i];
+      if (this.remote && vehicle.hidden) continue;
+      if (Math.hypot(vehicle.x - x, vehicle.y - y) < vehicle.r + r) return false;
+    }
     for (i = 0; i < this.structures.length; i++) {
       var st = this.structures[i];
       if (st.alive && Math.hypot(st.x - x, st.y - y) < st.r + r) return false;
@@ -460,9 +471,11 @@
     return true;
   };
   World.prototype.addStruct = function (o) {
+    var portableRock = o.kind === 'rock', rockHp = W.PLAYER_ROCK ? W.PLAYER_ROCK.hp : 1000;
     var s = {
       id: o.id || this.nextStructId++, kind: o.kind, item: o.item, x: o.x, y: o.y, r: o.r, owner: o.owner || 0, team: o.team === undefined ? null : o.team,
-      hp: o.hp || 0, maxHp: o.maxHp || 0, alive: true, angle: o.angle || 0, cooldown: 0, mounted: o.mounted || 0, target: 0, pair: o.pair || 0, age: 0, shake: 0, flash: 0
+      hp: portableRock ? (Number.isFinite(o.hp) && o.hp > 0 ? Math.min(rockHp, o.hp) : rockHp) : o.hp || 0,
+      maxHp: portableRock ? rockHp : o.maxHp || 0, alive: true, angle: o.angle || 0, cooldown: 0, mounted: o.mounted || 0, target: 0, pair: o.pair || 0, age: 0, shake: 0, flash: 0
     };
     if (o.id) this.nextStructId = Math.max(this.nextStructId, o.id + 1);
     this.structures.push(s);
@@ -474,16 +487,31 @@
     if (!this.remote) this.emit({ type: 'struct', op: 'add', struct: s });
     return s;
   };
-  World.prototype.damageStruct = function (s, amount, sourceId, hx, hy) {
-    if (!s.alive || amount <= 0 || !s.maxHp) return;
+  // A full-speed tank impact chips portable rocks, including the driver's own or a teammate's cover.
+  // Weapons and explosions use damageStruct below and cannot hurt these rocks.
+  World.prototype.damagePlayerRock = function (s, sourceId, hx, hy) {
+    if (this.remote || !s || !s.alive || s.kind !== 'rock' || this.structById(s.id) !== s) return false;
+    if (!(s.maxHp > 0)) { s.maxHp = W.PLAYER_ROCK ? W.PLAYER_ROCK.hp : 1000; s.hp = s.maxHp; }
+    var damage = W.TANK ? W.TANK.playerRockRamDamage : 100, src = sourceId ? this.playerById(sourceId) : null;
+    var amount = Math.min(s.hp, damage);
+    s.hp = Math.max(0, s.hp - damage); s.shake = 1;
+    if (src) src.stats.damage += amount;
+    var x = hx === undefined ? s.x : hx, y = hy === undefined ? s.y - s.r : hy;
+    this.text(x, y - 6, String(amount), '#ffd84a', 18);
+    if (s.hp > 0) this.emit({ type: 'struct', op: 'hp', struct: s, amount: amount, source: src, x: x, y: y });
+    else this.destroyStruct(s, sourceId);
+    return true;
+  };
+  World.prototype.damageStruct = function (s, amount, sourceId, hx, hy, cause) {
+    if (!s.alive || s.kind === 'rock' || amount <= 0 || !s.maxHp) return;
     if (s.mounted) {
       // Whoever is on the turret takes the hit: a turret is not a shield.
       var m = this.playerById(s.mounted);
-      if (m && m.alive) { this.damagePlayer(m, amount, sourceId, 'turret', hx, hy); return; }
+      if (m && m.alive) { this.damagePlayer(m, amount, sourceId, cause || 'turret', hx, hy); return; }
     }
+    var src = sourceId ? this.playerById(sourceId) : null;
     s.hp -= amount;
     s.shake = 1;
-    var src = sourceId ? this.playerById(sourceId) : null;
     if (src) src.stats.damage += amount;
     this.text(hx === undefined ? s.x : hx, (hy === undefined ? s.y - s.r : hy) - 6, String(Math.round(amount)), '#ffd84a', 18);
     if (s.hp > 0) { this.emit({ type: 'struct', op: 'hp', struct: s, amount: amount, source: src, x: hx, y: hy }); return; }
@@ -493,7 +521,7 @@
     if (!s.alive) return;
     s.alive = false; s.hp = 0;
     s.removalReason = reason || 'destroyed';
-    if (s.mounted) { var m = this.playerById(s.mounted); if (m && m.mount === s.id) { m.mount = 0; this.emit({ type: 'dismounted', player: m }); } s.mounted = 0; }
+    if (s.mounted) { var m = this.playerById(s.mounted); if (m && m.mount === s.id) this.dismount(m, true); s.mounted = 0; }
     this.burst(s.x, s.y, 20, '#9aa1a9', 260, 0.7, 6);
     this.explosions.push({ x: s.x, y: s.y, r: s.r * 2.4, t: 0, dur: 0.5, ring: true, color: '#ffb347' });
     this.smoke(s.x, s.y, 10, '#8f8f8f', 18, 1, 100);
@@ -522,7 +550,7 @@
       var s = this.structures[i];
       if (!s.alive || s.kind !== 'turret' || s.mounted || (s.team !== null && s.team !== p.team)) continue;
       var d = Math.hypot(s.x - p.x, s.y - p.y) - s.r - p.r;
-      if (d < MOUNT_RANGE && d < bd) { bd = d; best = s; }
+      if (d < MOUNT_RANGE && d < bd && this.lineClear(p.x, p.y, s.x, s.y, s)) { bd = d; best = s; }
     }
     return best;
   };
@@ -548,7 +576,8 @@
   // A press resolves one interaction: dismount, revive, item, owned rock, mount.
   World.prototype.pressInteract = function (p) {
     if (this.remote || !p || !p.alive || p.downed || p.dropT > 0) return false;
-    if (p.mount) { this.dismount(p); return true; }
+    if (p.vehicle && this.exitVehicle) return this.exitVehicle(p, false);
+    if (p.mount) return this.dismount(p, false);
     if (this.teams && this.teammates(p).some(function (o) { return o.alive && o.downed && Math.hypot(o.x - p.x, o.y - p.y) <= 70 + p.r; })) return false;
     var pk = this.nearestItemPickup(p);
     if (pk) {
@@ -558,26 +587,66 @@
     }
     var rock = this.nearestRecoverableRock(p);
     if (rock) { this.recoverRock(p, rock); return true; }
+    var seat = this.nearestVehicleSeat && this.nearestVehicleSeat(p);
+    if (seat) return this.enterVehicle(p, seat.vehicle, seat.seat);
     var s = this.nearestMountable(p);
     if (!s) return false;
+    return this.mountTurret(p, s);
+  };
+  World.prototype.mountTurret = function (p, s) {
+    if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || !s || !s.alive || s.kind !== 'turret' || s.mounted || (s.team !== null && s.team !== p.team)) return false;
+    if (Math.hypot(p.x - s.x, p.y - s.y) > MOUNT_RANGE + s.r + p.r || !this.lineClear(p.x, p.y, s.x, s.y, s)) return false;
+    if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     p.mount = s.id; s.mounted = p.id;
-    p.vx = 0; p.vy = 0; p.held = -1; p.scoping = false; p.shieldUp = false;
+    p.x = s.x; p.y = s.y; p.vx = p.vy = p.ox = p.oy = 0; p.held = -1; p.scoping = false; p.shieldUp = false; p.sprinting = false; p.nearStation = null; p.wantsRevive = false;
     var w = p.weapons[p.slot];
     if (w && w.reloading) { w.reloading = false; w.reloadT = 0; }
     this.emit({ type: 'mounted', player: p, struct: s });
     this.emit({ type: 'struct', op: 'mount', struct: s });
     return true;
   };
-  World.prototype.dismount = function (p) {
+  World.prototype.dismount = function (p, forced) {
     var s = p.mount ? this.structById(p.mount) : null;
+    if (!s) { p.mount = 0; return false; }
+    var spot = null, base = p.angle + Math.PI, max = forced ? 1200 : 260, self = this;
+    function pathFree(x, y) {
+      var clear = self.lineClear(s.x, s.y, x, y, s), r = p.r;
+      self.solids.query(Math.min(s.x, x) - r, Math.min(s.y, y) - r, Math.max(s.x, x) + r, Math.max(s.y, y) + r, function (solid) {
+        if (!clear || solid.struct === s || (solid.struct && !solid.struct.alive) || (solid.rock && !solid.rock.alive) || (solid.crate && !solid.crate.alive)) return;
+        var hit = solid.shape === 'circle' ? U.segCircle(s.x, s.y, x, y, solid.x, solid.y, solid.r + r)
+          : U.segRect(s.x, s.y, x, y, solid.x - r, solid.y - r, solid.w + r * 2, solid.h + r * 2);
+        if (hit >= 0) clear = false;
+      });
+      for (var k = 0; clear && k < (self.vehicles || []).length; k++) {
+        var vehicle = self.vehicles[k];
+        if (self.remote && vehicle.hidden) continue;
+        if (U.segCircle(s.x, s.y, x, y, vehicle.x, vehicle.y, vehicle.r + r) >= 0) clear = false;
+      }
+      return clear;
+    }
+    for (var distance = s.r + p.r + 8; distance <= max && !spot; distance += 24) {
+      for (var i = 0; i < 24; i++) {
+        var angle = base + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * U.TAU / 24;
+        var x = s.x + Math.cos(angle) * distance, y = s.y + Math.sin(angle) * distance;
+        if (!this.spotFree(x, y, p.r, true) || this.inPond(x, y)) continue;
+        if (this.players.some(function (o) { return o !== p && o.alive && !o.vehicle && o.dropT <= 0 && Math.hypot(o.x - x, o.y - y) < o.r + p.r + 2; })) continue;
+        if (forced || pathFree(x, y)) { spot = { x: x, y: y }; break; }
+      }
+    }
+    if (!spot && !forced) { this.emit({ type: 'deny', player: p, reason: 'blocked' }); return false; }
     p.mount = 0;
+    if (spot) { p.x = spot.x; p.y = spot.y; }
+    else this.collide(p);
+    p.vx = p.vy = p.ox = p.oy = 0; p.sprinting = false; p.wantsRevive = false; p.nearStation = null;
     if (s && s.mounted === p.id) { s.mounted = 0; this.emit({ type: 'struct', op: 'mount', struct: s }); }
     this.emit({ type: 'dismounted', player: p });
+    return true;
   };
   World.prototype.updateMounted = function (p, intent, dt) {
     var s = this.structById(p.mount);
     if (!s || !s.alive) { p.mount = 0; return; }
     if (intent.interactPressed) { this.dismount(p); return; }
+    p.x = s.x; p.y = s.y; p.wantsRevive = false; p.nearStation = null; p.sprinting = false;
     if (intent.aimX !== null && intent.aimX !== undefined) p.angle = Math.atan2(intent.aimY - s.y, intent.aimX - s.x);
     s.angle = p.angle;
     s.cooldown -= dt;
@@ -603,7 +672,7 @@
       var p = this.players[i];
       if (!p.alive || p.dropT > 0 || p.fx.invisible > 0 || (s.team !== null && p.team === s.team)) continue;
       var d = Math.hypot(p.x - s.x, p.y - s.y) || 1;
-      if (d < bd && this.sentryLineClear(s, p.x, p.y)) { bd = d; target = p; }
+      if (d < bd && this.sentryLineClear(s, p.x, p.y, null, p.vehicle)) { bd = d; target = p; }
     }
     // Players always take priority. When no enemy is visible, open nearby crates.
     if (!target) for (var j = 0; j < this.map.crates.length; j++) {
@@ -624,10 +693,10 @@
     else this.damagePlayer(target, it.damage, s.owner, 'sentry', target.x, target.y - target.r, { x: s.x, y: s.y });
     this.emit({ type: 'sentry-shot', struct: s, x: s.x, y: s.y, tx: target.x, ty: target.y });
   };
-  World.prototype.sentryLineClear = function (s, tx, ty, targetCrate) {
+  World.prototype.sentryLineClear = function (s, tx, ty, targetCrate, vehicleId) {
     var distance = Math.hypot(tx - s.x, ty - s.y) || 1;
     var x = s.x + (tx - s.x) / distance * (s.r + 2), y = s.y + (ty - s.y) / distance * (s.r + 2);
-    if (!this.lineClear(x, y, tx, ty, s)) return false;
+    if (!this.lineClear(x, y, tx, ty, s, false, vehicleId && this.vehicleById ? this.vehicleById(vehicleId) : null)) return false;
     for (var i = 0; i < this.map.crates.length; i++) {
       var c = this.map.crates[i];
       if (!c.alive || c === targetCrate) continue;
@@ -654,7 +723,7 @@
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
       p.tpProgress = 0;
-      if (!p.alive || p.dropT > 0 || p.mount) { p.tpT = 0; p.tpPad = 0; continue; }
+      if (!p.alive || p.dropT > 0 || p.mount || p.vehicle) { p.tpT = 0; p.tpPad = 0; continue; }
       var pad = this.padAt(p.x, p.y);
       if (!pad) { p.tpT = 0; p.tpPad = 0; p.tpLock = 0; continue; }
       if (p.tpLock === pad.id) continue; // just arrived here: step off before this pad works again
@@ -724,11 +793,11 @@
         var victim = this.playerById(st.target);
         if (victim && victim.alive) this.damagePlayer(victim, st.damage, st.owner, 'lightning', victim.x, victim.y - victim.r);
       } else {
-        var R = st.radius, self = this;
+        var R = st.radius, self = this, hitMounts = {};
         for (j = 0; j < this.players.length; j++) {
           var p = this.players[j];
-          if (!p.alive || p.dropT > 0 || (team !== null && team !== undefined && p.team === team)) continue;
-          if (Math.hypot(p.x - st.x, p.y - st.y) - p.r < R) this.damagePlayer(p, st.damage, st.owner, 'meteor', p.x, p.y - p.r);
+          if (!p.alive || p.vehicle || p.dropT > 0 || (team !== null && team !== undefined && p.team === team)) continue;
+          if (Math.hypot(p.x - st.x, p.y - st.y) - p.r < R) { if (p.mount) hitMounts[p.mount] = true; this.damagePlayer(p, st.damage, st.owner, 'meteor', p.x, p.y - p.r); }
         }
         var crates = [], structs = [];
         this.solids.query(st.x - R, st.y - R, st.x + R, st.y + R, function (s) {
@@ -736,7 +805,8 @@
           if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && (team === null || s.struct.team !== team)) structs.push(s.struct);
         });
         crates.forEach(function (c) { if (Math.hypot(c.x - st.x, c.y - st.y) < R + c.size / 2) self.damageCrate(c, st.damage, st.owner, c.x, c.y - c.size / 2); });
-        structs.forEach(function (s) { if (Math.hypot(s.x - st.x, s.y - st.y) < R + s.r) self.damageStruct(s, st.damage, st.owner, s.x, s.y - s.r); });
+        structs.forEach(function (s) { if (!hitMounts[s.id] && Math.hypot(s.x - st.x, s.y - st.y) < R + s.r) self.damageStruct(s, st.damage, st.owner, s.x, s.y - s.r, 'meteor'); });
+        if (this.damageVehiclesInArea) this.damageVehiclesInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', { team: team });
       }
       this.emit({ type: 'strike-hit', strike: st });
     }
@@ -782,15 +852,17 @@
     if (!p.fx || p.fx.invisible <= 0) return true;
     return !viewer || viewer === p || viewer.team === p.team;
   };
-  // Enemies the viewer's drone or radar is currently showing.
+  // Drone/radar targets and nearby crew exposed by active vehicle repair.
   World.prototype.revealedEnemies = function (viewer) {
     if (!viewer) return [];
-    var drone = (this.reveal[viewer.team] || 0) > 0, radar = viewer.fx && viewer.fx.radar > 0, R = ITEMS.radar.radius, out = [];
-    if (!drone && !radar) return out;
+    var drone = (this.reveal[viewer.team] || 0) > 0, radar = viewer.fx && viewer.fx.radar > 0, R = ITEMS.radar.radius;
+    var repairRadius = ITEMS.smoke.radius * W.ARMOR_CREW.repairRevealMul, out = [];
     for (var i = 0; i < this.players.length; i++) {
       var o = this.players[i];
       if (o === viewer || !o.alive || o.team === viewer.team || o.hidden || o.dropT > 0) continue;
-      if (drone || Math.hypot(o.x - viewer.x, o.y - viewer.y) < R) out.push(o);
+      var distance = Math.hypot(o.x - viewer.x, o.y - viewer.y);
+      var repairing = o.classId === 'armorcrew' && o.repairVehicle && !o.downed && !o.vehicle && !o.mount;
+      if (drone || (radar && distance < R) || (repairing && distance <= repairRadius)) out.push(o);
     }
     return out;
   };

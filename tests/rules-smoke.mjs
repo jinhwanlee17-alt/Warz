@@ -14,7 +14,7 @@ t.equal(CONFIG.upgradeCost, 8, 'first-tier upgrades cost eight tokens');
 t.check(Rules.upgradeCostFor('sniper') === 8 && Rules.upgradeCostFor('sniper2') === 15, 'target tiers use eight and fifteen tokens');
 t.check(Rules.nextUpgradeCost('soldier') === 8 && Rules.nextUpgradeCost('medic') === 15 && Rules.nextUpgradeCost('medic2') === 0, 'next-tier cost follows class progression');
 t.equal(CONFIG.bushes, false, 'bushes are temporarily removed');
-t.check(CONFIG.tokenLoose <= 50 && CONFIG.regularCrateCount === 90, 'sparse loose tokens and ninety regular crates');
+t.check(CONFIG.tokenLoose <= 50 && CONFIG.regularCrateCount === 210, 'sparse loose tokens and 210 regular crates');
 
 // Soldier (starting class)
 t.equal(CLASSES.soldier.hp, 100, 'soldier HP');
@@ -81,14 +81,15 @@ t.equal(Rules.upgradeCheck({ from: 'sniper', to: 'medic', tokens: 50, keys: 5, s
 t.equal(Rules.relation('sniper', 'soldier'), 'owned', 'soldier is on the sniper path');
 t.equal(Rules.relation('soldier', 'soldier'), 'current', 'current class');
 t.equal(Rules.childClasses('soldier').join(), 'sniper,shotgunner,medic,grenadier', 'four lvl 1 choices');
-t.equal(Rules.childClasses('sniper').length, 4, 'sniper has its matching upgrade and three active shared choices');
+t.equal(Rules.childClasses('sniper').length, 5, 'sniper has its matching upgrade and four active shared choices');
 
 // Crates and items
 const { CRATES, ITEMS } = W;
-t.check(CONFIG.regularCrateCount === 90 && CONFIG.crateInBuilding < 0.7, 'ninety regular crates spread across the larger island');
+t.check(CONFIG.regularCrateCount === 210 && CONFIG.crateInBuilding < 0.7, '210 regular crates spread across the larger island');
 t.near(W.CRATE_ORDER.reduce((s, id) => s + CRATES[id].share, 0), 1, 1e-9, 'crate tiers cover 100% of crates');
 t.equal(W.CRATE_ORDER.map((id) => CRATES[id].share).join(), '0.8,0.1,0.08,0.02,0', 'regular crate mix 80/10/8/2 plus a reserved legendary');
 t.equal(JSON.stringify(Rules.crateQuota(101)), JSON.stringify({ common: 80, rare: 10, epic: 8, mythic: 2, legendary: 1 }), '100 regular crates plus one central legendary');
+t.equal(JSON.stringify(Rules.crateQuota(CONFIG.regularCrateCount + 1)), JSON.stringify({ common: 168, rare: 21, epic: 17, mythic: 4, legendary: 1 }), 'expanded island retains the regular crate odds with one central legendary');
 t.equal(Rules.crateQuota(10).legendary, 1, 'even a tiny island gets one legendary crate');
 t.equal(Rules.crateTokens('common', 0.5), 1, 'common crate: 1 token 90% of the time');
 t.equal(Rules.crateTokens('common', 0.05), 2, 'common crate: 2 tokens 10% of the time');

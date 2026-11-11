@@ -56,6 +56,21 @@ const quiet = { info(m) { if (process.env.VERBOSE) console.log('[server] ' + m);
   t.check(empty.lobbyView('solo').total === 0 && empty.lobbyView('solo').bots === 0, 'a lobby nobody is waiting in has no bots in it');
   empty.tick(Date.now()); empty.tick(Date.now() + 60000);
   t.check(true, 'and never starts a match on its own');
+  // One player and nobody to play against (bots off, or a fill that only makes up their own team): wait for a second player.
+  const alone = (mode, config, players = 1) => {
+    let started = 0;
+    const lobby = new Lobby({ config: Object.assign({ lobbyMin: 1, lobbyMax: 50, lobbyCountdown: 0, botFill: 50 }, config), send() {}, startMatch() { started++; return null; }, findConns() { return []; }, log: quiet });
+    for (let i = 0; i < players; i++) lobby.queue({ name: 'Lone' + i, user: null, open: true, party: null, queue: null, match: null }, mode);
+    const min = lobby.lobbyView(mode).min;
+    lobby.tick(1000); lobby.tick(2000);
+    return { started, min };
+  };
+  t.check(alone('solo', {}).started === 1 && alone('squad', { botFill: 8 }).started === 1, 'one player starts a match when bots make up at least one other team');
+  let lone = alone('solo', { botFill: 0 });
+  t.check(lone.started === 0 && lone.min === 2, 'with bots off, one player alone does not start a match against nobody: the lobby waits for a second');
+  lone = alone('squad', { botFill: 4 });
+  t.check(lone.started === 0 && lone.min === 2, 'nor when the bots would only fill their own team');
+  t.equal(alone('solo', { botFill: 0 }, 2).started, 1, 'two players with bots off do start');
 }
 
 // ---------------------------------------------------------------- over the wire
@@ -194,10 +209,18 @@ try {
   t.check(mine.length === 4 && mine.filter((p) => p.id !== mS.start.you).length === 3, 'and the player has three bot teammates');
   const squad = app.matches.get(tS.id), me = squad.byId.get(mS.start.you), mates = squad.players.filter((p) => p.team === me.team && p !== me);
   t.check(mates.length === 3 && mates.every((p) => p.bot && Math.hypot(p.x - me.x, p.y - me.y) < 120), 'who land right next to them');
-  // The player runs off: the bots come along.
-  let seq = 0;
-  const run = setInterval(() => mS.send({ t: 'in', s: ++seq, mx: 1, my: 0.3, a: 0, d: 400, f: false, fp: false, sc: false, r: false, sl: null, cy: 0, sw: false, u: false, iv: false }), 50);
+  // Run inland through the reserved drop clearing. A fixed world direction can point out to sea from
+  // a random coastal spawn, making the travel assertion measure shoreline collision rather than following.
   const from = { x: me.x, y: me.y };
+  const dx = squad.map.size / 2 - from.x, dy = squad.map.size / 2 - from.y, distance = Math.hypot(dx, dy);
+  const mx = dx / distance, my = dy / distance, runDistance = 900;
+  t.check(squad.bots.nav.segmentClear(from.x, from.y, from.x + mx * runDistance, from.y + my * runDistance, { dry: true }),
+    'the squad-follow route is dry, open ground inside the coastal drop clearing');
+  let seq = 0;
+  const run = setInterval(() => {
+    const moving = Math.hypot(me.x - from.x, me.y - from.y) < runDistance;
+    mS.send({ t: 'in', s: ++seq, mx: moving ? mx : 0, my: moving ? my : 0, a: 0, d: 400, f: false, fp: false, sc: false, r: false, sl: null, cy: 0, sw: false, u: false, iv: false });
+  }, 50);
   await sleep(8000);
   clearInterval(run);
   const ran = Math.hypot(me.x - from.x, me.y - from.y), near = mates.filter((p) => Math.hypot(p.x - me.x, p.y - me.y) < 800).length;

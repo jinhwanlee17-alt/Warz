@@ -1,16 +1,23 @@
-# Armor Crewmember: retained vehicle requirements
+# Armor Crewmember
 
-The Armor Crewmember is a planned level-two class, available as a planned choice after any level-one class in the class tree. Vehicles have not been implemented; the class stays unavailable until they are ready.
+Released as a level-two upgrade from any level-one class for 15 tokens.
 
-The player's requested bonuses apply while this class operates **any vehicle except planes**:
+- 150 HP and permanent 10% incoming damage reduction, including storm and lightning damage to the player. Vehicle hulls retain their normal defenses.
+- Repair Hammer: 30 melee damage, 90-unit surface reach, 0.6 seconds between swings. Secondary weapon: regular pistol. Personal attacks receive no class damage bonus.
+- Humvee driving speed: 15% faster than the current base speed. Tank driving speed stays at its current base speed.
+- Vehicle weapons: 5% more damage, captured when firing. Tank weapons additionally fire 15% faster; the Humvee machine gun retains its normal cadence.
+- An Armor Crewmember operating the cannon gets two loaded rounds, a 0.35 / 1.15 second firing gap, then a fixed three-second reload from infinite reserves. Reboarding does not refill ammunition or skip the reload.
+- F or G (the rebindable gear action) toggles repair of a damaged, intact vehicle within 120 units of its hull. Repair continuously restores 100 HP every 3.5 seconds for Humvees and every 2 seconds for tanks, and equips the hammer. Fractional health is retained between ticks. Moving, attacking, selecting another tool, boarding, losing eligibility, reaching full hull HP, or pressing gear again stops repair. Wrecks cannot be repaired.
+- During repair, enemy viewers within 2.5 smoke-grenade radii (1125 units) see the crewmember's map marker. Exposure ends when repair stops or the viewer leaves that radius.
 
-| Vehicle behavior | Multiplier |
+E can board a vehicle from any side, with line of sight and interaction range still required. The first available seat in the mode's order is assigned:
+
+| Vehicle / mode | Arrival order |
 | --- | --- |
-| Weapon damage | 1.35 (+35%) |
-| Weapon fire rate | 1.15 (+15%) |
-| Repair rate | 1.50 (+50%; repair time divided by 1.50) |
-| Driving speed | 1.35 (+35%) |
+| Solo | Driver |
+| Humvee, team modes | Driver, machine gunner if equipped, rear passengers; limited to team size and available seats |
+| Tank, Duos | Driver, combined cannon and machine-gun operator (1/2 switches weapons) |
+| Tank, Trios | Driver, cannon operator, machine gunner |
+| Tank, Squads | Driver, cannon operator, machine gunner, passenger |
 
-These are vehicle bonuses, not bonuses to personal weapons or movement. Do not exclude boats or other future vehicle categories merely because they are not ground vehicles. Planes are the stated exception.
-
-The player has not specified this class's personal weapons, health, or vehicle mechanics yet. Define those when vehicles are added. Machine-readable planned traits live in `W.CLASS_PLANNED.armorcrew` in `js/config.js`.
+The driver can use a tank weapon when its dedicated operator seat is empty. Existing riders keep their assigned roles when someone exits. No artillery or other vehicle classes are introduced by this release.

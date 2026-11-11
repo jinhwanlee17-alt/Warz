@@ -7,5 +7,6 @@ import '../../js/map.js';
 import '../../js/world.js';
 import '../../js/items.js';
 import '../../js/class-combat.js';
+import '../../js/vehicles.js';
 
 export const Warz = globalThis.Warz;

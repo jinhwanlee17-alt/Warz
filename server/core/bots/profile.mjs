@@ -27,6 +27,7 @@ export function makeProfile(rng, opts = {}) {
     reaction: vary(lerp(0.74, 0.26, skill), 0.12),        // seconds to notice someone who walks into view
     triggerDelay: vary(lerp(0.42, 0.14, skill), 0.2),     // seconds between "on target" and the first shot
     aimSigma: vary(lerp(0.105, 0.045, skill), 0.1),       // wobble of the aim angle, radians
+    shotAccuracy: lerp(0.6, 0.9, clamp((skill - SKILL_MIN) / (SKILL_MAX - SKILL_MIN), 0, 1)), // clear, easy shots; evasion/cover can do better
     aimTau: vary(lerp(0.22, 0.11, skill), 0.1),           // how slowly the crosshair closes on where it should be, seconds
     track: clamp(vary(lerp(0.2, 0.7, skill), 0.1), 0, 0.9), // share of a target's sweep the hand matches without thinking
     trackTau: vary(lerp(0.3, 0.18, skill), 0.1),          // seconds before a change of direction registers

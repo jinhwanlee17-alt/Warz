@@ -113,12 +113,31 @@
 
   function snap(v) { return Math.round(v / 20) * 20; }
 
-  function generate(seed) {
+  function edgeLength(inset) {
+    if (inset === undefined) inset = C.dropCoastInset;
+    return 4 * (C.worldSize - C.cornerRadius * 2) + U.TAU * (C.cornerRadius - inset);
+  }
+  function edgePoint(distance, inset) {
+    if (inset === undefined) inset = C.dropCoastInset;
+    var S = C.worldSize, R = C.cornerRadius, cr = R - inset, flat = S - R * 2;
+    var side = flat + Math.PI * cr / 2, perimeter = side * 4;
+    distance = ((distance % perimeter) + perimeter) % perimeter;
+    var edge = Math.floor(distance / side), offset = distance - edge * side, x, y;
+    if (offset < flat) { x = R + offset; y = inset; }
+    else { var angle = -Math.PI / 2 + (offset - flat) / cr; x = S - R + Math.cos(angle) * cr; y = R + Math.sin(angle) * cr; }
+    for (var rotate = 0; rotate < edge; rotate++) { var oldX = x; x = S - y; y = oldX; }
+    return { x: x, y: y };
+  }
+
+  function generate(seed, teamSize) {
     seed = (seed >>> 0) || 1;
+    teamSize = teamSize === 2 || teamSize === 3 || teamSize === 4 ? teamSize : 1;
     var rng = U.rng(seed), S = C.worldSize, area = C.mapAreaScale || 1, occ = new Occupancy();
+    // Area can be fractional: round each density target once to the nearest item.
+    function scaledCount(count) { return Math.round(count * area); }
     var map = {
-      seed: seed, size: S, coast: null, ponds: [], patches: [], tufts: [], towns: [], buildings: [],
-      rocks: [], trees: [], bushes: [], crates: [], stations: [], drops: [], pickups: [], nextPickupId: 1
+      seed: seed, teamSize: teamSize, size: S, coast: null, ponds: [], patches: [], tufts: [], towns: [], buildings: [],
+      rocks: [], trees: [], bushes: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], pickups: [], nextPickupId: 1
     };
     map.coast = coastline(rng, C.beach, 34);
     // Reserve the centre before any terrain, building, station or spawn is placed.
@@ -143,27 +162,41 @@
       }
     }
 
-    // Drop stations: one per cell of a jittered 4x4 grid, so spawns are spread over the island.
-    var margin = 760, cell = (S - margin * 2) / 4, gx, gy, tries, x, y;
-    for (gy = 0; gy < 4; gy++) {
-      for (gx = 0; gx < 4; gx++) {
-        for (tries = 0; tries < 40; tries++) {
-          x = margin + (gx + 0.5) * cell + rng.range(-0.28, 0.28) * cell;
-          y = margin + (gy + 0.5) * cell + rng.range(-0.28, 0.28) * cell;
-          if (inside(x, y, 440) && occ.circleFree(x, y, C.dropStationRadius + 90)) break;
-        }
-        // The centre reservation can block a jittered cell. Keep trying a safe
-        // position in that cell rather than accepting the final failed sample.
-        if (!inside(x, y, 440) || !occ.circleFree(x, y, C.dropStationRadius + 90)) {
-          x = margin + (gx + 0.5) * cell; y = margin + (gy + 0.5) * cell;
-        }
-        map.drops.push({ id: map.drops.length, label: map.drops.length + 1, x: x, y: y, r: C.dropStationRadius });
-        occ.addCircle(x, y, C.dropStationRadius + 90);
-      }
+    // Equal arc-length spacing on the rounded coastline, including its curved corners.
+    // A common seeded phase moves the whole ring without making individual spawn gaps uneven.
+    var gx, gy, tries, x, y, inset = C.dropCoastInset, perimeter = edgeLength(inset);
+    var drng = U.rng((seed ^ 0xa5b35705) >>> 0), phase = drng.next() * perimeter;
+    var dropCount = C.dropStationCounts[teamSize];
+    // A pad can serve more than one team in a no-fill lobby; reserve their coastal approaches too.
+    var clearRadius = Math.max(C.dropStationRadius + 90, (Math.ceil(C.lobbySize / dropCount) - 1) * 250 + 110);
+    for (var di = 0; di < dropCount; di++) {
+      var distance = (phase + di * perimeter / dropCount) % perimeter, point = edgePoint(distance, inset);
+      map.drops.push({ id: di, label: di + 1, x: point.x, y: point.y, r: C.dropStationRadius, edgeDistance: distance, clearRadius: clearRadius });
+      occ.addCircle(point.x, point.y, clearRadius);
+    }
+
+    // Eight modestly varied sectors on an inner ring, with space to board every side.
+    // A separate seed keeps the choice of armed vehicles independent of terrain/loot randomness.
+    var vrng = U.rng((seed ^ 0x6e624eb7) >>> 0), parking = W.VEHICLE.radius + C.playerRadius * 2 + 32;
+    var vehiclePhase = vrng.range(-0.06, 0.06);
+    for (var vi = 0; vi < W.VEHICLE.count; vi++) {
+      var va = vi * U.TAU / W.VEHICLE.count + vehiclePhase + vrng.range(-0.05, 0.05), radius = S * vrng.range(0.32, 0.34);
+      var vx = S / 2 + Math.cos(va) * radius, vy = S / 2 + Math.sin(va) * radius;
+      map.vehicles.push({ x: vx, y: vy, angle: vrng.range(0, U.TAU) });
+      occ.addCircle(vx, vy, parking);
+    }
+    map.vehicles = vrng.shuffle(map.vehicles);
+    map.vehicles.forEach(function (v, i) { v.id = i + 1; });
+    var trng = U.rng((seed ^ 0x3f98c671) >>> 0), tankParking = W.TANK.radius + C.playerRadius * 2 + 32;
+    for (var ti = 0; ti < W.TANK.count; ti++) {
+      var ta = (ti + 0.25) * U.TAU / W.TANK.count + trng.range(-0.04, 0.04), tr = S * trng.range(0.32, 0.34);
+      var tx = S / 2 + Math.cos(ta) * tr, ty = S / 2 + Math.sin(ta) * tr;
+      map.tanks.push({ id: W.VEHICLE.count + ti + 1, type: 'tank', x: tx, y: ty, angle: trng.range(0, U.TAU) });
+      occ.addCircle(tx, ty, tankParking);
     }
 
     // Ponds slow players down.
-    var pondTarget = rng.int(4, 6) * area;
+    var pondTarget = scaledCount(rng.int(4, 6));
     for (tries = 0; map.ponds.length < pondTarget && tries < 500; tries++) {
       var pr = rng.range(150, 300);
       x = rng.range(600, S - 600); y = rng.range(600, S - 600);
@@ -223,14 +256,14 @@
       if (stationFits(x, y)) addStation(x, y);
     }
 
-    scatter(140 * area, 3000 * area, function (rx, ry) {
+    scatter(scaledCount(140), scaledCount(3000), function (rx, ry) {
       var r = rng.range(26, 66);
       if (!inside(rx, ry, 300 + r) || !occ.circleFree(rx, ry, r + 26)) return false;
       map.rocks.push({ x: rx, y: ry, r: r, pts: blob(rng, rx, ry, r, rng.int(7, 10), 0.16), shine: rng.range(0, U.TAU) });
       occ.addCircle(rx, ry, r + 10);
       return true;
     });
-    scatter(300 * area, 5000 * area, function (tx, ty) {
+    scatter(scaledCount(300), scaledCount(5000), function (tx, ty) {
       var r = rng.range(68, 112);
       if (!inside(tx, ty, 280 + r * 0.5) || !occ.circleFree(tx, ty, r * 0.55)) return false;
       if (near(map.stations, tx, ty, r + 70) || near(map.drops, tx, ty, r + C.dropStationRadius + 10)) return false;
@@ -239,7 +272,7 @@
       return true;
     });
     if (C.bushes) {
-      scatter(170 * area, 4000 * area, function (bx, by) {
+      scatter(scaledCount(170), scaledCount(4000), function (bx, by) {
         var r = rng.range(32, 50);
         if (!inside(bx, by, 280) || !occ.circleFree(bx, by, r * 0.8) || near(map.stations, bx, by, r + 60)) return false;
         map.bushes.push({ x: bx, y: by, r: r, variant: rng.int(0, 7), rot: rng.range(0, U.TAU), fade: 1 });
@@ -324,15 +357,15 @@
     });
 
     // Ground decoration only (no collision).
-    for (var d = 0; d < 650 * area; d++) {
+    for (var d = 0, patchCount = scaledCount(650); d < patchCount; d++) {
       map.patches.push({ x: rng.range(200, S - 200), y: rng.range(200, S - 200), r: rng.range(40, 130), light: rng.chance(0.45) });
     }
-    for (d = 0; d < 1100 * area; d++) {
+    for (var tuftAttempts = scaledCount(1100), d = 0; d < tuftAttempts; d++) {
       x = rng.range(250, S - 250); y = rng.range(250, S - 250);
       if (inside(x, y, 260) && !inPond(x, y, 10)) map.tufts.push({ x: x, y: y, s: rng.range(0.7, 1.3), flower: rng.chance(0.12) ? rng.pick(['#fff4f0', '#ffe066', '#ff9ec7']) : null });
     }
     return map;
   }
 
-  W.MapGen = { generate: generate, inside: inside, WALL: WALL, DOOR: DOOR };
+  W.MapGen = { generate: generate, inside: inside, edgePoint: edgePoint, edgeLength: edgeLength, WALL: WALL, DOOR: DOOR };
 }());

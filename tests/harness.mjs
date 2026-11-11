@@ -19,6 +19,7 @@ export class MemoryStorage {
 export function loadWarz(files = ['config', 'util', 'map', 'world', 'items', 'class-combat'], options = {}) {
   // Keep explicit simulation subsets on the same combat implementation as the game.
   if (files.includes('items') && !files.includes('class-combat')) { files = files.slice(); files.splice(files.indexOf('items') + 1, 0, 'class-combat'); }
+  if (files.includes('items') && !files.includes('vehicles')) { files = files.slice(); files.splice(files.indexOf('class-combat') + 1, 0, 'vehicles'); }
   const storage = options.storage || new MemoryStorage();
   const sandbox = { console, localStorage: storage, crypto: globalThis.crypto, TextEncoder, setTimeout, clearTimeout, performance };
   sandbox.window = sandbox;

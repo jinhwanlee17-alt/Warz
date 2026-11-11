@@ -141,16 +141,18 @@ for (const id of ['grenade', ...throwIds.filter(id => id !== 'grenade'), 'launch
   const rocks = [{ x: 3500, y: 3200, r: 45 }, { x: 3570, y: 3200, r: 35 }];
   const c = crate(7, 3550, 3260), world = new World({ map: map({ rocks, crates: [c] }), storm: false });
   const p = world.addPlayer({ x: 3000, y: 3000 });
-  const portable = world.addStruct({ kind: 'rock', item: 'rock', x: 3500, y: 3350, r: 116, owner: p.id, team: p.team });
+  const portable = world.addStruct({ kind: 'rock', item: 'rock', x: 3500, y: 3450, r: 116, owner: p.id, team: p.team });
   const enemy = world.addPlayer({ x: 3500, y: 3070 });
   world.explode(3500, 3070, WEAPONS.launcher2.explosion, p.id, 'launcher2');
   t.equal(enemy.hp, 30, 'level-two launcher deals seventy at the blast center');
-  t.check(rocks.every(r => !r.alive), 'one demolition blast destroys all map rocks it reaches');
+  t.check(rocks.every(r => r.alive && !('hp' in r) && !('maxHp' in r)), 'Launcher II leaves natural rocks intact without creating health state');
   // The second blast reaches the crate and portable boulder without player overlap.
   world.explode(3500, 3260, WEAPONS.launcher2.explosion, p.id, 'launcher2');
-  t.check(!c.alive && !portable.alive, 'one demolition blast destroys even an armored crate and allied portable rock');
+  t.check(!c.alive && portable.alive && portable.hp === 1000, 'Launcher II still demolishes an armored crate while the portable boulder ignores the blast');
+  t.equal(world.events.filter(e => e.type === 'rock-gone').length, 0, 'launcher blasts do not remove natural rocks');
+  world.damageMapRocksInArea(3500, 3200, 200, 'tank-cannon', p.id, true);
   t.equal(world.events.filter(e => e.type === 'rock-gone').length, 2, 'one rock-gone event is emitted per destroyed map rock');
-  world.explode(3500, 3260, WEAPONS.launcher2.explosion, p.id, 'launcher2');
+  world.damageMapRocksInArea(3500, 3200, 200, 'tank-cannon', p.id, true);
   t.equal(world.events.filter(e => e.type === 'rock-gone').length, 2, 'repeated blasts cannot destroy the same map rock twice');
   const bullet = { owner: p.id, team: p.team, weapon: 'ar', damage: 10, x: 3400, y: 3200, ox: 3400, oy: 3200, dx: 1, dy: 0, speed: 1000, traveled: 0, range: 600, r: 5 };
   t.check(world.advanceBullet(bullet, 240) && bullet.x === 3640, 'destroyed map rocks no longer block bullets');

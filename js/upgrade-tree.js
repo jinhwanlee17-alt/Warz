@@ -1,5 +1,4 @@
-/* warz.io: upgrade station panel. The Soldier branches into level-one and level-two classes.
-   A named planned vehicle class remains inspectable without being purchasable. */
+/* warz.io: upgrade station panel. The Soldier branches into level-one and level-two classes. */
 (function () {
   'use strict';
   var W = window.Warz, U = W.U, C = W.CONFIG, CLASSES = W.CLASSES, WEAPONS = W.WEAPONS, Rules = W.Rules, Icons = W.Icons, L = W.TREE_LAYOUT;
@@ -257,6 +256,8 @@
     var rows = '<li><strong>HP</strong><span><b>' + cls.hp + '</b>' + (cls.hp !== current.hp && rel === 'available' ? ' (' + (cls.hp - current.hp) + ' from now)' : '') + '</span></li>' +
       '<li><strong>Armor</strong><span><b>' + cls.armor + '</b></span></li>';
     if (cls.speed && cls.speed !== 1) rows += '<li><strong>Speed</strong><span><b>' + Math.round(cls.speed * 100) + '%</b> of normal movement speed</span></li>';
+    if (cls.id === 'armorcrew') rows += '<li><strong>Protection</strong><span><b>10%</b> less incoming damage</span></li>' +
+      '<li><strong>Repair</strong><span><b>100 HP</b> · Humvee: ' + W.ARMOR_CREW.repairSecondsPer100.humvee + 's · Tank: ' + W.ARMOR_CREW.repairSecondsPer100.tank + 's. Toggle ' + W.Controls.bindings('gear').map(function (code) { return W.Controls.label(code); }).join(' / ') + ' near a damaged vehicle. Repairing reveals you to nearby enemies.</span></li>';
     cls.loadout.forEach(function (id, i) {
       var kind = WEAPONS[id].kind;
       rows += weaponRow(i === 0 ? 'Main' : (kind === 'gun' ? 'Side' : 'Gear'), id);

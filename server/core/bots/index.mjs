@@ -15,19 +15,24 @@ const NEAR_MISS = 75;         // a bullet this close to a bot counts as "someone
 // Pacing. A lobby full of bots that all fight on sight is over in three minutes, long before the storm has done
 // anything. So bots pick fights with *each other* more or less readily depending on whether the lobby is ahead of
 // or behind this curve (share of the lobby still alive, by match time). How they treat a human never changes.
-const PACE = [[0, 1], [30, 0.97], [60, 0.93], [90, 0.88], [120, 0.82], [150, 0.76], [195, 0.66], [245, 0.54], [285, 0.44], [330, 0.34],
-  [365, 0.26], [405, 0.19], [435, 0.14], [470, 0.1], [495, 0.06], [525, 0.04], [555, 0.02]];
-function paceAt(t) {
-  for (let i = 1; i < PACE.length; i++) {
-    if (t <= PACE[i][0]) { const a = PACE[i - 1], b = PACE[i]; return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]); }
+function makePace(phases) {
+  const pace = [1, 0.97, 0.93, 0.88, 0.82].map((alive, i) => [phases[0].start * i / 5, alive]);
+  const starts = [0.76, 0.54, 0.34, 0.19, 0.1, 0.04], ends = [0.66, 0.44, 0.26, 0.14, 0.06, 0.02];
+  phases.forEach((phase, i) => pace.push([phase.start, starts[i]], [phase.end, ends[i]]));
+  return pace;
+}
+function paceAt(t, pace) {
+  for (let i = 1; i < pace.length; i++) {
+    if (t <= pace[i][0]) { const a = pace[i - 1], b = pace[i]; return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]); }
   }
-  return PACE[PACE.length - 1][1];
+  return pace[pace.length - 1][1];
 }
 
 export class BotDirector {
   constructor({ W, world, seed, teamSize = 1, log = console, level = 0.5 }) {
     this.W = W;
     this.world = world;
+    this.pace = makePace(W.STORM);
     this.seed = seed >>> 0;
     this.teamSize = teamSize;
     this.log = log;
@@ -96,7 +101,7 @@ export class BotDirector {
     for (const p of this.world.players) if (p.alive) n++;
     this.alive = n;
     // Ahead of the pace (too many alive): keener. Behind it: bots leave each other be.
-    const want = paceAt(this.world.time) * this.world.players.length, heat = (n - want) / Math.max(2.5, want * 0.12);
+    const want = paceAt(this.world.time, this.pace) * this.world.players.length, heat = (n - want) / Math.max(2.5, want * 0.12);
     this.heat = heat < -1 ? -1 : heat > 2 ? 2 : heat;
     this.keen = this.heat >= 0 ? 1 + this.heat * 1.3 : Math.max(0.05, 1 + this.heat * 0.95);
     // How far along the match is, by head count (as shares of the lobby, so small lobbies behave the same way).
@@ -124,36 +129,39 @@ export class BotDirector {
     }
   }
   oops(bot, err) { if (this.errors++ < 5) this.log.error('bot ' + (bot ? bot.p.name : 'director') + ' failed: ' + ((err && err.stack) || err)); }
+  // What bots make of one world event.
   notice(e, time) {
-    {
-      switch (e.type) {
-        case 'damage': {
-          const hurt = this.byId.get(e.target.id);
-          if (hurt) hurt.onDamaged(e);
-          if (e.source && e.source !== e.target) {
-            this.lastHit.set(e.target.id, { by: e.source.id, team: e.source.team, at: time });
-            const by = this.byId.get(e.source.id);
-            if (by) by.onHit(e);
-            // A human's fight is their bot teammates' fight: whoever they shoot, and whoever shoots them.
-            if (this.teamSize > 1 && e.source.team !== e.target.team) {
-              if (!e.source.bot) this.teamFocus.set(e.source.team, { id: e.target.id, at: time });
-              if (!e.target.bot) this.teamFocus.set(e.target.team, { id: e.source.id, at: time });
-            }
+    switch (e.type) {
+      case 'damage': {
+        const hurt = this.byId.get(e.target.id);
+        if (hurt) hurt.onDamaged(e);
+        if (e.source && e.source !== e.target) {
+          this.lastHit.set(e.target.id, { by: e.source.id, team: e.source.team, at: time });
+          const by = this.byId.get(e.source.id);
+          if (by) by.onHit(e);
+          // A human's fight is their bot teammates' fight: whoever they shoot, and whoever shoots them.
+          if (this.teamSize > 1 && e.source.team !== e.target.team) {
+            if (!e.source.bot) this.teamFocus.set(e.source.team, { id: e.target.id, at: time });
+            if (!e.target.bot) this.teamFocus.set(e.target.team, { id: e.source.id, at: time });
           }
-          break;
         }
-        case 'shot': case 'launch': case 'flame':
-          this.cover.noteShot(e.player.id, time);
-          this.noise(e.player.id, e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y, time);
-          break;
-        case 'explosion': this.noise(0, e.x, e.y, time); break;
-        case 'death': { const by = e.killer && this.byId.get(e.killer.id); if (by) by.onKill(e.victim); break; }
-        case 'crate': this.nav.invalidate(e.crate.x, e.crate.y, 40); this.claims.delete(e.crate.id); break;
-        case 'rock-gone': this.nav.invalidate(e.rock.x, e.rock.y, e.rock.r); break;
-        case 'struct': if (e.op === 'add' || e.op === 'gone') this.nav.invalidate(e.struct.x, e.struct.y, e.struct.r); break;
-        case 'teleport': case 'pulled': { const b = this.byId.get(e.player.id); if (b) { b.route = null; b.padWait = null; } break; }
-        default: break;
+        break;
       }
+      case 'shot': case 'launch': case 'flame':
+        this.cover.noteShot(e.player.id, time);
+        this.noise(e.player.id, e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y, time);
+        break;
+      case 'vehicle-shot':
+        this.cover.noteShot(e.player.id, time);
+        this.noise(e.player.id, e.x, e.y, time);
+        break;
+      case 'explosion': this.noise(0, e.x, e.y, time); break;
+      case 'death': { const by = e.killer && this.byId.get(e.killer.id); if (by) by.onKill(e.victim); break; }
+      case 'crate': this.nav.invalidate(e.crate.x, e.crate.y, 40); this.claims.delete(e.crate.id); break;
+      case 'rock-gone': this.nav.invalidate(e.rock.x, e.rock.y, e.rock.r); break;
+      case 'struct': if (e.op === 'add' || e.op === 'gone') this.nav.invalidate(e.struct.x, e.struct.y, e.struct.r); break;
+      case 'teleport': case 'pulled': { const b = this.byId.get(e.player.id); if (b) { b.route = null; b.padWait = null; } break; }
+      default: break;
     }
   }
   // Shots make everyone nearby wary; you only learn where from if the muzzle flash was on your screen.

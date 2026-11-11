@@ -3,6 +3,30 @@
   'use strict';
   var W = window.Warz, U = W.U, C = W.CONFIG;
 
+  function dropLabels(g, drops, k, px, fontSize, dpr) {
+    var center = px / 2, gap = 4 * dpr;
+    function place(compact) {
+      return drops.map(function (d) {
+        var text = (compact ? '' : 'Drop ') + d.label, width = g.measureText(text).width;
+        var x = d.x * k, y = d.y * k, dx = center - x, dy = center - y, distance = Math.max(1, Math.abs(dx), Math.abs(dy));
+        return { text: text, width: width, dx: dx / distance, dy: dy / distance,
+          x: U.clamp(x + dx / distance * (width / 2 + 10 * dpr), width / 2 + gap, px - width / 2 - gap),
+          y: U.clamp(y + dy / distance * (fontSize * 0.7 + 10 * dpr), fontSize / 2 + gap, px - fontSize / 2 - gap) };
+      });
+    }
+    function overlaps(a, b) { return Math.abs(a.x - b.x) < (a.width + b.width) / 2 + gap && Math.abs(a.y - b.y) < fontSize + gap; }
+    var labels = place(false);
+    if (labels.some(function (a, i) { return labels.slice(0, i).some(function (b) { return overlaps(a, b); }); })) labels = place(true);
+    labels.forEach(function (label, i) {
+      // Tiny full-map viewports retain readable numbers by staggering crowded corner labels inward.
+      for (var attempt = 0; attempt < 4 && labels.slice(0, i).some(function (other) { return overlaps(label, other); }); attempt++) {
+        label.x = U.clamp(label.x + label.dx * (fontSize + gap), label.width / 2 + gap, px - label.width / 2 - gap);
+        label.y = U.clamp(label.y + label.dy * (fontSize + gap), fontSize / 2 + gap, px - fontSize / 2 - gap);
+      }
+    });
+    return labels;
+  }
+
   // Static terrain at `px` pixels square: ocean, sand, grass, trees, ponds, buildings, drop stations, town names.
   function base(map, px, opts) {
     opts = opts || {};
@@ -53,11 +77,13 @@
       g.fillText(t.name, t.x * k, t.y * k - 4 * dpr);
     });
     if (big) {
-      g.font = 'bold ' + Math.round(labelPx * 0.85) + 'px Trebuchet MS, sans-serif';
+      var dropFont = Math.round(labelPx * 0.85);
+      g.font = 'bold ' + dropFont + 'px Trebuchet MS, sans-serif';
       g.fillStyle = '#ffe9a8';
-      map.drops.forEach(function (d) {
-        g.strokeText('Drop ' + d.label, d.x * k, d.y * k + labelPx * 0.35);
-        g.fillText('Drop ' + d.label, d.x * k, d.y * k + labelPx * 0.35);
+      g.textBaseline = 'middle';
+      dropLabels(g, map.drops, k, px, dropFont, dpr).forEach(function (label) {
+        g.strokeText(label.text, label.x, label.y);
+        g.fillText(label.text, label.x, label.y);
       });
     }
     return canvas;
@@ -78,6 +104,21 @@
     g.lineWidth = 2 * dpr; g.strokeStyle = '#15243a'; g.stroke();
     g.restore();
     return { x: x, y: y };
+  }
+
+  function legendaryMarker(g, crate, k, px, big, dpr) {
+    var size = (big ? 8 : 5) * dpr, edge = 2 * dpr, pad = size + edge + dpr;
+    var x = U.clamp(crate.x * k, pad, px - pad), y = U.clamp(crate.y * k, pad, px - pad);
+    g.save(); g.globalAlpha = 1;
+    // Gold planks, dark frame, crossed braces and a pale lock read as a crate even on the minimap.
+    g.fillStyle = '#33260f'; g.fillRect(x - size - edge, y - size - edge, (size + edge) * 2, (size + edge) * 2);
+    g.fillStyle = '#ffd44f'; g.fillRect(x - size, y - size, size * 2, size * 2);
+    g.strokeStyle = '#9b6716'; g.lineWidth = 1.5 * dpr;
+    g.strokeRect(x - size + dpr, y - size + dpr, size * 2 - dpr * 2, size * 2 - dpr * 2);
+    g.beginPath(); g.moveTo(x - size + dpr, y - size + dpr); g.lineTo(x + size - dpr, y + size - dpr);
+    g.moveTo(x + size - dpr, y - size + dpr); g.lineTo(x - size + dpr, y + size - dpr); g.stroke();
+    g.fillStyle = '#fff1ae'; g.fillRect(x - 1.5 * dpr, y - 2 * dpr, 3 * dpr, 4 * dpr);
+    g.restore();
   }
 
   // Live layer: upgrade stations, storm circles, team structures and directional player markers.
@@ -123,6 +164,22 @@
     }
     if (p) {
       var md = (big ? 5 : 3.5) * dpr, arrowSize = (big ? 8 : 5.5) * dpr;
+      // Empty vehicles can be found on the map. Occupied enemies do not become free radar contacts.
+      (world.vehicles || []).forEach(function (v) {
+        if (v.hidden || v.wreck) return;
+        var ids = Object.keys(v.seats || {}).map(function (seat) { return v.seats[seat]; }).filter(Boolean);
+        if (ids.length && !ids.some(function (id) { var rider = world.playerById(id); return rider && rider.team === p.team; })) return;
+        var tank = v.type === 'tank', carSize = (big ? (tank ? 7.5 : 6) : (tank ? 3.5 : 2.5)) * dpr;
+        g.save(); g.translate(v.x * k, v.y * k); g.rotate(v.angle);
+        g.fillStyle = ids.length ? '#8fe6ed' : tank ? '#a9bd78' : v.armed ? '#ffd477' : '#d8e9af'; g.strokeStyle = '#263329'; g.lineWidth = 1.5 * dpr;
+        g.fillRect(-carSize, -carSize * 0.65, carSize * 2, carSize * 1.3); g.strokeRect(-carSize, -carSize * 0.65, carSize * 2, carSize * 1.3);
+        if (tank) {
+          g.strokeStyle = '#263329'; g.lineWidth = 2 * dpr; g.beginPath();
+          g.moveTo(-carSize, -carSize * 0.65); g.lineTo(carSize, -carSize * 0.65); g.moveTo(-carSize, carSize * 0.65); g.lineTo(carSize, carSize * 0.65); g.stroke();
+        }
+        if (tank || v.armed) { g.strokeStyle = '#263329'; g.beginPath(); g.moveTo(0, 0); g.lineTo(carSize * (tank ? 1.9 : 1.5), 0); g.stroke(); }
+        g.restore();
+      });
       world.structures.forEach(function (st) {
         if (!st.alive || st.team !== p.team || st.kind === 'rock') return;
         g.fillStyle = st.kind === 'teleporter' ? '#7fe9ff' : '#8cff6a';
@@ -147,15 +204,29 @@
         g.beginPath(); g.arc(x, y, s * 2.2, 0, U.TAU); g.stroke();
       }
       if (big) {
-        g.font = 'bold ' + Math.round(13 * dpr) + 'px Trebuchet MS, sans-serif';
+        var youFont = Math.round(13 * dpr), labelPad = 3 * dpr, labelY = y - s * 2.8;
+        g.save();
+        g.font = 'bold ' + youFont + 'px Trebuchet MS, sans-serif';
         g.textAlign = 'center';
+        g.textBaseline = 'middle';
         g.lineWidth = 3 * dpr;
         g.strokeStyle = 'rgba(20,30,20,0.8)';
         g.fillStyle = '#ffffff';
-        g.strokeText('You', x, y - s * 2.8);
-        g.fillText('You', x, y - s * 2.8);
+        // Coastal spawns may touch the top edge: put their label below the arrow instead.
+        if (labelY - youFont / 2 < labelPad) labelY = y + s * 2.8;
+        labelY = U.clamp(labelY, youFont / 2 + labelPad, px - youFont / 2 - labelPad);
+        var labelHalf = g.measureText('You').width / 2;
+        var labelX = U.clamp(x, labelHalf + labelPad, px - labelHalf - labelPad);
+        g.strokeText('You', labelX, labelY);
+        g.fillText('You', labelX, labelY);
+        g.restore();
       }
     }
+    // This belongs to the live overlay: damage and reconnect state remove it immediately, without rebuilding terrain.
+    (world.map.crates || []).forEach(function (crate) {
+      if (world.remote && p && p.hidden) return; // Rejoin sync precedes the first authoritative player snapshot.
+      if (crate.tier === 'legendary' && crate.alive && crate.hp > 0) legendaryMarker(g, crate, k, px, big, dpr);
+    });
   }
 
   W.MapArt = { base: base, overlay: overlay };

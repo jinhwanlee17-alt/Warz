@@ -21,11 +21,11 @@ const {openBrowser}=require('./qa-browser.cjs');
     await b.cmd('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/?seed=57'});
     await b.waitFor('window.Warz&&Warz.App&&Warz.App.ready');
     await b.evaluate(`Warz.App.startPractice();(()=>{const W=Warz,m=W.debug.match(),p=m.player,s=m.world.map.stations[0];p.dropT=0;p.tokens=23;p.x=s.x+70;p.y=s.y;s.cooldown=0;W.UpgradeTree.open({world:m.world,player:p,station:s});})()`);
-    check(await b.evaluate(`Warz.CLASS_ORDER.filter(id=>Warz.CLASSES[id].tier===2).length===7&&document.querySelectorAll('#ut-nodes .is-soon').length===1`),'Seven playable level-two classes and one planned vehicle class');
+    check(await b.evaluate(`Warz.CLASS_ORDER.filter(id=>Warz.CLASSES[id].tier===2).length===8&&document.querySelectorAll('#ut-nodes .is-soon').length===0`),'All eight level-two classes are playable, including Armor Crewmember');
     for(const [branch,matching]of [['sniper','sniper2'],['shotgunner','shotgunner2'],['medic','medic2'],['grenadier','grenadier2']]){
       await click('#ut-node-'+branch);
       const visible=await b.evaluate(`([...document.querySelectorAll('#ut-nodes .ut-node')].filter(e=>!e.hidden&&(Warz.CLASSES[e.dataset.node]?.tier===2||e.dataset.node==='armorcrew')).map(e=>e.dataset.node)).sort()`);
-      check(JSON.stringify(visible)===JSON.stringify([matching,'pyromancer','juggernaut','commander','armorcrew'].sort()),branch+': exactly its matching upgrade, three shared classes and planned Armor Crewmember');
+      check(JSON.stringify(visible)===JSON.stringify([matching,'pyromancer','juggernaut','commander','armorcrew'].sort()),branch+': exactly its matching upgrade and four shared classes');
     }
     await click('#ut-node-sniper');
     check(await b.evaluate(`document.getElementById('ut-action').textContent.includes('8 tokens')&&!document.getElementById('ut-action').disabled`),'Level-one action shows an eight-token cost');
@@ -54,8 +54,8 @@ const {openBrowser}=require('./qa-browser.cjs');
     await b.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
     await b.evaluate(`(()=>{const m=Warz.debug.match();Warz.UpgradeTree.open({world:m.world,player:m.player,station:m.world.map.stations[0]});})()`);
     await click('#ut-node-armorcrew');
-    check(await b.evaluate(`document.getElementById('ut-detail-title').textContent==='Armor Crewmember'&&document.getElementById('ut-action').disabled&&document.getElementById('ut-detail-desc').textContent.includes('vehicles')`),'Armor Crewmember has named vehicle details and cannot be purchased');
-    await b.shot('armor-crew-planned.png');
+    check(await b.evaluate(`document.getElementById('ut-detail-title').textContent==='Armor Crewmember'&&!document.getElementById('ut-action').disabled&&document.getElementById('ut-action').textContent.includes('15 tokens')&&document.getElementById('ut-stats').textContent.includes('Humvee: 3.5s')&&document.getElementById('ut-stats').textContent.includes('Tank: 2s')`),'Armor Crewmember is purchasable for15 tokens and explains each vehicle repair rate');
+    await b.shot('armor-crew-available.png');
     await click('#ut-node-sniper2');
     check(await b.evaluate(`document.getElementById('ut-detail-title').textContent==='Sniper II'&&!document.getElementById('ut-action').disabled&&document.getElementById('ut-action').textContent.includes('15 tokens')`),'Sniper II is available from its parent and shows the fifteen-token cost');
     await click('#ut-action');
@@ -70,7 +70,7 @@ const {openBrowser}=require('./qa-browser.cjs');
     check(await b.evaluate(`Warz.debug.player().upgradeFrom==='medic'&&document.getElementById('ut-branch-label').textContent.startsWith('Medic upgrades')&&!document.getElementById('ut-node-commander').hidden&&!document.getElementById('ut-node-medic2').hidden`),'Reopening a shared class preserves the actual Medic origin and keeps the current class visible');
     await b.evaluate(`(()=>{const W=Warz,m=W.debug.match(),p=m.player;W.UpgradeTree.close();m.world.teams=true;m.world.addPlayer({x:m.world.map.size-150,y:150,team:p.team,angle:1.2,name:'Teammate'});m.world.addPlayer({x:150,y:m.world.map.size-150,team:p.team+1,angle:-.7,name:'Revealed enemy'});m.world.reveal[p.team]=60;W.MapScreen.show();})()`);
     await b.sleep(150);await b.shot('expanded-map-markers.png');
-    check(await b.evaluate(`document.querySelector('.map-legend .lg-enemy')&&getComputedStyle(document.querySelector('.lg-mate'),'::before').backgroundColor==='rgb(79, 163, 255)'`),'Map legend matches blue allies and includes revealed enemies');
+    check(await b.evaluate(`document.getElementById('map-screen').children.length===1&&document.getElementById('bigmap').parentElement.id==='map-screen'&&!document.querySelector('#map-screen .map-legend')&&document.getElementById('map-screen').getAttribute('aria-label').includes('Escape')`),'Expanded island map is a tightly framed canvas with accessible closing instructions');
     check(b.errors.length===0,'No browser exceptions in the expanded map and class-tree flow');
     console.log('Map/tree browser QA: all '+passed+' checks passed');
   }finally{await b.close();await new Promise(r=>server.close(r));}

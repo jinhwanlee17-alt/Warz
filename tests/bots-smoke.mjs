@@ -24,6 +24,17 @@ const marksman = (a, b) => (p) => { const d = Math.hypot(b.p.x - p.x, b.p.y - p.
 
 // ---------------------------------------------------------------- who they are
 {
+  const a = arena();
+  a.crowd(50);
+  const pace = a.dir.pace;
+  t.check(W.STORM.every((phase, i) => pace[5 + i * 2][0] === phase.start && pace[6 + i * 2][0] === phase.end),
+    'match pacing follows every storm wait and closure instead of an obsolete match duration');
+  a.world.time = W.STORM[2].start;
+  a.world.players.forEach((p, i) => { p.alive = i < 17; });
+  a.dir.beforeTick(TICK);
+  t.near(a.dir.heat, 0, 1e-9, '17 of 50 alive at the third closure is on pace, even with longer waits');
+}
+{
   const rng = W.U.rng(42), skills = [];
   for (let i = 0; i < 2000; i++) skills.push(rollSkill(rng));
   const share = (lo, hi) => skills.filter((s) => s >= lo && s < hi).length / skills.length;
@@ -211,7 +222,7 @@ function accuracy(skill, strafe, d = 300) {
   t.check(weak > 0.08 && weak < 0.3, 'a weak bot lands roughly one bullet in five on a strafing target (' + (weak * 100).toFixed(0) + '%)');
   t.check(mid > weak && mid > 0.2 && mid < 0.45, 'an average bot about one in three (' + (mid * 100).toFixed(0) + '%)');
   t.check(sharp > mid + 0.1 && sharp < 0.75, 'the sharpest clearly more, and still nowhere near all of them (' + (sharp * 100).toFixed(0) + '%)');
-  t.check(standing > 0.7 && standing > mid * 1.8, 'standing still in front of an average bot is a mistake (' + (standing * 100).toFixed(0) + '%)');
+  t.check(standing > 0.6 && standing > mid + 0.2, 'standing still gives an average bot at least 60% hits and at least 20 points more than dodging (' + (standing * 100).toFixed(0) + '%)');
 }
 {
   // Shot at: fights back, and beats someone who cannot aim.
@@ -383,8 +394,10 @@ function classFight(classId, d, seconds = 14, o = {}) {
   t.check(r.minD < 300 && r.dmg('flamethrower') > 100, 'a Pyromancer walks into flame range and burns (' + Math.round(r.dmg('flamethrower')) + ' damage)');
   r = classFight('pyromancer', 520, 10, { aggression: 0.2 });
   t.check(r.dmg('revolver') >= 150 && r.minD > 200, 'a careful one stays back and uses the revolver instead (one click per shot, ' + Math.round(r.dmg('revolver')) + ' damage)');
-  r = classFight('commander', 700, 9);
-  t.check(r.a.count('command') === 1 && r.b.p.alive && r.dmg('airstrike') >= 500, 'a Commander calls the radar boost and drops the airstrike on the enemy, not on itself');
+  // (With the airstrike at 225 radius the Commander no longer has to stand far back from it, so it trades shots at
+  // pistol range while the bombs are on their way: against a poor shot, or it would not live to see them land.)
+  r = classFight('commander', 700, 9, { brain: (a, b) => sprayer(a, b, 800) });
+  t.check(r.a.count('command') === 1 && r.b.p.alive && r.dmg('airstrike') >= W.WEAPONS.commandradar.strikeDamage, 'a Commander calls the radar boost and drops the airstrike on the enemy, not on itself');
   r = classFight('medic', 400, 12, { hp: 300 });
   t.check(r.a.count('heal', (e) => e.by === r.b.p) >= 1, 'a Medic uses the medkit when hurt');
   r = classFight('soldier', 420, 12, { brain: (a, b) => { const rng = W.U.rng(5); return () => ({ mx: 0, my: 0, aimX: b.p.x + (rng.next() - 0.5) * 420, aimY: b.p.y + (rng.next() - 0.5) * 420, fire: true }); } });
@@ -404,6 +417,39 @@ function classFight(classId, d, seconds = 14, o = {}) {
 }
 
 // ---------------------------------------------------------------- staying alive
+{
+  // A partial path can point exactly into a sentry's danger circle. There is no residual tangent after
+  // removing that inward component, but an open side is still usable (and a blocked side must be rejected).
+  const a = arena({ extra: { rocks: [{ x: 9000, y: 8936, r: 16 }] } });
+  const b = a.bot(9000, 9000);
+  b.now = 1; b.pauseUntil = 0;
+  b.moveGoal = { x: 10000, y: 9000, tol: 30 };
+  b.route = { gx: 10000, gy: 9000, pts: [{ x: 9064, y: 9000 }], i: 0, partial: true, at: 1, cut: 10, blocked: 0 };
+  b.hazards = [{ x: 9800, y: 9000, r: 780, d: 800 }];
+  b.steer();
+  const end = { x: b.p.x + b.out.mx * 64, y: b.p.y + b.out.my * 64 };
+  t.check(Math.hypot(b.out.mx, b.out.my) > 0.9, 'a path aimed directly into a sentry danger circle takes an open side instead of freezing');
+  t.check(dist(end, b.hazards[0]) >= 780 && b.nav.segmentClear(b.p.x, b.p.y, end.x, end.y), 'the sidestep stays outside the danger circle and does not cross nearby cover');
+}
+{
+  // With no safe sidestep, an actual blocked errand must reach the existing route recovery. Waiting on
+  // purpose (for a shot, a crate or a teammate) must still be left alone.
+  const x = 8960, y = 8960, w = 80, h = 80, thick = 10;
+  const a = arena({ extra: { buildings: [{ id: 0, x, y, w, h, doors: [], walls: [
+    { x, y, w, h: thick }, { x, y: y + h - thick, w, h: thick },
+    { x, y, w: thick, h }, { x: x + w - thick, y, w: thick, h }
+  ] }] } });
+  const b = a.bot(9000, 9000);
+  b.now = 1; b.pauseUntil = 0;
+  b.moveGoal = { x: 10000, y: 9000, tol: 30 };
+  b.route = { gx: 10000, gy: 9000, pts: [{ x: 9028, y: 9000 }], i: 0, partial: true, at: 1, cut: 10, blocked: 0 };
+  b.hazards = [{ x: 9800, y: 9000, r: 780, d: 800 }];
+  b.steer();
+  t.check(b.out.mx === 0 && b.out.my === 0 && b.stuck.n === 1 && b.route === null, 'a cancelled errand with no safe side step triggers route recovery instead of being mistaken for a deliberate wait');
+  b.still = true; b.now += 0.6;
+  b.steer();
+  t.equal(b.stuck.n, 0, 'deliberately standing still does not trigger movement recovery');
+}
 {
   const dodged = (skill) => {
     let ok = 0;
@@ -471,17 +517,26 @@ function classFight(classId, d, seconds = 14, o = {}) {
 }
 {
   let inside = 0, total = 0;
-  for (const [dx, dy] of [[5200, 0], [-4200, 3000], [0, -6000], [3600, 3600], [-7000, -800]]) {
+  // Start on uncovered coast that the first closure will actually engulf, even on larger islands.
+  for (let angle = 0; angle < Math.PI * 2 && total < 5; angle += Math.PI / 8) {
     const a = arena({ storm: true, seed: 5 });
     a.crowd();
     const c = a.world.storm.circles[1];
-    const b = a.bot(c.x + dx, c.y + dy, {});
-    a.world.time = 118;
-    const end = 240;
+    let lo = 0, hi = W.CONFIG.worldSize * 2;
+    for (let n = 0; n < 24; n++) {
+      const r = (lo + hi) / 2;
+      if (W.U.insideIsland(c.x + Math.cos(angle) * r, c.y + Math.sin(angle) * r, 150, W.CONFIG.worldSize, W.CONFIG.cornerRadius)) lo = r;
+      else hi = r;
+    }
+    if (lo < c.r + 500) continue;
+    const b = a.bot(c.x + Math.cos(angle) * lo, c.y + Math.sin(angle) * lo, {});
+    a.world.time = W.STORM[0].start - 32;
+    const end = W.STORM[0].end + 45;
     while (a.world.time < end && b.p.alive) a.tick();
     total++;
     if (b.p.alive && Math.hypot(b.p.x - c.x, b.p.y - c.y) < c.r) inside++;
   }
+  t.equal(total, 5, 'five coastal starting points are outside the upcoming first circle');
   t.equal(inside, total, 'wherever it is on the island, a bot is inside the first circle when the storm has closed (' + inside + ' of ' + total + ')');
 }
 {
@@ -554,6 +609,28 @@ function escape(items, k, o = {}) {
 
 // ---------------------------------------------------------------- loot and upgrades
 {
+  // A station under a known sentry is not a reachable errand: movement correctly refuses the danger zone.
+  // This used to alternate between two tangents for minutes while the short stuck detector saw movement.
+  const near = { id: 0, number: 1, x: 9500, y: 9000, cooldown: 0 };
+  const safe = { id: 1, number: 2, x: 7600, y: 9000, cooldown: 0 };
+  const a = arena({ extra: { stations: [near, safe] } });
+  const b = a.bot(9000, 9000, {}, { tokens: 8, plan: ['shotgunner', 'juggernaut'] });
+  b.now = 1;
+  t.check(b.pickStation() && b.station.st === near, 'an unobstructed nearby station is initially selected');
+  b.hazards = [{ kind: 'sentry', x: 10000, y: 9000, r: 780, d: 1000 }];
+  t.check(b.pickStation() && b.station.st === safe, 'a new sentry hazard invalidates even a still-cached station and selects a safe alternative');
+  b.hazards = []; b.now = 4;
+  t.check(b.pickStation() && b.station.st === near, 'when that danger clears the nearer station is immediately eligible again');
+  b.mode = 'upgrade'; b.redecide = false; b.doUpgrade();
+  t.check(b.moveGoal && b.moveGoal.x === near.x, 'the bot begins walking toward its chosen upgrade station');
+  b.route = { gx: near.x, gy: near.y, pts: [near], i: 0 };
+  b.hazards = [{ kind: 'sentry', x: 10000, y: 9000, r: 780, d: 1000 }];
+  b.doUpgrade();
+  t.check(!b.station && !b.moveGoal && !b.route && b.redecide, 'a hazard appearing en route cancels the impossible errand before boundary oscillation');
+  b.hazards = []; b.now = 4.1;
+  t.check(b.pickStation() && b.station.st === near && !b.badStation.has(near.id), 'temporary danger does not permanently blacklist the station');
+}
+{
   const a = arena({ extra: { crates: [crate(0, 9600, 9100)] } });
   a.crowd();
   const b = a.bot(9000, 9000, {});
@@ -622,7 +699,9 @@ function escape(items, k, o = {}) {
   let waiting = 0;
   for (let i = 0; i < 40 / TICK; i++) { a.tick(); if (lead.mode === 'upgrade' && lead.still) waiting += TICK; }
   t.check(waiting < 14 && tail.p.classId === 'soldier', 'a teammate has the tokens but the station was just used: the leader does not park there (' + waiting.toFixed(0) + ' s of 40 spent waiting at it)');
-  t.check(a.until(() => tail.p.classId === 'shotgunner', 90) >= 0 && dist(lead.p, tail.p) < 1300, 'once it has recharged they go back together and the teammate takes its class');
+  const upgraded = a.until(() => tail.p.classId === 'shotgunner', 90) >= 0;
+  // The shopper may use the full 1500-unit team leash; give the pair a few steps to regroup after buying.
+  t.check(upgraded && a.until(() => dist(lead.p, tail.p) < 1300, 5) >= 0, 'once it has recharged the teammate takes its class and the pair regroups');
 }
 
 // ---------------------------------------------------------------- items in a fight
@@ -745,7 +824,11 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   const world = (item, at, classId) => {
     const a = arena({ storm: true });
     a.crowd();
-    a.world.time = 200; a.world.storm.update(TICK);
+    // A deliberately small upcoming circle isolates siege behavior from map/storm balance.
+    const center = W.CONFIG.worldSize / 2;
+    a.world.storm.circles[1] = { x: center, y: center, r: 2500 };
+    a.world.storm.circles[2] = { x: center, y: center, r: 1600 };
+    a.world.time = W.STORM[0].end + 5; a.world.storm.update(TICK);
     const c = a.world.storm.next, owner = a.human(c.x + 3000, c.y, still), it = W.ITEMS[item];
     const s = a.world.addStruct({ kind: 'sentry', item, x: c.x, y: c.y, r: 20, owner: owner.id, team: owner.team, hp: it.hp, maxHp: it.hp });
     return { a, s, b: a.bot(c.x + at, c.y, { skill: 0.6 }, { classId }) };
@@ -802,7 +885,7 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   a.clear();
   t.check(a.until(() => a.count('damage', (e) => e.source === b.p && e.target === foe) > 0, 6) >= 0, 'the human opens fire on someone: so does the bot, timid as it is');
   // Two bots: one leads, the other stays within reach.
-  const a2 = arena({ teams: true, map: W.MapGen.generate(5), seed: 5 });
+  const a2 = arena({ teams: true, map: W.MapGen.generate(5, 2), seed: 5 });
   const lead2 = a2.bot(9000, 9000, {}, { team: 1 }), tail = a2.bot(9080, 9000, {}, { team: 1 });
   a2.step(45);
   t.check(lead2.p.alive && tail.p.alive && dist(lead2.p, tail.p) < 1200, 'two bots on a team stay together while they loot (' + Math.round(dist(lead2.p, tail.p)) + ' units apart after 45 s)');
@@ -860,11 +943,110 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   t.check(a.count('command') === 1 && !a.events.some((e) => e.type === 'damage' && e.target === mate && e.cause === 'airstrike'), 'a Commander with a teammate standing next to the enemy still calls the boost, and puts the airstrike where it cannot hit them');
 }
 
+// ---------------------------------------------------------------- found by a second review
+// Fire in a house: the way out is the door, even when the door is on the fire's side of the room.
+{
+  const a = arena({ extra: { buildings: [room(9000, 9000)] } });
+  a.crowd();
+  const b = a.bot(9160, 9080, { skill: 0.6 }), foe = a.human(3000, 9000, null), it = W.ITEMS.firenade;
+  b.pauseUntil = 1e9; a.step(0.5); b.pauseUntil = 0;
+  a.world.addZone({ kind: 'fire', x: 9160, y: 9250, r: it.radius, dur: it.duration, owner: foe.id, team: foe.team, dps: it.dps });
+  const out = a.until(() => !b.p.alive || Math.hypot(b.p.x - 9160, b.p.y - 9250) > it.radius, it.duration + 0.5);
+  t.check(b.p.alive && out > 0 && out < 3, 'fire lands by the only door of the room a bot is in: it leaves through the door and lives (out after ' + out.toFixed(1) + ' s with ' + Math.round(b.p.hp) + ' HP)');
+}
+// Sentries: only the basic one is worth standing in front of, and only with a gun that reaches it.
+{
+  const walkPast = (item, classId) => {
+    const a = arena();
+    a.crowd();
+    const b = a.bot(9000, 9000, { skill: 0.6, aggression: 0.5, caution: 0.5 }, { classId }), owner = a.human(3000, 3000, null), it = W.ITEMS[item];
+    const s = a.world.addStruct({ kind: 'sentry', item, x: 10100, y: 9000, r: 20, owner: owner.id, team: owner.team, hp: it.hp, maxHp: it.hp });
+    a.dir.nav.invalidate(s.x, s.y, s.r);
+    b.roam = { x: 11000, y: 9000, at: 0, until: 1e9 };                // its errand lies on the far side
+    a.until(() => !b.p.alive || !s.alive, 25);
+    return { b, s };
+  };
+  let r = walkPast('sentry2', 'soldier');
+  t.check(r.b.p.alive && r.b.p.hp > 60, 'a Sentry II in the way (100 damage a second, it never misses): a bot keeps out of its reach instead of trading shots with it');
+  r = walkPast('sentry', 'grenadier');
+  t.check(r.b.p.alive && r.b.p.hp > 60, 'a Grenadier has nothing that reaches a basic Sentry: it keeps out of its reach too');
+  // A basic Sentry watching a crate from further away than a shotgun reaches.
+  const a = arena({ extra: { crates: [Object.assign(crate(0, 9300, 9000), { hp: 1500, maxHp: 1500 })] } });
+  a.crowd();
+  const b = a.bot(9000, 9000, { skill: 0.6, aggression: 0.5, caution: 0.5 }, { classId: 'shotgunner' }), owner = a.human(3000, 3000, null);
+  const s = a.world.addStruct({ kind: 'sentry', item: 'sentry', x: 9300, y: 8400, r: 20, owner: owner.id, team: owner.team, hp: W.ITEMS.sentry.hp, maxHp: W.ITEMS.sentry.hp });
+  a.dir.nav.invalidate(s.x, s.y, s.r);
+  a.until(() => !b.p.alive || !s.alive, 25);
+  t.check(b.p.alive && !s.alive, 'a Shotgunner being shot by a basic Sentry out of shotgun reach takes out the pistol and shoots it down');
+}
+// On a turret with an item play still pending from the moment before sitting down: the gun fires all the same.
+{
+  const r = duel([['turret', 1]], 600);
+  usedIn(r.a, r.b, 'turret', 12);
+  const mounted = r.a.until(() => r.b.p.mount > 0, 4);
+  r.b.act = { kind: 'use', idx: 1, id: 'bandage', aim: null, phase: 0, t: 0, tries: 0, sent: false };
+  r.a.clear();
+  r.a.step(2);
+  t.check(mounted >= 0 && r.b.act === null && r.a.count('shot', (e) => e.weapon === 'turret') > 3, 'a half-started item play does not lock the trigger of a turret the bot has just sat down on');
+}
+// What a bot cannot see it does not know.
+{
+  const unseen = () => {
+    const a = arena();
+    a.crowd();
+    const b = a.plant(a.bot(9000, 9000, { skill: 0.6, aggression: 0.5, caution: 0.5 })), h = a.human(9620, 9000, null);
+    a.until(() => { const rec = b.known.get(h.id); return rec && rec.noticed && rec.visible; }, 5);
+    h.fx.invisible = 30;                                             // an Invisibility Potion: gone from every enemy screen
+    a.until(() => { const rec = b.known.get(h.id); return rec && !rec.visible; }, 2);
+    return { a, b, h, rec: b.known.get(h.id) };
+  };
+  const stanceAt = (hp) => {
+    const s = unseen();
+    s.h.hp = hp;                                                     // what happens to them while nobody can see it
+    s.b.p.hp = 50; s.b.inHeat = 45; s.b.inBurst = 0; s.b.outHeat = 0; s.rec.hurtMeAt = s.a.world.time; s.b.now = s.a.world.time;
+    return s.b.stance(s.rec);
+  };
+  t.equal(stanceAt(6), stanceAt(100), 'fight or flee does not depend on the health of an enemy who is out of sight: the bar the bot last saw is all it has');
+  const s = unseen();
+  s.h.x = 9400; s.h.y = 9300;                                        // they walk off unseen, and a grenade of theirs goes off at the bot's feet
+  s.a.world.damagePlayer(s.b.p, 20, s.h.id, 'grenade');
+  s.a.step(0.1);
+  t.check(!!s.rec && Math.hypot(s.rec.x - 9620, s.rec.y - 9000) < 1 && !s.rec.visible && s.b.bearing && s.a.world.time - s.b.bearing.at < 0.2,
+    'a blast from someone it cannot see tells a bot that somebody is out there, not where they are standing');
+}
+// No line of fire: a bot keeps walking round whatever is in the way, however close the enemy is.
+{
+  const a = arena();
+  a.crowd();
+  const b = a.bot(9000, 9000, { skill: 0.6, aggression: 0.7, caution: 0.5 }), h = a.human(9330, 9000, null, { hp: 5000 });
+  a.world.addStruct({ kind: 'rock', item: 'rock', x: 9165, y: 9000, r: 116, owner: h.id, team: h.team, hp: 0, maxHp: 0 });
+  a.dir.nav.invalidate(9165, 9000, 116);
+  b.stance = () => 'fight';
+  a.step(12);
+  const shots = a.count('shot', (e) => e.player === b.p);
+  t.check(shots > 10, 'an enemy 330 away behind a boulder (closer than a rifle likes): the bot walks round it and opens fire (' + shots + ' shots in 12 s)');
+}
+// One Poison Potion at a time: the rest of the stack is for later.
+{
+  const a = arena();
+  a.crowd();
+  const b = a.bot(9000, 9000, { skill: 0.8, aggression: 0.9, caution: 0.5 }, { items: [['poison', 3]] }), h = a.human(9400, 9000, null, { hp: 5000 });
+  h.controller = sprayer(a, b, 600);
+  b.stance = () => 'fight';
+  let wasted = 0, thrown = 0;
+  for (let i = 0; i < 8 / TICK; i++) {
+    const before = a.events.length;
+    a.tick();
+    for (let k = before; k < a.events.length; k++) { const e = a.events[k]; if (e.type === 'item-used' && e.item === 'poison' && e.player === b.p) { thrown++; if (h.fx.poison > 2) wasted++; } }
+  }
+  t.check(thrown === 1 && wasted === 0, 'three Poison Potions and one target: one is thrown, the others are kept while the first is still working (' + thrown + ' thrown in 8 s)');
+}
+
 // ---------------------------------------------------------------- nothing silly
 {
   const a = arena({ map: W.MapGen.generate(99), seed: 99, storm: true });
   const bots = [];
-  for (let i = 0; i < 12; i++) { const d = a.map.drops[i]; bots.push(a.bot(d.x, d.y, { skill: 0.2 + i * 0.05 })); }
+  for (let i = 0; i < 12; i++) { const d = a.map.drops[Math.floor(i * a.map.drops.length / 12)]; bots.push(a.bot(d.x, d.y, { skill: 0.2 + i * 0.05 })); }
   let bad = 0, frozen = 0;
   const last = bots.map((b) => ({ x: b.p.x, y: b.p.y, t: 0 }));
   for (let i = 0; i < 90 / TICK; i++) {

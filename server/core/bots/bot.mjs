@@ -21,6 +21,9 @@ export class Bot {
     const W = director.W, rng = W.U.rng((director.seed ^ Math.imul(player.id, 0x9e3779b1)) >>> 0);
     this.d = director; this.W = W; this.world = director.world; this.nav = director.nav; this.cover = director.cover;
     this.p = player; this.prof = profile; this.rng = rng;
+    // Shot execution has its own stream: adding a miss must not reroll this bot's plans or reactions.
+    this.shotRng = W.U.rng((director.seed ^ Math.imul(player.id, 0x9e3779b1) ^ 0x4f1bbcdc) >>> 0);
+    this.shotError = 0; this.shotAimId = 0; this.shotAimWeapon = '';
     this.plan = classPlan(rng, profile, director.teamSize);
     this.now = 0; this.dt = 0.05; this.out = freshIntent();
     this.mode = 'roam'; this.modeAt = 0; this.redecide = true;
@@ -149,7 +152,7 @@ export class Bot {
   sense() {
     const p = this.p, world = this.world, now = this.now, known = this.known, cover = this.cover;
     const half = viewHalf(this.W, p), blind = p.fx.flash > 0.5;
-    const reveal = (world.reveal[p.team] || 0) > 0 || p.fx.radar > 0 ? world.revealedEnemies(p) : null;
+    const reveal = world.revealedEnemies(p);
     const revealed = reveal && reveal.length ? new Set(reveal.map((o) => o.id)) : null;
     this.mates.length = 0;
     for (let i = 0; i < world.players.length; i++) {
@@ -357,17 +360,18 @@ export class Bot {
     if (d < 1) { ax = Math.cos(this.aimA + Math.PI); ay = Math.sin(this.aimA + Math.PI); } else { ax /= d; ay /= d; }
     // Prefer the way we were already heading if that also leads out.
     const g = this.fleeing && this.fleeing.spot ? this.fleeing.spot : null;
-    const need = h.r - d + 40, base = Math.atan2(ay, ax);
-    let best = null, bestScore = -Infinity;
+    const need = h.r - d + 40, base = Math.atan2(ay, ax), R = h.r + 40, qx = p.x - h.x, qy = p.y - h.y;
+    let best = null, bestScore = -Infinity, walk = need;
     for (const off of [0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5]) {
-      const a = base + off, x = p.x + Math.cos(a) * need, y = p.y + Math.sin(a) * need;
+      // A straight dash that ends outside the zone: slanting away from "directly out" takes a longer one.
+      const a = base + off, ux = Math.cos(a), uy = Math.sin(a), qu = qx * ux + qy * uy;
+      const len = -qu + Math.sqrt(Math.max(0, qu * qu - (d * d - R * R))), x = p.x + ux * len, y = p.y + uy * len;
       if (!nav.freeAt(x, y) || !nav.segmentClear(p.x, p.y, x, y)) continue;
-      let score = -Math.abs(off) * 60 - (nav.pondAt(x, y) ? 80 : 0);
+      let score = -(len - need) - Math.abs(off) * 30 - (nav.pondAt(x, y) ? 80 : 0);
       if (g) score -= Math.hypot(g.x - x, g.y - y) * 0.15;
       for (const o of this.hazards) if (o !== h && Math.hypot(x - o.x, y - o.y) < o.r) score -= 200;
-      if (score > bestScore) { bestScore = score; best = { x, y }; }
+      if (score > bestScore) { bestScore = score; best = { x, y }; walk = len; }
     }
-    let walk = need;
     if (!best) {
       // No straight line out (walls all round: we are in a house): leave the way a walker does, through the door.
       const was = this.evade;
@@ -755,6 +759,7 @@ export class Bot {
         if (z) v = z;
       }
     }
+    const requestedMove = !!v && !!this.moveGoal && !this.still && now >= this.pauseUntil;
     if (v && !this.evade) {
       // Do not step into a danger zone we are standing outside of: slide along its rim instead.
       for (const h of this.hazards) {
@@ -762,7 +767,20 @@ export class Bot {
         const nx = p.x + v.x * 60 - h.x, ny = p.y + v.y * 60 - h.y;
         if (Math.hypot(nx, ny) >= h.r) continue;
         const rx = (p.x - h.x) / (h.d || 1), ry = (p.y - h.y) / (h.d || 1), inward = v.x * rx + v.y * ry;
-        if (inward < 0) { v = { x: v.x - rx * inward, y: v.y - ry * inward }; const l = Math.hypot(v.x, v.y); if (l > 0.05) { v.x /= l; v.y /= l; } else v = null; }
+        if (inward < 0) {
+          v = { x: v.x - rx * inward, y: v.y - ry * inward };
+          const l = Math.hypot(v.x, v.y);
+          if (l > 0.05) { v.x /= l; v.y /= l; }
+          else {
+            // A path aimed straight into the danger has no tangent to normalize. Pick a safe side instead
+            // of cancelling the movement forever; if both sides are blocked, the usual stuck recovery applies.
+            v = null;
+            for (const [x, y] of [[-ry, rx], [ry, -rx], [rx, ry]]) {
+              const side = this.safeDir(x, y);
+              if (side && this.nav.segmentClear(p.x, p.y, p.x + side.x * 64, p.y + side.y * 64, { dry: !p.inPond })) { v = side; break; }
+            }
+          }
+        }
         if (!v) break;
       }
     }
@@ -786,7 +804,7 @@ export class Bot {
     // Stuck? (wanting to move, not moving)
     const st = this.stuck;
     if (now - st.at >= 0.5) {
-      const moved = Math.hypot(p.x - st.x, p.y - st.y), trying = !!v && !p.mount && !p.downed;
+      const moved = Math.hypot(p.x - st.x, p.y - st.y), trying = (!!v || requestedMove) && !p.mount && !p.downed;
       if (trying && moved < 9) {
         st.n++;
         this.route = null; this.coverSpot = null;
@@ -856,9 +874,56 @@ export class Bot {
     this.aimA += clamp(U.angleDiff(this.aimA, want) * (1 - Math.exp(-dt / tau)), -maxStep, maxStep);
     const sigma = prof.aimSigma * wobble * (1 + 0.4 * Math.abs(this.aimV)), corr = 0.38; // a fast sweep is a shaky sweep
     this.aimN += -this.aimN / corr * dt + sigma * Math.sqrt(2 * dt / corr) * this.gauss();
-    const a = this.aimA + this.aimN, d = clamp(Math.hypot(tx - ox, ty - oy), 60, 2800);
-    out.aimX = ox + Math.cos(a) * d; out.aimY = oy + Math.sin(a) * d;
-    if (s) this.pullTrigger(s, a, want, Math.hypot(tx - ox, ty - oy));
+    const a = this.aimA + this.aimN, distance = Math.hypot(tx - ox, ty - oy), d = clamp(distance, 60, 2800);
+    if (s) this.pullTrigger(s, a, want, distance);
+    const hand = this.shotAim(s, mount, a, distance, sigma);
+    out.aimX = ox + Math.cos(hand) * d; out.aimY = oy + Math.sin(hand) * d;
+  }
+
+  // Execution error happens after deciding to fire; otherwise the trigger simply waits for every miss to pass.
+  // Keep that error between shots, rather than shaking the muzzle anew on cooldown/reload/charge ticks.
+  shotAim(s, mount, angle, distance, trackingSigma) {
+    const p = this.p, out = this.out, def = s && s.def, rec = s && s.rec;
+    if (!rec || !def || (def.kind !== 'gun' && def.kind !== 'launcher' && def.kind !== 'turret')) {
+      this.shotError = 0; this.shotAimId = 0; this.shotAimWeapon = '';
+      return angle;
+    }
+    if (this.shotAimId !== rec.id || this.shotAimWeapon !== def.id) {
+      this.shotError = 0; this.shotAimId = rec.id; this.shotAimWeapon = def.id;
+    }
+    if (this.readyToShoot(def, mount)) {
+      const radius = rec.visible && rec.ref ? rec.ref.r : p.r;
+      let aperture;
+      if (def.kind === 'launcher') {
+        // A launcher can miss the whole blast footprint, not just its center. Rotation preserves charge/range
+        // and distance from the shooter; the ordinary projectile/cover/splash rules still decide the outcome.
+        aperture = 2 * Math.asin(clamp((radius + def.explosion.radius) / Math.max(1, 2 * distance), 0, 0.98));
+      } else {
+        const silhouette = Math.asin(clamp((radius + def.bulletRadius) / Math.max(1, distance), 0, 0.98));
+        // Shotguns count a blast that lands any pellet. The cone is wider, but the hand can still miss it.
+        aperture = silhouette + (def.pellets > 1 ? def.spread : 0);
+      }
+      // Central normal quantiles for 60/65/70/75/80/85/90%: interpolate without changing any weapon spread.
+      const z = [0.84162, 0.93459, 1.03643, 1.15035, 1.28155, 1.43953, 1.64485];
+      const q = clamp((this.prof.shotAccuracy - 0.6) / 0.05, 0, 6), i = Math.min(5, Math.floor(q));
+      const desired = aperture / lerp(z[i], z[i + 1], q - i);
+      // At range the existing lag/wobble already makes shots difficult. Add only the missing error floor.
+      const sigma = Math.sqrt(Math.max(0, desired * desired - trackingSigma * trackingSigma));
+      const rng = this.shotRng;
+      this.shotError = Math.sqrt(-2 * Math.log(Math.max(1e-12, rng.next()))) * Math.cos(TAU * rng.next()) * sigma;
+    }
+    return angle + this.shotError;
+  }
+
+  readyToShoot(def, mount) {
+    const p = this.p, out = this.out, dt = this.dt;
+    if (!(out.fire || out.firePressed) || !p.alive || p.downed || p.dropT > 0 || p.vehicle) return false;
+    if (mount) return mount.alive && !out.interactPressed && mount.cooldown <= dt;
+    if (p.held >= 0 || out.held !== null && out.held !== undefined || out.slot !== null && out.slot !== undefined || out.swap || out.cycle || out.reload || out.dropPressed) return false;
+    const w = p.weapons[p.slot], reloaded = w.reloading && w.reloadT <= dt;
+    if (w.id !== def.id || w.reloading && !reloaded || w.ammo <= 0 && !reloaded || w.cooldown > dt + 1e-8) return false;
+    if ((def.semiAuto || def.kind === 'launcher') && !out.firePressed) return false;
+    return !def.windup || (p.minigunSpin || 0) + dt + 1e-8 >= def.windup;
   }
 
   pullTrigger(s, a, want, dist) {

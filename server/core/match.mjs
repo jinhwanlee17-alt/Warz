@@ -48,7 +48,7 @@ export class Match {
     this.onEnd = onEnd;
     this.log = log;
     this.emptyTimeout = emptyTimeout;
-    this.map = W.MapGen.generate(this.seed);
+    this.map = W.MapGen.generate(this.seed, teamSize);
     this.world = new W.World({ map: this.map, teams: teamSize > 1 });
     this.classIndex = W.CLASS_ORDER;
     this.itemIndex = W.ITEM_ORDER;
@@ -83,9 +83,12 @@ export class Match {
     } else this.bots = null;
 
     const drops = W.U.rng(this.seed ^ 0x1234567).shuffle(this.map.drops.slice());
-    const anchors = this.spawnAnchors(teams, drops);
+    // Assign shared pads fairly without changing roster/ticket order. A 50-player
+    // Trio/Squad lobby may include one partial team beyond the 16/12 drop pads.
+    const assignedDrops = W.U.rng(this.seed ^ 0x7f4a7c15).shuffle(teams.map((team, ti) => drops[ti % drops.length]));
+    const anchors = this.spawnAnchors(teams, assignedDrops);
     teams.forEach((team, ti) => {
-      const drop = drops[ti % drops.length], color = COLORS[ti % COLORS.length], at = anchors[ti];
+      const drop = assignedDrops[ti], color = COLORS[ti % COLORS.length], at = anchors[ti];
       const info = { index: ti + 1, alive: true, placement: null, players: [] };
       this.teamInfo.push(info);
       team.members.forEach((m, mi) => {
@@ -114,34 +117,16 @@ export class Match {
     this.timer = clock ? setInterval(() => this.pump(), 10) : null;
   }
 
-  // Where each team lands. A team with a Drop Station to itself lands on it; teams that share one (a full
-  // lobby has more teams than stations) come down spread around it, in view of each other but not on top
-  // of each other, each on a spot that is clear of walls, rocks and water.
-  spawnAnchors(teams, drops) {
-    const W = this.W, U = W.U, C = W.CONFIG, world = this.world, map = this.map, TAU = Math.PI * 2;
-    const rng = U.rng((this.seed ^ 0x7f4a7c15) >>> 0), share = drops.map(() => 0);
-    teams.forEach((team, ti) => { share[ti % drops.length]++; });
-    const clear = (x, y, r) => {
-      if (!U.insideIsland(x, y, 320, C.worldSize, C.cornerRadius) || world.inPond(x, y)) return false;
-      for (const b of map.buildings) if (x > b.x - r && x < b.x + b.w + r && y > b.y - r && y < b.y + b.h + r) return false;
-      let free = true;
-      world.solids.query(x - r, y - r, x + r, y + r, (s) => {
-        if (s.shape === 'circle' ? Math.hypot(s.x - x, s.y - y) < s.r + r : !!U.circleRectPush(x, y, r, s.x, s.y, s.w, s.h)) free = false;
-      });
-      return free;
-    };
+  // Keep every landing on the coastal contour. Generator reservations include
+  // these separate team footprints, even with 50 no-fill parties in team modes.
+  spawnAnchors(teams, assignedDrops) {
+    const totals = new Map(), used = new Map();
+    assignedDrops.forEach(drop => totals.set(drop.id, (totals.get(drop.id) || 0) + 1));
     return teams.map((team, ti) => {
-      const di = ti % drops.length, drop = drops[di], n = share[di], k = Math.floor(ti / drops.length);
-      if (n <= 1) return { x: drop.x, y: drop.y };
-      const body = team.members.length > 1 ? 60 : 24, phase = (drop.id * 2.399) % TAU;
-      for (let attempt = 0; attempt < 12; attempt++) {
-        const a = phase + (k + (attempt ? rng.range(-0.15, 0.15) : 0)) / n * TAU, R = attempt < 6 ? rng.range(390, 470) : rng.range(250, 390);
-        const x = drop.x + Math.cos(a) * R, y = drop.y + Math.sin(a) * R;
-        if (clear(x, y, body + 50)) return { x, y };
-      }
-      // The map generator keeps the pad and a ring around it free of everything, so this always fits.
-      const a = phase + k / n * TAU, R = C.dropStationRadius + 90 - body - 6;
-      return { x: drop.x + Math.cos(a) * R, y: drop.y + Math.sin(a) * R };
+      const drop = assignedDrops[ti], n = totals.get(drop.id), k = used.get(drop.id) || 0;
+      used.set(drop.id, k + 1);
+      if (n === 1) return { x: drop.x, y: drop.y };
+      return this.W.MapGen.edgePoint(drop.edgeDistance + (k - (n - 1) / 2) * 500, this.W.CONFIG.dropCoastInset);
     });
   }
 
@@ -232,13 +217,15 @@ export class Match {
     const map = this.map;
     return {
       t: 'sync', time: r3(this.world.time),
-      crates: map.crates.filter((c) => c.hp < c.maxHp || !c.alive).map((c) => [c.id, c.alive ? Math.max(0, Math.round(c.hp)) : 0]),
+      crates: map.crates.filter((c) => c.hp < c.maxHp || !c.alive).map((c) => [c.id, c.alive ? Math.max(1, Math.ceil(c.hp)) : 0]),
       gone: [...this.gonePickups],
       rocks: map.rocks.filter((rock) => rock.alive === false).map((rock) => rock.id),
       strikes: this.world.strikes.map((s) => ({ id: s.id, k: s.kind, x: s.x, y: s.y, tg: s.target, tl: s.t, o: s.owner, tm: s.team, r: s.radius, dm: s.damage })),
       added: map.pickups.filter((pk) => pk.alive && pk.id > this.initialPickupMax).map((pk) => ({ id: pk.id, type: pk.type, it: pk.item || undefined, x: r1(pk.x), y: r1(pk.y), n: pk.amount, lk: r2(pk.lockT || 0) })),
       stations: map.stations.filter((s) => s.cooldown > 0).map((s) => [s.id, r1(s.cooldown)]),
-      players: this.players.map((o) => [o.id, this.classIndex.indexOf(o.classId), o.alive ? 1 : 0, o.downed ? 1 : 0, r1(o.x), r1(o.y)]),
+      players: this.players.map((o) => [o.id, this.classIndex.indexOf(o.classId), o.alive ? 1 : 0, o.downed ? 1 : 0, r1(o.x), r1(o.y), o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0]),
+      vehicles: (this.world.vehicles || []).map((v) => this.encodeVehicle(v)),
+      tankShells: (this.world.tankShells || []).map((shell) => this.encodeTankShell(shell)),
       structs: this.world.structures.filter((s) => s.alive).map((s) => this.encodeStruct(s)),
       zones: this.world.zones.map((z) => this.encodeZone(z)),
       storm: this.stormMessage()
@@ -250,6 +237,20 @@ export class Match {
   }
   encodeZone(z) {
     return { id: z.id, k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, dur: z.dur, tl: r1(z.t), o: z.owner || 0, tm: z.team, dps: z.dps };
+  }
+  encodeVehicle(v) {
+    const row = { id: v.id, type: v.type || 'humvee', x: r2(v.x), y: r2(v.y), vx: r2(v.vx), vy: r2(v.vy), a: r3(v.angle),
+      hp: r1(v.hp), mhp: v.maxHp, wreck: !!v.wreck, armed: !!v.armed, ga: r3(v.gunAngle || 0),
+      seats: ['driver', 'gunner', 'rearLeft', 'rearRight'].map((seat) => v.seats[seat] || 0) };
+    if (v.type === 'tank') Object.assign(row, { ca: r3(v.cannonAngle || 0), cc: r3(v.cannonCooldown || 0),
+      cn: v.cannonAmmo, cm: v.cannonMaxAmmo, cr: r3(v.cannonReload || 0),
+      cd: r3(v.cooldown || 0), ma: v.mgAmmo, mr: r3(v.mgReload || 0) });
+    return row;
+  }
+  encodeTankShell(shell) {
+    return { id: shell.id, owner: shell.owner, team: shell.team, vehicle: shell.vehicle,
+      x: r2(shell.x), y: r2(shell.y), dx: r3(shell.dx), dy: r3(shell.dy), speed: shell.speed,
+      range: shell.range, traveled: r2(shell.traveled || 0), r: shell.r, damageMul: shell.damageMul === undefined ? 1 : shell.damageMul };
   }
 
   // ---------------------------------------------------------------- inputs
@@ -403,7 +404,7 @@ export class Match {
     const flags = (o.alive ? 1 : 0) | (o.downed ? 2 : 0) | (o.scoping ? 4 : 0) | (o.weapons[o.slot] && o.weapons[o.slot].reloading ? 8 : 0) | (o.inStorm ? 16 : 0)
       | (o.mount ? 32 : 0) | (o.fx.invisible > 0 ? 64 : 0) | (o.shieldUp ? 128 : 0);
     const held = o.held >= 0 && o.items[o.held] ? this.itemIndex.indexOf(o.items[o.held].id) + 1 : 0;
-    return [o.id, r1(o.x), r1(o.y), r2(o.angle), Math.ceil(o.hp), o.maxHp, this.classIndex.indexOf(o.classId), o.slot, flags, r2(o.dropT), o.downed ? r1(o.downT) : 0, o.downed ? r2(o.revive) : 0, held, r2(o.minigunSpin || 0), r1(o.commandBuff || 0), o.flameTicks || 0];
+    return [o.id, r1(o.x), r1(o.y), r2(o.angle), Math.ceil(o.hp), o.maxHp, this.classIndex.indexOf(o.classId), o.slot, flags, r2(o.dropT), o.downed ? r1(o.downT) : 0, o.downed ? r2(o.revive) : 0, held, r2(o.minigunSpin || 0), r1(o.commandBuff || 0), o.flameTicks || 0, o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0];
   }
 
   encodeYou(p) {
@@ -416,7 +417,8 @@ export class Match {
       alive: p.alive, drop: r2(p.dropT), team: p.team, storm: p.inStorm,
       cmd: r1(p.commandCd || 0), cb: r1(p.commandBuff || 0), spin: r2(p.minigunSpin || 0), ft: p.flameTicks || 0,
       from: p.upgradeFrom || null,
-      held: p.held, mnt: p.mount || 0, fx: this.fxKeys.map((k) => r1(p.fx[k])), rg: r1(p.regen), dr: r1(this.world.reveal[p.team] || 0), tp: r2(p.tpProgress || 0)
+      held: p.held, mnt: p.mount || 0, veh: p.vehicle || 0, seat: p.vehicleSeat || null, vw: p.vehicleWeapon || 0, rv: p.repairVehicle || 0,
+      fx: this.fxKeys.map((k) => r1(p.fx[k])), rg: r1(p.regen), dr: r1(this.world.reveal[p.team] || 0), tp: r2(p.tpProgress || 0)
     };
     // The hotbar only travels when it changes.
     const items = p.items.map((s) => (s ? [s.id, s.n] : 0)), key = JSON.stringify(items);
@@ -428,12 +430,20 @@ export class Match {
   encodeEvent(e) {
     switch (e.type) {
       case 'shot': return { msg: { t: 'shot', id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), a: e.angles.map(r3), st: e.struct || undefined }, x: e.x, y: e.y };
+      case 'melee': return { msg: { t: 'melee', id: e.player.id, w: e.weapon || 'hammer', x: r1(e.x), y: r1(e.y), a: r3(e.a), r: e.reach }, x: e.x, y: e.y };
+      case 'repair': return { msg: { t: 'repair', id: e.player.id, v: e.vehicle ? e.vehicle.id : 0, on: !!e.active }, global: true };
+      case 'vehicle-shot': return { msg: { t: 'vshot', id: e.player.id, v: e.vehicle.id, w: e.weapon || 'turret', x: r1(e.x), y: r1(e.y), a: r3(e.angle), angles: e.angles.map(r3) }, x: e.x, y: e.y };
+      case 'tank-shell': return { msg: e.op === 'spawn' ? { t: 'tank-shell', op: 'spawn', shell: this.encodeTankShell(e.shell) }
+        : { t: 'tank-shell', op: 'impact', id: e.shell.id, x: r1(e.x), y: r1(e.y) }, global: true };
+      case 'vehicle': return { msg: { t: 'vehicle', op: e.op, id: e.vehicle.id, by: e.player ? e.player.id : 0,
+        seat: e.seat || null, n: r1(e.amount || 0), x: r1(e.x === undefined ? e.vehicle.x : e.x), y: r1(e.y === undefined ? e.vehicle.y : e.y),
+        src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, global: true };
       case 'launch': case 'throw': return { msg: { t: e.type, id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), tr: r1(e.travel || 0), fuse: e.fuse, it: e.item || undefined, startX: e.startX, startY: e.startY, targetX: e.targetX, targetY: e.targetY, flightTime: e.flightTime, peakHeight: e.peakHeight }, x: e.x, y: e.y };
       case 'rock-gone': return { msg: { t: 'rock-gone', id: e.rock.id }, global: true };
       case 'legendary-crate-broken': return { msg: { t: 'legendary-crate-broken', id: e.crate.id, by: e.player ? e.player.id : 0 }, global: true };
       case 'command': return { msg: { t: 'command', id: e.player.id, d: e.duration, rd: e.radarDuration, cd: e.cooldown, tm: e.team }, global: true };
       case 'flame': return { msg: { t: 'flame', id: e.player.id, x: e.x, y: e.y, a: e.angle, r: e.range, ha: e.halfAngle, dm: e.damage }, x: e.x, y: e.y };
-      case 'explosion': return { msg: { t: 'boom', x: r1(e.x), y: r1(e.y), pw: e.power, c: e.cause, o: e.owner || 0 }, x: e.x, y: e.y, far: true };
+      case 'explosion': return e.cause === 'tank-cannon' ? null : { msg: { t: 'boom', x: r1(e.x), y: r1(e.y), pw: e.power, c: e.cause, o: e.owner || 0 }, x: e.x, y: e.y, far: true };
       case 'burst': return { msg: { t: 'burst', it: e.item, x: r1(e.x), y: r1(e.y), o: e.owner || 0 }, x: e.x, y: e.y, far: true };
       case 'zone': return { msg: Object.assign({ t: 'zone' }, this.encodeZone(e.zone)), global: true };
       case 'struct': return { msg: Object.assign({ t: 'struct', op: e.op, reason: e.reason, n: e.amount ? r1(e.amount) : undefined, src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, this.encodeStruct(e.struct)), global: true };
@@ -453,7 +463,7 @@ export class Match {
       case 'heal': return { msg: { t: 'heal', id: e.player.id, by: e.by ? e.by.id : 0, n: r1(e.amount), it: e.item || undefined }, x: e.player.x, y: e.player.y, to: [e.player.id] };
       case 'collected': return { msg: { t: 'pick', id: e.pickup.id, by: e.player.id, what: e.pickup.type, it: e.pickup.item || undefined, n: e.pickup.amount, tot: e.total }, global: true };
       case 'spawn-pickup': return { msg: { t: 'pkspawn', id: e.pickup.id, type: e.pickup.type, it: e.pickup.item || undefined, x: r1(e.pickup.x), y: r1(e.pickup.y), vx: r1(e.pickup.vx), vy: r1(e.pickup.vy), n: e.pickup.amount, lk: r2(e.pickup.lockT || 0) }, global: true };
-      case 'crate-hp': return { msg: { t: 'crate', id: e.crate.id, hp: Math.round(e.hp), src: e.source ? e.source.id : 0, n: r1(e.amount), x: r1(e.x), y: r1(e.y) }, global: true };
+      case 'crate-hp': return { msg: { t: 'crate', id: e.crate.id, hp: Math.ceil(Math.max(0, e.hp)), src: e.source ? e.source.id : 0, n: r1(e.amount), x: r1(e.x), y: r1(e.y) }, global: true };
       case 'upgrade': return { msg: { t: 'upg', id: e.player.id, cls: e.classId, st: e.station.id, key: !!e.usedKey }, global: true };
       case 'land': return { msg: { t: 'land', id: e.player.id }, x: e.player.x, y: e.player.y, to: [e.player.id] };
       case 'reload': case 'reloaded': case 'switch': case 'deny': case 'item-used': case 'item-dropped': case 'mounted': case 'dismounted':
@@ -466,6 +476,12 @@ export class Match {
     const encoded = [];
     for (const e of events) { const enc = this.encodeEvent(e); if (enc) encoded.push(enc); }
     const time = r3(this.world.time);
+    // Repair the global legendary marker after a slow connection skips a break event.
+    const legendary = this.map.crates[this.map.legendaryCrateId];
+    const lc = legendary ? (legendary.alive ? Math.max(1, Math.ceil(legendary.hp)) : 0) : undefined;
+    // Shared vehicles are cheap to synchronize globally. This keeps vacated seats,
+    // wrecks and vehicles crossing the view boundary authoritative without stale ownership.
+    const vehicles = (this.world.vehicles || []).map((v) => this.encodeVehicle(v));
     for (const p of this.players) {
       const conn = p.net.conn;
       if (!conn || !conn.open) continue;
@@ -483,9 +499,9 @@ export class Match {
         if (!o.alive && o.deadT > 1.5) continue;
         const mate = o === p || o.team === p.team;
         if (!mate && !drone && !revealed.has(o.id) && o.fx.invisible > 0) continue;
-        if (mate || drone || Math.hypot(o.x - c.x, o.y - c.y) < VIEW) players.push(this.encodePlayer(o));
+        if (mate || drone || revealed.has(o.id) || Math.hypot(o.x - c.x, o.y - c.y) < VIEW) players.push(this.encodePlayer(o));
       }
-      conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), spec: p.alive ? 0 : p.net.specId, p: players, e: list, alive: this.aliveCount, teams: this.teamsAlive }));
+      conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), spec: p.alive ? 0 : p.net.specId, p: players, vehicles, lc, e: list, alive: this.aliveCount, teams: this.teamsAlive }));
     }
   }
 }

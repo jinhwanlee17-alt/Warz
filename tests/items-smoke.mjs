@@ -48,7 +48,7 @@ for (const seed of [1, 42, 9001]) {
   const m = MapGen.generate(seed), tiers = {};
   m.crates.forEach((c) => { tiers[c.tier] = (tiers[c.tier] || 0) + 1; });
   const q = Rules.crateQuota(m.crates.length);
-  t.equal(m.crates.length, 91, 'seed ' + seed + ': ninety regular crates plus the center legendary crate');
+  t.equal(m.crates.length, 211, 'seed ' + seed + ': 210 regular crates plus the center legendary crate');
   t.check(W.CRATE_ORDER.every((id) => (tiers[id] || 0) === q[id]), 'seed ' + seed + ': crates dealt by tier ' + JSON.stringify(tiers));
   t.check((tiers.legendary || 0) >= 1 && (tiers.mythic || 0) >= 1 && (tiers.epic || 0) >= 5, 'seed ' + seed + ': rare crates exist');
   t.check(m.crates.filter((c) => c.tier === 'legendary').every((c) => c.hp === CRATES.legendary.hp), 'seed ' + seed + ': legendary crates are tougher');
@@ -430,7 +430,7 @@ for (const seed of [1, 42, 9001]) {
   idle(far, 3200, 3000);
   use(world, p, 'rock', 3380, 3200);
   const rock = world.structures.find((s) => s.kind === 'rock');
-  t.check(!!rock && rock.r === 116 && Math.abs(rock.x - 3380) < 1, 'rock placed at the cursor at twice its old radius');
+  t.check(!!rock && rock.r === 116 && rock.hp === 1000 && rock.maxHp === 1000 && Math.abs(rock.x - 3380) < 1, 'rock placed at the cursor with its normal radius and 1000 HP');
   fireOnce(world, p, 3700, 3200);
   t.equal(world.map.crates[0].hp, CRATES.common.hp, 'the rock stops bullets (even your own)');
   const moved = walk(world, p, 1, 0, 1);
@@ -442,8 +442,9 @@ for (const seed of [1, 42, 9001]) {
   use(world, p, 'turret', 3300, 3600);
   const turret = world.structures.find((s) => s.kind === 'turret');
   t.check(!!turret && turret.hp === 100 && turret.team === p.team, 'turret placed with 100 HP');
-  once(world, p, { mx: 0, my: 0, aimX: 3700, aimY: 3600, interactPressed: true });
-  t.check(p.mount === turret.id && turret.mounted === p.id, 'interact mounts it');
+  t.check(p.mount === turret.id && turret.mounted === p.id, 'placing the turret automatically mounts it');
+  t.check(p.x === turret.x && p.y === turret.y && turret.r === 38, 'the larger turret platform seats the player at its center');
+  t.equal(world.countItem(p, 'turret'), 0, 'automatic mounting consumes the placed turret exactly once');
   const wx = p.x;
   p.controller = () => ({ mx: 1, my: 0, aimX: 3700, aimY: 3600 });
   steps(world, 0.5);
@@ -461,8 +462,54 @@ for (const seed of [1, 42, 9001]) {
   t.check(turret.hp === 100 && p.hp === hpBefore - 20, 'hits on a mounted turret hurt the rider instead');
   once(world, p, { mx: 0, my: 0, aimX: 3700, aimY: 3600, interactPressed: true });
   t.check(p.mount === 0 && turret.mounted === 0, 'interact again dismounts');
+  t.check(Math.hypot(p.x - turret.x, p.y - turret.y) >= p.r + turret.r && world.spotFree(p.x, p.y, p.r, true), 'dismount places the rider clear of the turret collider');
   world.damageStruct(turret, 100, far.id, turret.x, turret.y);
   t.check(!turret.alive && !world.structures.includes(turret) && events(world, 'struct').some((e) => e.op === 'gone'), 'an empty turret can be destroyed');
+}
+{
+  const wall = { x: 3220, y: 3490, w: 30, h: 220 };
+  const world = new World({ map: range({ vehicles: [], buildings: [{ id: 0, x: wall.x, y: wall.y, w: wall.w, h: wall.h, walls: [wall] }] }), storm: false });
+  const p = world.addPlayer({ x: 3400, y: 3600 });
+  use(world, p, 'turret', 3300, 3600);
+  const turret = world.structures.find(s => s.kind === 'turret');
+  t.check(p.mount === turret.id && p.x === turret.x && p.y === turret.y, 'turret seats safely next to a wall');
+  const other = world.addPlayer({ x: turret.x + 20, y: turret.y, team: p.team });
+  world.separatePlayers(); world.collide(p);
+  t.check(p.x === turret.x && p.y === turret.y, 'player separation and collision cannot push a mounted rider off the platform');
+  other.x = 3800; p.angle = 0;
+  t.check(world.dismount(p) && !p.mount && world.spotFree(p.x, p.y, p.r, true), 'a wall blocking the preferred exit makes the rider use another clear side');
+  t.check(p.x > wall.x + wall.w + p.r, 'safe dismount does not teleport the rider through the wall');
+}
+{
+  const walls = [{ x: 3230, y: 3530, w: 140, h: 20 }, { x: 3230, y: 3650, w: 140, h: 20 },
+    { x: 3230, y: 3550, w: 20, h: 100 }, { x: 3350, y: 3550, w: 20, h: 100 }];
+  const world = new World({ map: range({ vehicles: [], buildings: [{ id: 0, x: 3230, y: 3530, w: 140, h: 140, walls }] }), storm: false });
+  const p = world.addPlayer({ x: 3300, y: 3600 });
+  const turret = world.addStruct({ kind: 'turret', item: 'turret', x: 3300, y: 3600, r: W.STRUCT_RADIUS.turret, hp: 100, maxHp: 100, owner: p.id, team: p.team });
+  t.check(world.mountTurret(p, turret), 'an accessible platform can be mounted directly');
+  t.check(!world.dismount(p) && p.mount === turret.id && turret.mounted === p.id, 'an enclosed platform denies an unsafe exit and keeps its occupant seated');
+  t.check(events(world, 'deny').some(e => e.reason === 'blocked'), 'a blocked turret exit reports the reason');
+  world.clearItemState(p);
+  t.check(!p.mount && !turret.mounted && world.spotFree(p.x, p.y, p.r, true), 'forced removal clears the seat and finds safe ground outside an enclosed platform');
+}
+{
+  for (const cause of ['grenade', 'own-grenade', 'meteor', 'tankmg', 'tank-cannon']) {
+    const world = new World({ map: range({ vehicles: [] }), storm: false });
+    const p = world.addPlayer({ x: 3300, y: 3600 }), enemy = world.addPlayer({ x: 4300, y: 3600 });
+    const turret = world.addStruct({ kind: 'turret', item: 'turret', x: 3300, y: 3600, r: W.STRUCT_RADIUS.turret, hp: 100, maxHp: 100, owner: p.id, team: p.team });
+    world.mountTurret(p, turret); p.hp = p.maxHp = 1000;
+    if (cause === 'meteor') { world.addStrike({ kind: cause, x: p.x, y: p.y, t: 0, radius: 200, damage: 100, owner: enemy.id, team: enemy.team }); world.updateStrikes(0.05); }
+    else if (cause === 'grenade' || cause === 'own-grenade') world.explode(p.x, p.y, { radius: 200, maxDamage: 100 }, cause === 'own-grenade' ? p.id : enemy.id, 'grenade');
+    else { enemy.fx.strength = enemy.fx.power = 20; world.damageStruct(turret, 100, enemy.id, turret.x, turret.y, cause); }
+    t.equal(p.hp, 900, cause + ': centered turret rider takes exactly one hit with the proper fixed tank damage');
+    t.equal(turret.hp, 100, cause + ': a rider hit is not repeated on the platform');
+  }
+  const world = new World({ map: range({ vehicles: [] }), storm: false });
+  const p = world.addPlayer({ x: 3300, y: 3600 }), enemy = world.addPlayer({ x: 4300, y: 3600 });
+  const turret = world.addStruct({ kind: 'turret', item: 'turret', x: 3300, y: 3600, r: W.STRUCT_RADIUS.turret, hp: 100, maxHp: 100, owner: p.id, team: p.team });
+  world.mountTurret(p, turret); p.hp = 50;
+  world.explode(p.x, p.y, { radius: 200, maxDamage: 100 }, enemy.id, 'grenade');
+  t.check(!p.alive && !p.mount && !turret.mounted && turret.hp === 100, 'a fatal blast clears the turret seat without reapplying that blast to the newly emptied platform');
 }
 {
   const world = new World({ map: range(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200 }), e = world.addPlayer({ x: 3700, y: 3200 });

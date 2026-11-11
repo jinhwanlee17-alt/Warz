@@ -32,7 +32,14 @@ export class Nav {
   }
 
   // ---------------------------------------------------------------- cells
-  solidAt(x, y, r) {
+  vehicleAt(x, y, r) {
+    for (const v of this.world.vehicles || []) {
+      const radius = v.r + r, dx = v.x - x, dy = v.y - y;
+      if (Math.abs(dx) < radius && Math.abs(dy) < radius && dx * dx + dy * dy < radius * radius) return true;
+    }
+    return false;
+  }
+  solidAt(x, y, r, staticOnly = false) {
     if (!this.U.insideIsland(x, y, r + 4, this.size, this.corner)) return true;
     const U = this.U;
     let hit = false;
@@ -41,7 +48,7 @@ export class Nav {
       if (s.shape === 'circle') { if (Math.hypot(s.x - x, s.y - y) < s.r + r) hit = true; }
       else if (U.circleRectPush(x, y, r, s.x, s.y, s.w, s.h)) hit = true;
     });
-    return hit;
+    return hit || (!staticOnly && this.vehicleAt(x, y, r));
   }
 
   state(ix, iy) {
@@ -49,11 +56,13 @@ export class Nav {
     if (ix < 0 || iy < 0 || ix >= n || iy >= n) return BLOCKED;
     const i = iy * n + ix;
     let s = this.cells[i];
-    if (s) return s;
     const x = (ix + 0.5) * CELL, y = (iy + 0.5) * CELL;
-    s = this.solidAt(x, y, CLEAR) ? BLOCKED : this.world.inPond(x, y) ? POND : FREE;
-    this.cells[i] = s;
-    return s;
+    if (!s) {
+      s = this.solidAt(x, y, CLEAR, true) ? BLOCKED : this.world.inPond(x, y) ? POND : FREE;
+      this.cells[i] = s;
+    }
+    // Moving cars cannot be cached in the terrain grid: a vacated cell becomes walkable immediately.
+    return s === BLOCKED || this.vehicleAt(x, y, CLEAR) ? BLOCKED : s;
   }
   stateAt(x, y) { return this.state(Math.floor(x / CELL), Math.floor(y / CELL)); }
   freeAt(x, y) { return this.stateAt(x, y) !== BLOCKED; }
@@ -94,7 +103,12 @@ export class Nav {
         || U.segCircle(x1, y1, x2, y2, s.x, s.y, r) >= 0 || U.segCircle(x1, y1, x2, y2, s.x + s.w, s.y, r) >= 0
         || U.segCircle(x1, y1, x2, y2, s.x, s.y + s.h, r) >= 0 || U.segCircle(x1, y1, x2, y2, s.x + s.w, s.y + s.h, r) >= 0) clear = false;
     });
-    if (!clear || !opts) return clear;
+    if (!clear) return false;
+    for (const v of this.world.vehicles || []) {
+      const d0 = Math.hypot(v.x - x1, v.y - y1), radius = Math.min(v.r + WALK, d0 - 0.5);
+      if (radius > 0 && U.segCircle(x1, y1, x2, y2, v.x, v.y, radius) >= 0) return false;
+    }
+    if (!opts) return true;
     if (opts.avoid) {
       for (const a of opts.avoid) {
         // Leaving a zone you are already in is always allowed; cutting into or through one is not.
