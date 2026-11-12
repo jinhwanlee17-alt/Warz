@@ -7,11 +7,19 @@
   var baseAdvanceBullet = World.prototype.advanceBullet, baseSwitch = World.prototype.switchSlot;
 
   World.prototype.setClass = function (p, id, fresh) {
-    var previous = p.classId, origin = p.upgradeFrom;
+    var previous = p.classId, origin = p.upgradeFrom, path = (p.upgradePath || []).slice();
     this.stopVehicleRepair(p);
     baseSetClass.call(this, p, id, fresh);
     var parents = W.Rules.classParents(id);
-    p.upgradeFrom = CLASSES[id].tier === 2 ? (previous === id && !fresh && parents.indexOf(origin) >= 0 ? origin : parents.indexOf(previous) >= 0 ? previous : CLASSES[id].parent) : null;
+    p.upgradeFrom = CLASSES[id].tier >= 2 ? (previous === id && !fresh && parents.indexOf(origin) >= 0 ? origin : parents.indexOf(previous) >= 0 ? previous : CLASSES[id].parent) : null;
+    if (!fresh && previous === id) p.upgradePath = path;
+    else if (!fresh && parents.indexOf(previous) >= 0) p.upgradePath = path.concat(previous);
+    else {
+      p.upgradePath = [];
+      var ancestor = CLASSES[id].parent;
+      while (ancestor && CLASSES[ancestor]) { p.upgradePath.unshift(ancestor); ancestor = CLASSES[ancestor].parent; }
+    }
+    this.refreshShield(p);
     p.commandCd = 0;
     p.commandBuff = fresh ? 0 : (p.commandBuff || 0);
     p.minigunSpin = 0; p.flameTicks = 0; p.automaticWeapon = null; p.meleeSwing = 0;

@@ -20,22 +20,25 @@
     this.mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     this.wheel = 0;
     this.capture = false;
+    this.suppressed = {};
 
     window.addEventListener('keydown', function (e) {
       if (typing(e)) return;
+      if (self.suppressed[e.code]) { if (self.capture) e.preventDefault(); return; }
       if (!self.keys[e.code]) { self.pressed[e.code] = true; self.heldAt[e.code] = performance.now(); }
       self.keys[e.code] = true;
       if (self.capture && GAME_KEYS[e.code]) e.preventDefault();
     });
-    window.addEventListener('keyup', function (e) { self.releaseKey(e.code); });
-    window.addEventListener('blur', function () { self.release(); });
+    window.addEventListener('keyup', function (e) { delete self.suppressed[e.code]; self.releaseKey(e.code); });
+    window.addEventListener('blur', function () { self.suppressed = {}; self.release(); });
     canvas.addEventListener('mousedown', function (e) {
       var code = 'Mouse' + (e.button + 1);
+      if (self.suppressed[code]) return;
       if (!self.keys[code]) self.heldAt[code] = performance.now();
       self.keys[code] = true;
       self.pressed[code] = true;
     });
-    window.addEventListener('mouseup', function (e) { self.releaseKey('Mouse' + (e.button + 1)); });
+    window.addEventListener('mouseup', function (e) { var code = 'Mouse' + (e.button + 1); delete self.suppressed[code]; self.releaseKey(code); });
     window.addEventListener('mousemove', function (e) { self.mouse.x = e.clientX; self.mouse.y = e.clientY; });
     canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     canvas.addEventListener('wheel', function (e) {
@@ -62,6 +65,20 @@
   };
   Input.prototype.endFrame = function () { this.pressed = {}; this.released = {}; this.releasedAfter = {}; this.wheel = 0; };
   Input.prototype.release = function () { this.keys = {}; this.pressed = {}; this.released = {}; this.heldAt = {}; this.releasedAfter = {}; };
+  // Consume only a panel shortcut. Movement bindings retain their held state and duration.
+  Input.prototype.consume = function (code, keepDown) {
+    if (!code) return;
+    delete this.pressed[code]; delete this.released[code]; delete this.releasedAfter[code];
+    if (keepDown) return;
+    if (this.keys[code]) this.suppressed[code] = true;
+    this.keys[code] = false;
+    delete this.heldAt[code];
+  };
+  // Modal selection keys stay consumed until physical release, including keyboard auto-repeat.
+  Input.prototype.suppressHeld = function () {
+    for (var code in this.keys) if (this.keys[code]) this.suppressed[code] = true;
+    this.release(); this.wheel = 0;
+  };
 
   W.Input = Input;
 }());

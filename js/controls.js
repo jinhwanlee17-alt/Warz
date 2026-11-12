@@ -21,19 +21,21 @@
     { id: 'drop', name: 'Drop held item stack', group: 'Combat' },
     { id: 'interact', name: 'Pick up item / station / revive / mount', group: 'World' },
     { id: 'inventory', name: 'Inventory', group: 'World' },
+    { id: 'emotes', name: 'Emote picker', group: 'World' },
     { id: 'map', name: 'Island map', group: 'World' },
     { id: 'mute', name: 'Mute sound', group: 'World' },
-    { id: 'item1', name: 'Hotbar slot 3 (item)', group: 'Hotbar' },
+    { id: 'item1', name: 'Hotbar slot 3 (item / Engineer hammer)', group: 'Hotbar' },
     { id: 'item2', name: 'Hotbar slot 4 (item)', group: 'Hotbar' },
-    { id: 'item3', name: 'Hotbar slot 5 (item)', group: 'Hotbar' }
+    { id: 'item3', name: 'Hotbar slot 5 (item)', group: 'Hotbar' },
+    { id: 'slot6', name: 'Hotbar slot 6 (Engineer item)', group: 'Hotbar' }
   ];
   var DEFAULTS = W.DEFAULT_BINDINGS = {
     up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
     sprint: ['ShiftLeft', null],
     fire: ['Mouse1', null], scope: ['Mouse3', null], gear: ['KeyF', 'KeyG'], reload: ['KeyR', null],
     weapon1: ['Digit1', null], weapon2: ['Digit2', null], swap: [null, null], drop: ['KeyQ', null],
-    interact: ['KeyE', null], inventory: ['Tab', null], map: ['KeyM', null], mute: [null, null],
-    item1: ['Digit3', null], item2: ['Digit4', null], item3: ['Digit5', null]
+    interact: ['KeyE', null], inventory: ['Tab', null], emotes: ['KeyB', null], map: ['KeyM', null], mute: [null, null],
+    item1: ['Digit3', null], item2: ['Digit4', null], item3: ['Digit5', null], slot6: ['Digit6', null]
   };
   var NAMES = {
     Mouse1: 'Left click', Mouse2: 'Middle click', Mouse3: 'Right click', Mouse4: 'Mouse 4', Mouse5: 'Mouse 5',
@@ -85,6 +87,16 @@
           settings.bindings.sprint = [sprintFree('ShiftLeft') ? 'ShiftLeft' : sprintFree('ShiftRight') ? 'ShiftRight' : null, null];
           migrated = true;
         }
+        if (!Array.isArray(saved.bindings.emotes)) {
+          var emoteFree = !ACTIONS.some(function (a) { return a.id !== 'emotes' && settings.bindings[a.id].indexOf('KeyB') >= 0; });
+          settings.bindings.emotes = [emoteFree ? 'KeyB' : null, null];
+          migrated = true;
+        }
+        if (!Array.isArray(saved.bindings.slot6)) {
+          var slotSixFree = !ACTIONS.some(function (a) { return a.id !== 'slot6' && settings.bindings[a.id].indexOf('Digit6') >= 0; });
+          settings.bindings.slot6 = [slotSixFree ? 'Digit6' : null, null];
+          migrated = true;
+        }
       }
       if (saved && typeof saved.muted === 'boolean') settings.muted = saved.muted;
     } catch (e) { /* corrupt settings fall back to defaults */ }
@@ -110,6 +122,22 @@
   function hit(input, action) { var b = bindings(action); return input.hit(b[0]) || input.hit(b[1]); }
   function lift(input, action) { var b = bindings(action); return !!input.lift && (input.lift(b[0]) || input.lift(b[1])); }
   function primary(action) { var b = bindings(action); return label(b[0] || b[1]); }
+
+  // Item storage never moves: Engineer's original item 1 is displayed in slot 6.
+  function extraWeapon(p) { return !!p && p.classId === 'engineer' && !!p.weapons && p.weapons.length > 2; }
+  function itemAction(p, index) { return extraWeapon(p) && index === 0 ? 'slot6' : 'item' + (index + 1); }
+  function weaponAction(p, index) { return index === 2 ? 'item1' : 'weapon' + (index + 1); }
+  function itemOrder(p) { return extraWeapon(p) ? [1, 2, 0] : [0, 1, 2]; }
+  function weaponSlotHit(input, p) {
+    if (hit(input, 'weapon1')) return 0;
+    if (hit(input, 'weapon2')) return 1;
+    return extraWeapon(p) && !p.vehicle && !p.mount && hit(input, 'item1') ? 2 : null;
+  }
+  function itemSlotHit(input, p) {
+    for (var i = 0; i < 3; i++) if (hit(input, itemAction(p, i))) return i;
+    return null;
+  }
+  function hotbarChanged(input, p) { return weaponSlotHit(input, p) !== null || itemSlotHit(input, p) !== null; }
 
   // A charge belongs to the equipped projectile and is cancelled by menus or a
   // weapon change. Measure physical key hold time, including taps between frames.
@@ -162,6 +190,8 @@
     load: load, save: save, reset: reset, rebind: rebind,
     label: label, bindings: bindings, primary: primary, actionName: actionName,
     down: down, hit: hit, lift: lift, createChargeTracker: createChargeTracker,
+    itemAction: itemAction, weaponAction: weaponAction, itemOrder: itemOrder,
+    weaponSlotHit: weaponSlotHit, itemSlotHit: itemSlotHit, hotbarChanged: hotbarChanged,
     isReserved: function (code) { return code === 'Escape'; },
     setMuted: function (v) { settings.muted = !!v; save(); },
     muted: function () { return settings.muted; },

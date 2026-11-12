@@ -42,7 +42,8 @@
         seats: { driver: 0, gunner: 0, rearLeft: 0, rearRight: 0 }, gunAngle: s.angle || 0,
         cannonAngle: s.angle || 0, cannonCooldown: 0, cannonAmmo: 1, cannonMaxAmmo: 1, cannonReload: 0, cannonUpgraded: false,
         cannonFlash: 0, mgAmmo: tank ? T.mgMagazine : 0, mgReload: 0,
-        cooldown: 0, flash: 0, hitFlash: 0, contacts: {}, ramUntil: {}, snowT: 0, snowTick: 0 };
+        cooldown: 0, flash: 0, hitFlash: 0, contacts: {}, ramUntil: {}, snowT: 0, snowTick: 0,
+        sentrySnow: [], sentryBurn: null };
     });
   };
   World.prototype.vehicleById = function (id) {
@@ -322,6 +323,7 @@
   };
 
   World.prototype.updateTankWeapons = function (v, dt) {
+    dt = this.vehicleSentryWeaponTime(v, dt);
     for (var ci = 0; ci < SEATS.length; ci++) {
       var cp = this.playerById(v.seats[SEATS[ci]]);
       if (this.vehicleWeaponFor(cp) === 'cannon') { this.prepareTankCannon(v, cp); break; }
@@ -482,6 +484,7 @@
       var v = this.vehicles[i];
       v.flash = Math.max(0, v.flash - dt * 9); v.hitFlash = Math.max(0, v.hitFlash - dt * 6);
       v.cannonFlash = Math.max(0, (v.cannonFlash || 0) - dt * 4);
+      this.updateVehicleSentryBurn(v);
       if (this.remote || v.wreck) continue;
       var driver = this.playerById(v.seats.driver), oldX = v.x, oldY = v.y;
       this.driveVehicle(v, driver && driver.alive ? driver.vehicleIntent : IDLE, dt);
@@ -502,8 +505,9 @@
         if (v.wreck) break;
       }
       if (v.wreck) continue;
-      if (v.type === 'tank') { this.updateTankWeapons(v, dt); continue; }
-      v.cooldown = Math.max(-dt, v.cooldown - dt);
+      if (v.type === 'tank') { this.updateTankWeapons(v, dt); this.pruneVehicleSentrySnow(v); continue; }
+      var weaponDt = this.vehicleSentryWeaponTime(v, dt);
+      v.cooldown = Math.max(-weaponDt, v.cooldown - weaponDt);
       var gunner = v.armed && this.playerById(v.seats.gunner), input = gunner && gunner.vehicleIntent;
       if (gunner && gunner.alive && input && (input.fire || input.firePressed) && v.cooldown <= 0) {
         var def = Object.assign({}, W.WEAPONS.turret, { damage: W.ITEMS.turret.damage * (gunner.classId === 'armorcrew' ? W.ARMOR_CREW.damageMul : 1) });
@@ -513,6 +517,7 @@
         this.emit({ type: 'vehicle-shot', vehicle: v, player: gunner, x: v.x, y: v.y, angle: v.gunAngle, angles: [a], weapon: 'turret' });
       }
       if (!input || !(input.fire || input.firePressed)) v.cooldown = Math.max(0, v.cooldown);
+      this.pruneVehicleSentrySnow(v);
     }
   };
   World.prototype.vehicleShot = function (p, v, def, angles) {
@@ -520,18 +525,75 @@
     this.spawnShot(proxy, def, angles); v.flash = 1;
   };
 
+  // Hull armor applies once, regardless of whether the hit came from a physical
+  // projectile or a basic sentry's direct shot. Tier-IV rockets and cannons bypass it.
+  World.prototype.vehicleSentryDamageMul = function (v, cause) {
+    if (cause === 'sentry-cannons' || cause === 'sentry-rockets') return 1;
+    if (cause === 'sentry-burn') return v.type === 'tank' ? 0 : 1;
+    if (cause === 'sentry-snowballs') return v.type === 'tank' ? 0.25 : 0.5;
+    var weapon = W.WEAPONS[cause];
+    return v.type === 'tank' && ((weapon && weapon.kind === 'gun') || cause === 'turret' || cause === 'tankmg' ||
+      cause === 'sentry' || (typeof cause === 'string' && cause.indexOf('sentry-') === 0)) ? 0.25 : 1;
+  };
+  World.prototype.pruneVehicleSentrySnow = function (v) {
+    var now = this.time;
+    v.sentrySnow = (v.sentrySnow || []).filter(function (until) { return Number.isFinite(until) && until > now + 0.00000001; }).slice(-10);
+  };
+  World.prototype.applyVehicleSentrySnow = function (v) {
+    if (this.remote || !v || v.wreck) return false;
+    this.pruneVehicleSentrySnow(v);
+    v.sentrySnow.push(this.time + 3);
+    // At the cap, a new hit replaces the oldest stack rather than extending all
+    // stacks. The remaining hits still expire independently three seconds later.
+    if (v.sentrySnow.length > 10) v.sentrySnow.shift();
+    return true;
+  };
+  World.prototype.vehicleSentryRate = function (v) {
+    var now = this.time, n = (v.sentrySnow || []).filter(function (until) { return until > now + 0.00000001; }).length;
+    return 1 - Math.min(10, n) * 0.05;
+  };
+  World.prototype.vehicleSentryWeaponTime = function (v, dt) {
+    // Integrate through expiration boundaries. A stack expiring halfway through
+    // a tick only slows the first half, independent of Practice/server tick size.
+    var from = this.time - dt, lost = 0;
+    (v.sentrySnow || []).slice(-10).forEach(function (until) { if (Number.isFinite(until)) lost += U.clamp(until - from, 0, dt) * 0.05; });
+    return Math.max(dt * 0.5, dt - lost);
+  };
+  World.prototype.applyVehicleSentryBurn = function (v, ownerId) {
+    if (this.remote || !v || v.wreck || v.type === 'tank') return false;
+    var burn = v.sentryBurn;
+    if (!burn || burn.until < this.time - 0.00000001) burn = { until: this.time + 3, next: this.time + 0.1, owner: ownerId || 0 };
+    else { burn.until = this.time + 3; burn.owner = ownerId || 0; }
+    v.sentryBurn = burn;
+    return true;
+  };
+  World.prototype.updateVehicleSentryBurn = function (v) {
+    var burn = v.sentryBurn;
+    if (!burn) return;
+    if (v.wreck || v.type === 'tank') { v.sentryBurn = null; return; }
+    if (!this.remote) {
+      var end = Math.min(this.time, burn.until);
+      while (!v.wreck && burn.next <= end + 0.00000001) {
+        this.damageVehicle(v, 1, burn.owner, 'sentry-burn', v.x, v.y - v.r);
+        burn.next += 0.1;
+      }
+    }
+    if (this.time >= burn.until - 0.00000001) v.sentryBurn = null;
+  };
+
   World.prototype.damageVehicle = function (v, amount, sourceId, cause, hx, hy) {
     if (this.remote || !v || v.wreck || !(amount > 0)) return false;
     var src = sourceId ? this.playerById(sourceId) : null;
     if (src && src.vehicle !== v.id && this.vehicleTeam(v) === src.team && cause !== 'airstrike') return false;
-    if (src && src.vehicle !== v.id && cause !== 'airstrike' && cause !== 'lightning' && cause !== 'storm' && cause !== 'snow' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg') amount *= this.damageMul(src);
-    amount = Math.round(amount * 10) / 10;
+    if (src && src.vehicle !== v.id && cause !== 'airstrike' && cause !== 'lightning' && cause !== 'storm' && cause !== 'snow' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn') amount *= this.damageMul(src);
+    amount = Math.round(amount * this.vehicleSentryDamageMul(v, cause) * 100) / 100;
+    if (!(amount > 0)) return false;
     v.hp = Math.max(0, v.hp - amount); v.hitFlash = 1;
     if (src) { src.stats.damage += amount; src.stats.hits++; }
     this.text(hx === undefined ? v.x : hx, (hy === undefined ? v.y - v.r : hy) - 8, String(Math.round(amount)), '#ffd84a', 20);
     this.emit({ type: 'vehicle', op: 'hp', vehicle: v, amount: amount, source: src, cause: cause, x: hx, y: hy });
     if (v.hp > 0) return true;
-    v.wreck = true; v.vx = v.vy = 0; v.cooldown = 0;
+    v.wreck = true; v.vx = v.vy = 0; v.cooldown = 0; v.sentrySnow = []; v.sentryBurn = null;
     for (var i = 0; i < SEATS.length; i++) {
       var p = this.playerById(v.seats[SEATS[i]]);
       if (p && p.vehicle === v.id) { if (cause === 'poison') p.vehiclePoisonProtectionAt = this.time; this.exitVehicle(p, true); }

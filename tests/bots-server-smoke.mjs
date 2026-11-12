@@ -146,7 +146,7 @@ try {
   t.check(mA.start.teams === 50 && mA.start.teamSize === 1, 'fifty teams of one');
   t.equal(new Set(roster.map((p) => p.name.toLowerCase())).size, 50, 'every name on it is different');
   t.check(roster.some((p) => p.name === A.welcome.name) && roster.some((p) => p.name === B.welcome.name), 'the two players are on it under their own names');
-  t.check(roster.every((p) => Object.keys(p).sort().join() === 'color,id,name,outline,team'), 'bots are on it like anybody else (nothing marks them)');
+  t.check(roster.every((p) => Object.keys(p).sort().join() === 'color,emote,face,id,name,outline,team'), 'bots share the same identity and cosmetic fields as everybody else (nothing marks them)');
   const bad = client(base + '/match/' + tA.id + '/ws?ticket=null');
   const badClose = await new Promise((resolve) => { bad.ws.onclose = (ev) => resolve(ev.code); });
   t.check(match.slots.filter((x) => x.ticket).length === 2 && badClose === 4401, 'only the two people have tickets: nobody can connect as a bot');

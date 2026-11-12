@@ -106,9 +106,12 @@
   SOUNDS.revolver = SOUNDS.deagle;
   SOUNDS.minigun = SOUNDS.ar;
   SOUNDS.commandpistol = SOUNDS.pistol;
+  SOUNDS.shieldpistol = SOUNDS.pistol;
   SOUNDS.launcher2 = SOUNDS.launcher;
+  SOUNDS.rpg = function (t, v) { SOUNDS.launcher(t, v); noise(t + 0.03, 0.24, 'highpass', 800, 260, 0.8, 0.3 * v); };
   SOUNDS.tankmg = SOUNDS.turret;
   SOUNDS.melee = SOUNDS.hammer;
+  SOUNDS.engineerhammer = SOUNDS.hammer;
 
   function play(name, vol) {
     if (!ctx || muted || !SOUNDS[name] || ctx.state !== 'running') return;

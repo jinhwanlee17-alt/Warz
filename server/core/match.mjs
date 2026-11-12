@@ -66,6 +66,7 @@ export class Match {
     this.endAt = 0;
     this.emptyT = 0;
     this.tickCount = 0;
+    this.cosmeticsVersion = 0;
     this.aliveCount = 0;
     this.lastReal = Date.now();
     this.acc = 0;
@@ -156,7 +157,8 @@ export class Match {
     return {
       t: 'match-start', id: this.id, seed: this.seed, mode: this.mode, teamSize: this.teamSize, you: p.id, team: p.team,
       drop: p.dropLabel, rejoin: !!rejoin, time: r3(this.world.time), teams: this.teamInfo.length,
-      players: this.players.map((o) => ({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline }))
+      cosmetics: this.cosmeticLook(p),
+      players: this.players.map((o) => ({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline, face: o.face, emote: this.encodeEmote(o) }))
     };
   }
 
@@ -166,6 +168,7 @@ export class Match {
     p.net.afk = 0;
     p.net.everConnected = true;
     p.net.itemsKey = ''; // resend the hotbar with the next snapshot
+    p.net.lookVersion = -1; p.net.cosmeticsKey = ''; p.net.cosmeticsSet = false;
     conn.player = p;
     this.send(conn, this.startMessage(p, rejoin));
     if (rejoin) {
@@ -195,6 +198,18 @@ export class Match {
     try { m = JSON.parse(text); } catch (e) { return; }
     if (!m || typeof m.t !== 'string') return;
     switch (m.t) {
+      case 'cosmetics': {
+        // Locker choices are submitted once per connection, not continuously during combat.
+        if (p.net.cosmeticsSet || !m.value || typeof m.value !== 'object' || Array.isArray(m.value)) return;
+        p.net.cosmeticsSet = true;
+        this.world.applyCosmetics(p, m.value);
+        this.cosmeticsVersion++;
+        return;
+      }
+      case 'emote': this.world.useEmote(p, m.slot); return;
+      case 'sentry-choice':
+        this.world.chooseSentryUpgrade(p, m.variant === null ? null : str(m.variant, 16));
+        return;
       case 'in': {
         const now = Date.now(), rate = p.net.rate;
         if (now - rate.at >= 1000) { rate.at = now; rate.n = 0; }
@@ -223,9 +238,13 @@ export class Match {
       strikes: this.world.strikes.map((s) => ({ id: s.id, k: s.kind, x: s.x, y: s.y, tg: s.target, tl: s.t, o: s.owner, tm: s.team, r: s.radius, dm: s.damage })),
       added: map.pickups.filter((pk) => pk.alive && pk.id > this.initialPickupMax).map((pk) => ({ id: pk.id, type: pk.type, it: pk.item || undefined, x: r1(pk.x), y: r1(pk.y), n: pk.amount, lk: r2(pk.lockT || 0) })),
       stations: map.stations.filter((s) => s.cooldown > 0).map((s) => [s.id, r1(s.cooldown)]),
-      players: this.players.map((o) => [o.id, this.classIndex.indexOf(o.classId), o.alive ? 1 : 0, o.downed ? 1 : 0, r1(o.x), r1(o.y), o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0]),
+      players: this.players.map((o) => [o.id, this.classIndex.indexOf(o.classId), o.alive ? 1 : 0, o.downed ? 1 : 0, r1(o.x), r1(o.y), o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0, this.encodeSentryBuild(o)]),
+      looks: this.players.map((o) => [o.id, o.color, o.face]),
+      emotes: this.players.map((o) => [o.id, this.encodeEmote(o)]),
       vehicles: (this.world.vehicles || []).map((v) => this.encodeVehicle(v)),
       tankShells: (this.world.tankShells || []).map((shell) => this.encodeTankShell(shell)),
+      sentryProjectiles: (this.world.sentryProjectiles || []).map((shell) => this.encodeSentryProjectile(shell)),
+      rpgRockets: (this.world.rpgRockets || []).map((rocket) => this.encodeRpgRocket(rocket)),
       structs: this.world.structures.filter((s) => s.alive).map((s) => this.encodeStruct(s)),
       zones: this.world.zones.map((z) => this.encodeZone(z)),
       storm: this.stormMessage()
@@ -235,12 +254,35 @@ export class Match {
   encodeStruct(s) {
     return { id: s.id, k: s.kind, it: s.item, x: r1(s.x), y: r1(s.y), r: s.r, o: s.owner || 0, tm: s.team, hp: Math.round(s.hp), mhp: s.maxHp, a: r2(s.angle), m: s.mounted || 0, pr: s.pair || 0 };
   }
+  encodeSentryProjectile(p) {
+    const row = [p.id, p.kind, p.owner, p.team, p.sentry, r2(p.x), r2(p.y), p.dx, p.dy, p.r, p.speed, r2(p.traveled), p.range, r3(p.age)];
+    if (p.kind === 'grenades') row.push([p.startX, p.startY, p.targetX, p.targetY, p.flightTime, p.peakHeight, p.z, p.flightElapsed]);
+    return row;
+  }
+  encodeSentryStatus(p) {
+    const now = this.world.time, snow = (p.sentrySnow || []).filter(t => t > now).map(t => r3(t - now));
+    const freeze = Math.max(0, (p.sentryFreezeUntil || 0) - now), b = p.sentryBurn;
+    return snow.length || freeze || (b && b.until > now) ? { snow, freeze: r3(freeze), burn: b && b.until > now ? [r3(b.until - now), r3(b.next - now), b.owner] : null } : null;
+  }
+  encodeRpgRocket(p) {
+    return { id: p.id, owner: p.owner, team: p.team, x: r2(p.x), y: r2(p.y), dx: p.dx, dy: p.dy,
+      r: p.r, speed: p.speed, range: p.range, traveled: r2(p.traveled || 0), age: r3(p.age || 0) };
+  }
+  encodeSentryWork(p) {
+    const w = p.sentryWork;
+    return w ? { struct: w.struct, kind: w.kind, elapsed: r3(w.elapsed), total: w.total, cost: w.cost, next: w.next, variant: w.variant } : null;
+  }
+  cosmeticLook(p) { return { color: p.color, face: p.face, emotes: p.emotes.slice() }; }
+  encodeEmote(p) {
+    return p.alive && !p.downed && p.emote && p.emote.until > this.world.time
+      ? [p.emote.id, r3(p.emote.until - this.world.time)] : null;
+  }
   encodeZone(z) {
     return { id: z.id, k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, dur: z.dur, tl: r1(z.t), o: z.owner || 0, tm: z.team, dps: z.dps };
   }
   encodeVehicle(v) {
     const row = { id: v.id, type: v.type || 'humvee', x: r2(v.x), y: r2(v.y), vx: r2(v.vx), vy: r2(v.vy), a: r3(v.angle),
-      hp: r1(v.hp), mhp: v.maxHp, wreck: !!v.wreck, armed: !!v.armed, ga: r3(v.gunAngle || 0),
+      hp: r2(v.hp), mhp: v.maxHp, wreck: !!v.wreck, armed: !!v.armed, ga: r3(v.gunAngle || 0), ss: this.encodeSentryStatus(v),
       seats: ['driver', 'gunner', 'rearLeft', 'rearRight'].map((seat) => v.seats[seat] || 0) };
     if (v.type === 'tank') Object.assign(row, { ca: r3(v.cannonAngle || 0), cc: r3(v.cannonCooldown || 0),
       cn: v.cannonAmmo, cm: v.cannonMaxAmmo, cr: r3(v.cannonReload || 0),
@@ -404,7 +446,19 @@ export class Match {
     const flags = (o.alive ? 1 : 0) | (o.downed ? 2 : 0) | (o.scoping ? 4 : 0) | (o.weapons[o.slot] && o.weapons[o.slot].reloading ? 8 : 0) | (o.inStorm ? 16 : 0)
       | (o.mount ? 32 : 0) | (o.fx.invisible > 0 ? 64 : 0) | (o.shieldUp ? 128 : 0);
     const held = o.held >= 0 && o.items[o.held] ? this.itemIndex.indexOf(o.items[o.held].id) + 1 : 0;
-    return [o.id, r1(o.x), r1(o.y), r2(o.angle), Math.ceil(o.hp), o.maxHp, this.classIndex.indexOf(o.classId), o.slot, flags, r2(o.dropT), o.downed ? r1(o.downT) : 0, o.downed ? r2(o.revive) : 0, held, r2(o.minigunSpin || 0), r1(o.commandBuff || 0), o.flameTicks || 0, o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0];
+    const row = [o.id, r1(o.x), r1(o.y), r2(o.angle), Math.ceil(o.hp), o.maxHp, this.classIndex.indexOf(o.classId), o.slot, flags, r2(o.dropT), o.downed ? r1(o.downT) : 0, o.downed ? r2(o.revive) : 0, held, r2(o.minigunSpin || 0), r1(o.commandBuff || 0), o.flameTicks || 0, o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0];
+    const emote = this.encodeEmote(o);
+    const build = this.encodeSentryBuild(o);
+    const empty = o.held >= 0 && !o.items[o.held], status = this.encodeSentryStatus(o), work = this.encodeSentryWork(o);
+    if (emote || build || empty || status || work) row.push(emote);
+    if (build || empty || status || work) row.push(build);
+    if (empty || status || work) row.push({ empty, status, work });
+    return row;
+  }
+
+  encodeSentryBuild(p) {
+    const b = p.sentryBuild;
+    return p.alive && !p.downed && b ? [r3(b.elapsed), r1(b.x), r1(b.y)] : null;
   }
 
   encodeYou(p) {
@@ -416,19 +470,24 @@ export class Match {
       down: p.downed, downT: r1(p.downT), rev: r2(p.revive), sc: p.scoping, near: p.nearStation ? p.nearStation.id : -1,
       alive: p.alive, drop: r2(p.dropT), team: p.team, storm: p.inStorm,
       cmd: r1(p.commandCd || 0), cb: r1(p.commandBuff || 0), spin: r2(p.minigunSpin || 0), ft: p.flameTicks || 0,
-      from: p.upgradeFrom || null,
+      from: p.upgradeFrom || null, path: p.upgradePath || [], sb: this.encodeSentryBuild(p),
+      sw: this.encodeSentryWork(p), sch: p.sentryChoice || null, ss: this.encodeSentryStatus(p),
       held: p.held, mnt: p.mount || 0, veh: p.vehicle || 0, seat: p.vehicleSeat || null, vw: p.vehicleWeapon || 0, rv: p.repairVehicle || 0,
+      em: this.encodeEmote(p), emcd: r3(Math.max(0, p.emoteReadyAt - this.world.time)),
       fx: this.fxKeys.map((k) => r1(p.fx[k])), rg: r1(p.regen), dr: r1(this.world.reveal[p.team] || 0), tp: r2(p.tpProgress || 0)
     };
     // The hotbar only travels when it changes.
     const items = p.items.map((s) => (s ? [s.id, s.n] : 0)), key = JSON.stringify(items);
     if (key !== p.net.itemsKey) { p.net.itemsKey = key; you.items = items; }
+    const look = this.cosmeticLook(p), lookKey = JSON.stringify(look);
+    if (lookKey !== p.net.cosmeticsKey) { p.net.cosmeticsKey = lookKey; you.cosmetics = look; }
     return you;
   }
 
   // Returns { msg, x, y, global, to:[ids], only:id, far } or null for events that are not replicated.
   encodeEvent(e) {
     switch (e.type) {
+      case 'emote': return { msg: { t: 'emote', id: e.player.id, em: e.id, d: e.duration }, global: true };
       case 'shot': return { msg: { t: 'shot', id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), a: e.angles.map(r3), st: e.struct || undefined }, x: e.x, y: e.y };
       case 'melee': return { msg: { t: 'melee', id: e.player.id, w: e.weapon || 'hammer', x: r1(e.x), y: r1(e.y), a: r3(e.a), r: e.reach }, x: e.x, y: e.y };
       case 'repair': return { msg: { t: 'repair', id: e.player.id, v: e.vehicle ? e.vehicle.id : 0, on: !!e.active }, global: true };
@@ -452,6 +511,10 @@ export class Match {
       case 'teleport': return { msg: { t: 'tele', id: e.player.id, fx: r1(e.fromX), fy: r1(e.fromY), x: r1(e.x), y: r1(e.y) }, global: true };
       case 'pulled': return { msg: { t: 'pulled', id: e.player.id, x: r1(e.x), y: r1(e.y) }, global: true };
       case 'sentry-shot': return { msg: { t: 'sshot', id: e.struct.id, x: r1(e.x), y: r1(e.y), tx: r1(e.tx), ty: r1(e.ty) }, x: e.x, y: e.y };
+      case 'sentry-projectiles': return { msg: { t: 'sentry-fire', id: e.struct.id, x: e.x, y: e.y, a: e.struct.angle }, x: e.x, y: e.y };
+      case 'sentry-impact': return { msg: { t: 'sentry-impact', id: e.id, k: e.kind, x: e.x, y: e.y }, x: e.x, y: e.y };
+      case 'rpg-shot': return { msg: { t: 'rpg-shot', id: e.player.id, x: r2(e.x), y: r2(e.y), a: r3(e.angle) }, x: e.x, y: e.y };
+      case 'rpg-impact': return { msg: { t: 'rpg-impact', id: e.id, x: r1(e.x), y: r1(e.y), o: e.owner }, x: e.x, y: e.y, far: true };
       case 'buff': return { msg: { t: 'buff', id: e.player.id, k: e.effect, d: e.duration, it: e.item, my: e.mystery, by: e.by || 0 }, to: e.team ? this.players.filter((o) => o.team === e.team).map((o) => o.id) : [e.player.id] };
       case 'flashed': return { msg: { t: 'flashed' }, only: e.player.id };
       case 'saved': return { msg: { t: 'saved', id: e.player.id }, global: true };
@@ -482,6 +545,7 @@ export class Match {
     // Shared vehicles are cheap to synchronize globally. This keeps vacated seats,
     // wrecks and vehicles crossing the view boundary authoritative without stale ownership.
     const vehicles = (this.world.vehicles || []).map((v) => this.encodeVehicle(v));
+    const structs = this.world.structures.filter(s => s.alive).map(s => this.encodeStruct(s)), structKey = JSON.stringify(structs);
     for (const p of this.players) {
       const conn = p.net.conn;
       if (!conn || !conn.open) continue;
@@ -501,7 +565,13 @@ export class Match {
         if (!mate && !drone && !revealed.has(o.id) && o.fx.invisible > 0) continue;
         if (mate || drone || revealed.has(o.id) || Math.hypot(o.x - c.x, o.y - c.y) < VIEW) players.push(this.encodePlayer(o));
       }
-      conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), spec: p.alive ? 0 : p.net.specId, p: players, vehicles, lc, e: list, alive: this.aliveCount, teams: this.teamsAlive }));
+      // Identity changes are small and rare. Retry the current roster after any skipped slow-link frame.
+      const looks = p.net.lookVersion !== this.cosmeticsVersion ? this.players.map(o => [o.id, o.color, o.face]) : undefined;
+      const projectiles = (this.world.sentryProjectiles || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < VIEW + 400).map(o => this.encodeSentryProjectile(o));
+      const rockets = (this.world.rpgRockets || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < VIEW + 400).map(o => this.encodeRpgRocket(o));
+      conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), looks, spec: p.alive ? 0 : p.net.specId, p: players, vehicles, sp: projectiles, rp: rockets, structs: p.net.structKey !== structKey ? structs : undefined, lc, e: list, alive: this.aliveCount, teams: this.teamsAlive }));
+      p.net.structKey = structKey;
+      p.net.lookVersion = this.cosmeticsVersion;
     }
   }
 }

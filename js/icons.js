@@ -4,7 +4,9 @@
   var W = window.Warz, U = W.U;
 
   function barrelSvg(weaponId, cx, cy, r) {
-    if (weaponId === 'hammer') return '<g transform="rotate(24 ' + cx + ' ' + cy + ')" stroke="#26333c" stroke-width="3"><rect x="' + (cx + r * 0.4) + '" y="' + (cy - r * 0.12) + '" width="' + r * 1.5 + '" height="' + r * 0.24 + '" rx="2" fill="#b9874c"/><rect x="' + (cx + r * 1.55) + '" y="' + (cy - r * 0.55) + '" width="' + r * 0.6 + '" height="' + r * 1.1 + '" rx="3" fill="#aab9c0"/></g>';
+    if (weaponId === 'wrench') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" fill="#bbcbd5" stroke="#344854" stroke-width=".12"><path d="M.35-.14H1.5A.48.48 0 0 1 2.19-.37L1.91-.18V.18L2.19.37A.48.48 0 0 1 1.5.14H.35Z"/><circle cx=".5" cy="0" r=".07" fill="#344854" stroke="none"/></g>';
+    if (weaponId === 'shieldpistol' || weaponId === 'explosiveshield') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" stroke-linecap="round"><path d="M.58-1.15Q1.5 0 .58 1.15" fill="none" stroke="#263749" stroke-width=".56"/><path d="M.58-1.15Q1.5 0 .58 1.15" fill="none" stroke="' + (weaponId === 'explosiveshield' ? '#f15c5b' : '#9fd4ff') + '" stroke-width=".33"/>' + (weaponId === 'shieldpistol' ? '<rect x="1.05" y="-.17" width=".8" height=".34" fill="#8e9ba8" stroke="#344854" stroke-width=".12"/>' : '') + '</g>';
+    if (weaponId === 'hammer' || weaponId === 'engineerhammer') return '<g transform="rotate(24 ' + cx + ' ' + cy + ')" stroke="#26333c" stroke-width="3"><rect x="' + (cx + r * 0.4) + '" y="' + (cy - r * 0.12) + '" width="' + r * 1.5 + '" height="' + r * 0.24 + '" rx="2" fill="#b9874c"/><rect x="' + (cx + r * 1.55) + '" y="' + (cy - r * 0.55) + '" width="' + r * 0.6 + '" height="' + r * 1.1 + '" rx="3" fill="#aab9c0"/></g>';
     var b = W.BARRELS[weaponId] || {}, out = '';
     var style = 'fill="#9aa1a9" stroke="#5d646c" stroke-width="3" stroke-linejoin="round"';
     if (b.parts) {
@@ -25,6 +27,9 @@
     if (classId === 'juggernaut') return '<path d="M34 45H54L52 61L44 69L36 61Z" fill="none" stroke="' + c + '" stroke-width="3"/>';
     if (classId === 'commander') return '<path d="M34 52L44 46L54 52M34 59L44 53L54 59M34 66L44 60L54 66" fill="none" stroke="' + c + '" stroke-width="3"/>';
     if (classId === 'armorcrew') return '<g transform="rotate(-32 ' + cx + ' ' + cy + ')" fill="' + c + '"><rect x="' + (cx - r * 0.1) + '" y="' + cy + '" width="' + r * 0.2 + '" height="' + r * 0.6 + '" rx="1"/><rect x="' + (cx - r * 0.45) + '" y="' + (cy - r * 0.35) + '" width="' + r * 0.9 + '" height="' + r * 0.35 + '" rx="2"/></g>';
+    if (classId === 'engineer') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ') rotate(-42)" fill="' + c + '"><path d="M-.55-.12H.12A.35.35 0 0 1 .65-.28L.4-.12V.12L.65.28A.35.35 0 0 1 .12.12H-.55Z"/></g>';
+    if (classId === 'shieldoperator') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" fill="none" stroke="' + c + '" stroke-width=".13"><path d="M-.48-.42Q0-.65.48-.42L.4.24 0 .6-.4.24Z"/><path d="M-.22-.18H.22"/></g>';
+    if (classId === 'rocketeer') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ') rotate(-35)" fill="' + c + '"><path d="M-.6-.17H.25L.65 0 .25.17H-.6L-.4 0Z"/><path d="M-.32-.17L-.52-.42H-.12L.05-.17M-.32.17L-.52.42H-.12L.05.17"/></g>';
     if (classId === 'medic') {
       var a = r * 0.16, b = r * 0.5;
       return '<rect x="' + (cx - a) + '" y="' + (cy - b) + '" width="' + a * 2 + '" height="' + b * 2 + '" fill="' + c + '"/>' +
@@ -63,6 +68,9 @@
   }
 
   var WEAPON_ART = {
+    wrench: '<g transform="rotate(-25 32 16)" fill="#b7cbd7" stroke="#344854" stroke-width="2"><path d="M7 12H39A11 11 0 0 1 58 7L49 11V20L58 25A11 11 0 0 1 39 20H7A4 4 0 0 1 7 12Z"/><circle cx="10" cy="16" r="2" fill="#344854" stroke="none"/></g>',
+    shieldpistol: '<path d="M9 4Q21-1 33 4L31 23 21 31 11 23Z" fill="#9fd4ff" stroke="#344854" stroke-width="2"/><rect x="14" y="7" width="14" height="5" rx="2" fill="#344854"/><path d="M29 13H57V19H42L40 28H32L33 19H29Z" fill="#cad3dc" stroke="#344854" stroke-width="2"/>',
+    explosiveshield: '<path d="M17 4Q32-2 47 4L44 23 32 31 20 23Z" fill="#f15c5b" stroke="#6e2933" stroke-width="2"/><rect x="23" y="6" width="18" height="5" rx="2" fill="#5a2932"/><path d="M32 13L39 25H25Z" fill="#fff2c6"/><path d="M32 17V20M32 22V23" fill="none" stroke="#a4383f" stroke-width="2"/>',
     hammer: '<g transform="rotate(-28 32 16)"><rect x="9" y="13" width="36" height="7" rx="2" fill="#bc8c53"/><rect x="38" y="3" width="16" height="26" rx="3"/><rect x="40" y="5" width="4" height="22" fill="#b9cbd5"/></g>',
     ar: '<polygon points="2,11 13,13 13,19 2,22"/><rect x="13" y="12" width="34" height="7" rx="1"/><rect x="47" y="13.5" width="15" height="3.5"/>' +
       '<polygon points="26,19 32,19 30,29 24,29"/><polygon points="36,19 41,19 40,26 35,26"/><rect x="20" y="9" width="9" height="3"/>',
@@ -80,6 +88,8 @@
       '<rect x="29.5" y="11" width="5" height="14" fill="#ff4d63"/><rect x="25" y="15.5" width="14" height="5" fill="#ff4d63"/>'
   };
 
+  WEAPON_ART.engineerhammer = WEAPON_ART.hammer;
+  WEAPON_ART.rpg = '<path d="M3 11L10 9V22L3 20Z" fill="#59633e"/><rect x="9" y="11" width="37" height="9" rx="2" fill="#8d9a5b"/><path d="M37 10L49 6 62 15 49 24 37 21Z" fill="#b4b986" stroke="#3e4c38" stroke-width="2"/><path d="M20 20H27L25 29H19Z"/><rect x="24" y="6" width="9" height="5" rx="1"/>';
   WEAPON_ART.shotgun2 = WEAPON_ART.shotgun + '<rect x="35" y="7" width="27" height="3"/><path d="M7 6l2-4 2 4 4 1-3 3 1 4-4-2-4 2 1-4-3-3z" fill="#ffd76c"/>';
   WEAPON_ART.sniper2 = WEAPON_ART.sniper + '<rect x="48" y="13" width="14" height="7" rx="2"/><circle cx="27" cy="9" r="2" fill="#70d9ff"/>';
   WEAPON_ART.launcher2 = WEAPON_ART.launcher + '<rect x="20" y="9" width="3" height="8" fill="#ffbf66"/><rect x="27" y="9" width="3" height="8" fill="#ffbf66"/>';

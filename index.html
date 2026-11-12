@@ -8,8 +8,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261110j">
-  <link rel="stylesheet" href="css/upgrade-tree.css?v=20261110j">
+  <link rel="stylesheet" href="css/style.css?v=20261111i">
+  <link rel="stylesheet" href="css/upgrade-tree.css?v=20261111i">
+  <link rel="stylesheet" href="css/locker.css?v=20261111i">
+  <link rel="stylesheet" href="css/emotes.css?v=20261111i">
+  <link rel="stylesheet" href="css/sentry-upgrade.css?v=20261111i">
 </head>
 <body data-screen="menu">
   <canvas id="game" tabindex="-1" aria-label="warz.io battlefield"></canvas>
@@ -23,6 +26,7 @@
     <div class="menu-card">
       <h1 id="logo" class="logo">Warz<span>!</span></h1>
       <button type="button" id="play-btn" class="btn btn-play">Play</button>
+      <button type="button" id="locker-btn" class="btn btn-locker">Locker</button>
       <button type="button" id="settings-btn" class="btn btn-settings">Settings</button>
     </div>
     <p class="menu-foot" id="menu-foot"><kbd>WASD</kbd> move &middot; mouse aims &middot; click to shoot &middot; <kbd>M</kbd> map &middot; change keys in Settings</p>
@@ -88,7 +92,7 @@
       <div class="slots" id="hud-slots" aria-label="Five-slot hotbar"></div>
     </div>
 
-    <div class="hud-br" id="hud-keys"></div>
+    <div class="hud-br"><button type="button" id="emotes-btn" aria-label="Open emote picker">Emotes</button><div id="hud-keys"></div></div>
 
     <div id="hud-banner" class="banner" hidden></div>
     <div id="vignette"></div>
@@ -168,6 +172,12 @@
       <button type="button" class="modal-close" data-close aria-label="Close settings">&times;</button>
       <p class="eyebrow">warz.io</p>
       <h2 id="settings-title">Settings</h2>
+      <div id="settings-practice-tools" hidden>
+        <p class="eyebrow">Offline practice</p>
+        <button type="button" id="settings-spawn-bot" data-test="bot" class="btn btn-ghost btn-small btn-inline">Spawn practice bot</button>
+        <p class="modal-note">Spawns a nearby target with unlimited HP. It stays still and never attacks.</p>
+        <p id="settings-practice-status" class="status-line" role="status" aria-live="polite"></p>
+      </div>
       <div class="tabs" role="tablist" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="controls" aria-selected="true" aria-controls="tab-controls" data-autofocus>Controls</button>
         <button type="button" role="tab" data-tab="sound" aria-selected="false" aria-controls="tab-sound">Sound</button>
@@ -317,6 +327,7 @@
           <button type="button" data-test="armor">+25 armor</button>
           <button type="button" data-test="storm" id="practice-storm">Disable storm</button>
           <button type="button" data-test="station">Teleport to nearest Upgrade Station</button>
+          <button type="button" data-test="bot">Spawn practice bot</button>
         </div>
         <form id="practice-items" class="practice-items" hidden>
           <label class="practice-item-select">Item <select id="practice-item" aria-describedby="practice-item-detail"></select></label>
@@ -345,28 +356,37 @@
     </div>
   </section>
 
-  <script src="js/config.js?v=20261110j"></script>
-  <script src="js/util.js?v=20261110j"></script>
-  <script src="js/map.js?v=20261110j"></script>
-  <script src="js/world.js?v=20261110j"></script>
-  <script src="js/items.js?v=20261110j"></script>
-  <script src="js/class-combat.js?v=20261110j"></script>
-  <script src="js/vehicles.js?v=20261110j"></script>
-  <script src="js/render.js?v=20261110j"></script>
-  <script src="js/audio.js?v=20261110j"></script>
-  <script src="js/input.js?v=20261110j"></script>
-  <script src="js/controls.js?v=20261110j"></script>
-  <script src="js/icons.js?v=20261110j"></script>
-  <script src="js/map-art.js?v=20261110j"></script>
-  <script src="js/hud.js?v=20261110j"></script>
-  <script src="js/inventory.js?v=20261110j"></script>
-  <script src="js/map-screen.js?v=20261110j"></script>
-  <script src="js/upgrade-tree.js?v=20261110j"></script>
-  <script src="js/net.js?v=20261110j"></script>
-  <script src="js/online.js?v=20261110j"></script>
-  <script src="js/account.js?v=20261110j"></script>
-  <script src="js/menu.js?v=20261110j"></script>
-  <script src="js/demo.js?v=20261110j"></script>
-  <script src="js/main.js?v=20261110j"></script>
+  <script src="js/config.js?v=20261111i"></script>
+  <script src="js/cosmetics.js?v=20261111i"></script>
+  <script src="js/util.js?v=20261111i"></script>
+  <script src="js/map.js?v=20261111i"></script>
+  <script src="js/world.js?v=20261111i"></script>
+  <script src="js/items.js?v=20261111i"></script>
+  <script src="js/class-combat.js?v=20261111i"></script>
+  <script src="js/vehicles.js?v=20261111i"></script>
+  <script src="js/sentry-combat.js?v=20261111i"></script>
+  <script src="js/level3-combat.js?v=20261111i"></script>
+  <script src="js/engineer.js?v=20261111i"></script>
+  <script src="js/rpg.js?v=20261111i"></script>
+  <script src="js/cosmetic-art.js?v=20261111i"></script>
+  <script src="js/render.js?v=20261111i"></script>
+  <script src="js/audio.js?v=20261111i"></script>
+  <script src="js/input.js?v=20261111i"></script>
+  <script src="js/controls.js?v=20261111i"></script>
+  <script src="js/icons.js?v=20261111i"></script>
+  <script src="js/map-art.js?v=20261111i"></script>
+  <script src="js/hud.js?v=20261111i"></script>
+  <script src="js/inventory.js?v=20261111i"></script>
+  <script src="js/map-screen.js?v=20261111i"></script>
+  <script src="js/upgrade-tree.js?v=20261111i"></script>
+  <script src="js/net.js?v=20261111i"></script>
+  <script src="js/online.js?v=20261111i"></script>
+  <script src="js/account.js?v=20261111i"></script>
+  <script src="js/menu.js?v=20261111i"></script>
+  <script src="js/demo.js?v=20261111i"></script>
+  <script src="js/locker.js?v=20261111i"></script>
+  <script src="js/emote-picker.js?v=20261111i"></script>
+  <script src="js/sentry-upgrade-ui.js?v=20261111i"></script>
+  <script src="js/main.js?v=20261111i"></script>
 </body>
 </html>

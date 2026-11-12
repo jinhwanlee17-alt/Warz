@@ -113,11 +113,12 @@
       if (p.held >= 0) { p.held = -1; this.emit({ type: 'switch', player: p }); }
       return;
     }
-    if (idx >= p.items.length || !p.items[idx]) { this.emit({ type: 'deny', player: p, reason: 'emptyslot' }); return; }
+    if (!Number.isInteger(idx) || idx >= p.items.length) return;
     p.held = idx;
     var w = p.weapons[p.slot];
     if (w && w.reloading) { w.reloading = false; w.reloadT = 0; }
     p.scoping = false;
+    this.refreshShield(p);
     this.emit({ type: 'switch', player: p });
   };
 
@@ -125,7 +126,7 @@
   World.prototype.useHeld = function (p, intent) {
     if (p.vehicle) return false;
     var held = p.held, it = this.heldItem(p);
-    if (!it) { p.held = -1; return false; }
+    if (!it) return false;
     if (!intent.firePressed || p.itemCd > 0 || it.kind === 'hold') return false;
     var ok = false;
     if (it.kind === 'consume') ok = this.consumeItem(p, it);
@@ -226,9 +227,27 @@
     if (fx.reduce > 0) k *= 1 - ITEMS.shieldo.reduce;
     return k;
   };
-  // Is damage arriving from (fx, fy) stopped by a raised riot shield?
-  World.prototype.shieldBlocks = function (p, fx, fy) {
-    if (!p.shieldUp || fx === undefined || fx === null) return false;
+  // The class shields occupy weapon slots; selecting a hotbar item puts them away.
+  World.prototype.activeShield = function (p) {
+    if (!p || !p.alive || p.downed || p.mount || p.vehicle || p.dropT > 0) return null;
+    var held = this.heldItem(p);
+    if (held) return held.id === 'riotshield' ? 'legacy' : null;
+    if (p.held >= 0) return null;
+    var weapon = p.weapons[p.slot], def = weapon && WEAPONS[weapon.id];
+    if (weapon && weapon.id === 'shieldpistol' && weapon.reloading) return null;
+    return def && def.shield || null;
+  };
+  World.prototype.refreshShield = function (p) { p.shieldUp = !!this.activeShield(p); };
+  // Both class shields cover the same forward arc. Red adds blast/flash protection,
+  // but area hazards and every tank attack pass through either class shield.
+  World.prototype.shieldBlocks = function (p, fx, fy, cause) {
+    var shield = this.activeShield(p);
+    if (!shield || fx === undefined || fx === null) return false;
+    if (['sentry-fireballs', 'sentry-burn', 'sentry-cannons'].indexOf(cause) >= 0) return false;
+    if (shield !== 'legacy') {
+      if (['fire', 'flamethrower', 'firenade', 'snow', 'snowbomb', 'blackhole', 'smoke', 'poison', 'lightning', 'meteor', 'airstrike', 'tank-cannon', 'tankmg', 'ram'].indexOf(cause) >= 0) return false;
+      if (['grenade', 'launcher', 'launcher2', 'rpg', 'sentry-grenades', 'sentry-rockets', 'flashbang'].indexOf(cause) >= 0 && shield !== 'explosive') return false;
+    } else if (cause === 'flashbang') return false;
     var a = Math.atan2(fy - p.y, fx - p.x);
     return Math.abs(U.angleDiff(p.angle, a)) <= ITEMS.riotshield.arc;
   };
@@ -258,8 +277,7 @@
         }
       }
     }
-    var held = this.heldItem(p);
-    p.shieldUp = !p.mount && !p.vehicle && !p.downed && !!held && held.kind === 'hold';
+    this.refreshShield(p);
   };
 
   // ---------------------------------------------------------------- throwables
@@ -288,6 +306,10 @@
         if (sim) {
           this.players.forEach(function (p) {
             if (!p.alive || p.dropT > 0 || Math.hypot(p.x - x, p.y - y) - p.r >= it.radius || !self.lineClear(x, y, p.x, p.y)) return;
+            if (self.shieldBlocks(p, x, y, 'flashbang')) {
+              self.emit({ type: 'blocked', player: p, how: 'shield', source: owner });
+              return;
+            }
             p.fx.flash = Math.max(p.fx.flash, it.flash);
             self.emit({ type: 'flashed', player: p, by: ownerId });
           });
@@ -537,6 +559,7 @@
     }
     if (!s) return null;
     if (m.op === 'hp') { s.hp = m.hp; s.shake = 1; if (m.n) this.text(m.x === undefined ? s.x : m.x, (m.y === undefined ? s.y - s.r : m.y) - 6, String(Math.round(m.n)), '#ffd84a', 18); }
+    else if (m.op === 'repair' || m.op === 'upgrade' || m.op === 'state') { s.hp = m.hp; s.maxHp = m.mhp; s.item = m.it; s.angle = m.a; if (m.op === 'state') { s.mounted = m.m || 0; s.pair = m.pr || 0; } }
     else if (m.op === 'gone') this.destroyStruct(s, m.src, m.reason);
     else if (m.op === 'mount') { s.mounted = m.m || 0; var mp = s.mounted ? this.playerById(s.mounted) : null; if (mp) mp.mount = s.id; }
     else if (m.op === 'pair') s.pair = m.pr || 0;
@@ -666,30 +689,39 @@
     s.angle = a;
   };
   World.prototype.updateSentry = function (s, dt) {
-    var it = ITEMS[s.item], target = null, targetCrate = false, bd = it.range;
+    var it = ITEMS[s.item], target = null, targetCrate = false, targetVehicle = false, bd = it.range;
     s.cooldown -= dt;
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
-      if (!p.alive || p.dropT > 0 || p.fx.invisible > 0 || (s.team !== null && p.team === s.team)) continue;
+      if (!p.alive || p.vehicle || p.dropT > 0 || p.fx.invisible > 0 || (s.team !== null && p.team === s.team)) continue;
       var d = Math.hypot(p.x - s.x, p.y - s.y) || 1;
-      if (d < bd && this.sentryLineClear(s, p.x, p.y, null, p.vehicle)) { bd = d; target = p; }
+      if (d < bd && this.sentryLineClear(s, p.x, p.y)) { bd = d; target = p; }
     }
-    // Players always take priority. When no enemy is visible, open nearby crates.
+    // Vehicle hulls protect their occupants, so target the occupied hull itself.
+    // A passenger's invisibility does not hide a tank or Humvee.
+    for (var vi = 0; vi < (this.vehicles || []).length; vi++) {
+      var v = this.vehicles[vi], team = this.vehicleTeam(v);
+      if (v.wreck || !(v.hp > 0) || team === null || (s.team !== null && team === s.team)) continue;
+      var dv = Math.max(0, Math.hypot(v.x - s.x, v.y - s.y) - v.r);
+      if (dv < bd && this.sentryLineClear(s, v.x, v.y, null, v.id)) { bd = dv; target = v; targetVehicle = true; }
+    }
+    // Enemies always take priority. When no enemy is visible, open nearby crates.
     if (!target) for (var j = 0; j < this.map.crates.length; j++) {
       var c = this.map.crates[j];
       if (!c.alive) continue;
       var dc = Math.hypot(c.x - s.x, c.y - s.y);
       if (dc < bd && this.sentryLineClear(s, c.x, c.y, c)) { bd = dc; target = c; targetCrate = true; }
     }
-    if (!target) { s.target = 0; return; }
+    if (!target) { s.target = 0; s.targetKind = null; return; }
     s.target = targetCrate ? -(target.id + 1) : target.id;
-    s.targetKind = targetCrate ? 'crate' : 'player';
+    s.targetKind = targetCrate ? 'crate' : targetVehicle ? 'vehicle' : 'player';
     s.angle = Math.atan2(target.y - s.y, target.x - s.x);
     if (s.cooldown > 0) return;
     s.cooldown = it.fireInterval;
     s.flash = 1;
     this.sentryTracer(s, target.x, target.y);
     if (targetCrate) this.damageCrate(target, it.damage, s.owner, target.x, target.y - target.size / 2);
+    else if (targetVehicle) this.damageVehicle(target, it.damage, s.owner, 'sentry', target.x, target.y - target.r);
     else this.damagePlayer(target, it.damage, s.owner, 'sentry', target.x, target.y - target.r, { x: s.x, y: s.y });
     this.emit({ type: 'sentry-shot', struct: s, x: s.x, y: s.y, tx: target.x, ty: target.y });
   };

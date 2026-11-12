@@ -37,12 +37,12 @@
     closeOverlays(true);
     Online.stop();
     var seed = params.get('seed') ? (Number(params.get('seed')) >>> 0) : ((Math.random() * 2147483647) | 0);
-    var map = W.MapGen.generate(seed, 1), world = new W.World({ map: map });
+    var map = W.MapGen.generate(seed, 1), world = new W.World({ map: map, practice: true });
     var drop = map.drops[world.rng.int(0, map.drops.length - 1)];
     var a = world.rng.range(0, U.TAU), off = world.rng.range(0, 40);
     var player = world.addPlayer({
       name: Account.name(), x: drop.x + Math.cos(a) * off, y: drop.y + Math.sin(a) * off,
-      color: '#2f9bff', outline: '#1c6cbd', isLocal: true, drop: true, angle: -Math.PI / 2
+      cosmetics: W.Locker.get(), isLocal: true, drop: true, angle: -Math.PI / 2
     });
     player.controller = localController;
     match = { online: false, world: world, player: player, cam: { x: player.x, y: player.y, zoom: 0.45 }, drop: drop.label, seed: seed,
@@ -78,6 +78,7 @@
   }
   function endMatchUi() {
     match = null;
+    syncPracticeTools();
     document.body.classList.remove('online-match');
     W.Hud.show(false);
     W.MapScreen.hide();
@@ -93,7 +94,10 @@
     endMatchUi();
   }
   function closeOverlays(silent) {
+    W.Locker.close();
+    W.EmotePicker.close();
     W.UpgradeTree.close();
+    W.SentryUpgradeUI.close();
     W.Menu.closeAll(silent);
     W.MapScreen.hide();
     W.Inventory.hide();
@@ -103,6 +107,7 @@
   }
 
   function togglePause(force) {
+    W.EmotePicker.close();
     pauseOpen = force === undefined ? !pauseOpen : force;
     $('pause-menu').hidden = !pauseOpen;
     $('test-status').textContent = '';
@@ -126,9 +131,11 @@
   }
   function showResult(kind, m) {
     if (!match) return;
+    W.EmotePicker.close();
     match.result = m;
     W.MapScreen.hide();
     W.UpgradeTree.close();
+    W.SentryUpgradeUI.close();
     W.Menu.closeAll(true);
     pauseOpen = false;
     $('pause-menu').hidden = true;
@@ -159,11 +166,29 @@
   }
 
   // ---------------------------------------------------------------- controls
-  function blockedNow() { return state !== 'play' || pauseOpen || W.UpgradeTree.isOpen() || W.Menu.anyOpen(); }
+  function blockedNow() { return state !== 'play' || pauseOpen || W.UpgradeTree.isOpen() || W.SentryUpgradeUI.isOpen() || W.Menu.anyOpen() || W.Locker.isOpen(); }
+
+  function clearGameInput() {
+    input.suppressHeld();
+    chargeTracker.reset();
+    pending.held = null; pending.interact = false; pending.use = false;
+    Online.clearActions();
+  }
+  function openEmotes() {
+    if (!match || state !== 'play' || !match.player.alive || match.player.downed || match.player.dropT > 0 || pauseOpen || W.Menu.anyOpen() || W.UpgradeTree.isOpen()) return;
+    W.MapScreen.hide(); W.Inventory.hide();
+    W.EmotePicker.show(match.player.emotes || W.Locker.get().emotes);
+  }
+  function sendEmote(slot) {
+    if (!match || state !== 'play' || !match.player.alive) return;
+    var ok = match.online ? Online.emote(slot) : match.world.useEmote(match.player, slot);
+    if (ok === false) { play('deny'); W.Hud.feed('Wait a moment before sending another emote.', 'muted'); }
+    else play('click');
+  }
 
   function sampleProjectiles() {
     var p = match.player, st = match.online && Online.state();
-    var changing = Controls.hit(input, 'weapon1') || Controls.hit(input, 'weapon2') || Controls.hit(input, 'swap') || input.wheel ||
+    var changing = Controls.hotbarChanged(input, p) || Controls.hit(input, 'swap') || input.wheel ||
       pending.held !== null || (st && st.latch.ht !== null);
     var enabled = !changing && !blockedNow() && !W.MapScreen.isOpen() && !W.Inventory.isOpen() && p.alive && !p.downed && !p.mount && !p.vehicle && p.dropT <= 0;
     projectileInput.fire = chargeTracker.sample(input, 'fire', match.world.aimedProjectile(p), enabled);
@@ -177,7 +202,7 @@
     var projectile = match.world.aimedProjectile(p);
     var mx = (Controls.down(input, 'right') ? 1 : 0) - (Controls.down(input, 'left') ? 1 : 0);
     var my = (Controls.down(input, 'down') ? 1 : 0) - (Controls.down(input, 'up') ? 1 : 0);
-    var slot = Controls.hit(input, 'weapon1') ? 0 : Controls.hit(input, 'weapon2') ? 1 : null;
+    var slot = Controls.weaponSlotHit(input, p);
     var intent = {
       mx: mx, my: my, sprint: Controls.down(input, 'sprint'), aimX: aim.x, aimY: aim.y,
       fire: !mapOpen && !projectile && Controls.down(input, 'fire'), firePressed: (!mapOpen && (projectile ? projectileInput.fire.released : Controls.hit(input, 'fire'))) || pending.use,
@@ -215,6 +240,12 @@
   }
 
   function handleKeys() {
+    if (W.SentryUpgradeUI.isOpen()) return;
+    if (W.EmotePicker.isOpen()) {
+      if (!match || !match.player.alive || match.player.downed) W.EmotePicker.close();
+      else W.EmotePicker.handleKeys(input);
+    }
+    if (W.Locker.isOpen()) return;
     if (W.Menu.anyOpen() || W.Menu.capturing()) return;
     if (Controls.hit(input, 'mute')) {
       setMuted(!Controls.muted());
@@ -227,11 +258,13 @@
       else if (!W.UpgradeTree.isOpen()) togglePause();
     }
     if (pauseOpen || W.UpgradeTree.isOpen()) return;
+    if (Controls.hit(input, 'emotes')) { W.EmotePicker.consumeOpener(input); openEmotes(); W.EmotePicker.handleKeys(input); }
+    if (Controls.hit(input, 'inventory') || Controls.hit(input, 'map')) W.EmotePicker.close();
     if (Controls.hit(input, 'inventory') && match.player.alive && !match.player.downed) { W.MapScreen.hide(); W.Inventory.toggle(); play('click'); }
     if (Controls.hit(input, 'map')) { W.Inventory.hide(); W.MapScreen.toggle(); }
     if (W.MapScreen.isOpen()) return;
-    var p = match.player, i;
-    for (i = 1; i <= C.hotbarSize; i++) if (Controls.hit(input, 'item' + i)) selectHotbar(i - 1);
+    var p = match.player, itemSlot = Controls.itemSlotHit(input, p);
+    if (itemSlot !== null) selectHotbar(itemSlot);
     if (W.Inventory.isOpen()) return;
     // E: leave seat > revive (held) > loose item/rock > vehicle/turret > upgrade station.
     if (Controls.hit(input, 'interact') && p.alive && !p.downed && p.dropT <= 0) {
@@ -270,7 +303,7 @@
       blocked: 'No room to place that there. Try a clear spot closer to you.',
       notarget: 'Click on an enemy within reach to call it down.',
       emptyslot: 'That hotbar slot is empty.',
-      noitem: 'Select an item in slots 3–5, then press ' + Controls.primary('drop') + ' to drop it. Class weapons stay with you.'
+      noitem: 'Select an occupied item slot, then press ' + Controls.primary('drop') + ' to drop it. Class weapons stay with you.'
     }[e.reason];
     if (text) W.Hud.feed(text, 'muted');
   }
@@ -353,6 +386,11 @@
         }
         case 'flame': play('flamethrower', mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
         case 'launch': play('launcher', mine ? 0.8 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y)); break;
+        case 'rpg-shot': play('rpg', mine ? 0.8 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y)); break;
+        case 'rpg-impact':
+          play('explosion', spatial(e.x, e.y));
+          shake = Math.max(shake, U.clamp(1 - Math.hypot(e.x - p.x, e.y - p.y) / 750, 0, 1) * 0.7);
+          break;
         case 'shell-land': play('throw', spatial(e.x, e.y) * 0.6); break;
         case 'throw': if (mine) play('throw'); break;
         case 'reload': if (mine) play('reload'); break;
@@ -408,6 +446,10 @@
         case 'struct':
           if (!e.struct) break;
           if (e.op === 'add') play('place', spatial(e.struct.x, e.struct.y));
+          else if (e.op === 'upgrade') {
+            play('upgrade', spatial(e.struct.x, e.struct.y));
+            if (e.source === p || e.source === p.id) W.Hud.feed('Upgraded to ' + ITEMS[e.struct.item].name + '.', 'upgrade');
+          }
           else if (e.op === 'gone') {
             if (e.reason === 'recovered') { if (e.source === p || e.source === p.id) W.Hud.feed('Rock returned to your hotbar.', 'info'); else if (e.struct.owner === p.id) W.Hud.feed('Your teammate picked up your rock.', 'info'); }
             else { play('crate', spatial(e.struct.x, e.struct.y)); if (e.struct.owner === p.id) W.Hud.feed('Your ' + ITEMS[e.struct.item].name + ' was destroyed.', 'muted'); }
@@ -434,7 +476,8 @@
           else W.Hud.feed(e.player.name + ' cheated death with a Power Potion II.', 'key');
           break;
         case 'blocked': if (mine) play('hit', 0.5); break;
-        case 'sentry-shot': play('sentry', spatial(e.x, e.y) * 0.6); break;
+        case 'sentry-shot':
+        case 'sentry-projectiles': play('sentry', spatial(e.x, e.y) * 0.6); break;
         case 'heal':
           if (mine) { play('heal'); W.Hud.feed((e.by && e.by !== p ? e.by.name + ' healed you' : e.item && ITEMS[e.item] ? ITEMS[e.item].name : 'Medkit') + ': +' + Math.round(e.amount) + ' HP.', 'heal'); }
           else if (e.by === p) W.Hud.feed('You healed ' + e.player.name + ' for ' + Math.round(e.amount) + ' HP.', 'heal');
@@ -509,6 +552,7 @@
     var elapsed = Math.max(0, (now - last) / 1000), dt = Math.min(0.05, elapsed);
     last = now;
     try {
+      W.SentryUpgradeUI.tick(match);
       if (state === 'menu' || !match) {
         W.Demo.update(demo, dt);
         renderer.render(demo.world, demo.cam, { names: true });
@@ -534,7 +578,8 @@
       } else {
         handleKeys();
         sampleProjectiles();
-        Online.latch(input, projectileInput);
+        if (!blockedNow()) Online.latch(input, projectileInput);
+        else Online.clearActions();
         // Keep the 20 Hz input clock on real time even if drawing a frame takes
         // longer than 50 ms. Bound catch-up after a hidden tab or a long stall.
         acc += Math.min(0.25, elapsed);
@@ -565,11 +610,15 @@
   function syncPracticeTools() {
     var practice = match && !match.online;
     $('test-tools-section').hidden = !practice;
+    $('settings-practice-tools').hidden = !practice;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-test="bot"]'), function (button) {
+      button.disabled = !practice || !match.player.alive || match.player.downed || match.player.dropT > 0;
+    });
     if (!practice) return;
     $('practice-storm').textContent = match.world.storm ? 'Disable storm' : 'Enable storm';
     Array.prototype.forEach.call($('practice-item-slot').options, function (option, i) {
       var item = match.player.items[i];
-      option.textContent = 'Item slot ' + (i + 1) + ' (' + Controls.primary('item' + (i + 1)) + ')' +
+      option.textContent = 'Item slot ' + (i + 1) + ' (' + Controls.primary(Controls.itemAction(match.player, i)) + ')' +
         (item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
     });
   }
@@ -644,6 +693,8 @@
 
   // ---------------------------------------------------------------- boot
   function bindUi() {
+    $('locker-btn').addEventListener('click', function () { W.Menu.closeAll(true); clearGameInput(); W.Locker.open(); });
+    $('emotes-btn').addEventListener('click', openEmotes);
     bindPracticeItems();
     $('play-btn').addEventListener('click', function () { W.Audio.unlock(); W.Menu.openModePicker(); });
     $('settings-btn').addEventListener('click', function () { W.Audio.unlock(); W.Menu.openSettings('controls'); });
@@ -694,6 +745,10 @@
             syncPracticeTools();
             break;
           case 'station': msg = practiceStation(); break;
+          case 'bot':
+            msg = world.spawnPracticeBot(p) ? 'Practice bot spawned nearby: unlimited HP, no attacks.' : 'No clear space nearby. Move to an open spot and try again.';
+            $('settings-practice-status').textContent = msg;
+            break;
         }
         $('test-status').textContent = msg;
       });
@@ -727,13 +782,21 @@
     renderer = new W.Renderer(canvas);
     renderer.resize();
     input = new W.Input(canvas);
+    W.Locker.init();
+    W.EmotePicker.init({ onSelect: sendEmote });
     window.addEventListener('resize', function () { renderer.resize(); });
     W.Hud.init();
     W.MapScreen.init();
     W.UpgradeTree.init({ onUpgrade: doUpgrade, onClose: function () { input.release(); blurActive(); } });
+    W.SentryUpgradeUI.init({ onChoose: function (variant) {
+      if (!match) return;
+      if (match.online) Online.chooseSentryUpgrade(variant);
+      else match.world.chooseSentryUpgrade(match.player, variant);
+    }, onClose: clearGameInput });
     W.Inventory.init({ onSelect: selectHotbar, onUse: useHotbar, onClose: function () { input.release(); blurActive(); } });
     W.Menu.init({
       onPractice: startPractice,
+      onSettings: function () { syncPracticeTools(); $('settings-practice-status').textContent = ''; },
       inMatch: function () { return !!match; },
       inMenu: function () { return state === 'menu'; },
       onClose: function () { input.release(); if (state === 'play' && !pauseOpen) blurActive(); },

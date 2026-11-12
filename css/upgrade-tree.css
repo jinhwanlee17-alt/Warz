@@ -84,7 +84,15 @@
 .ut-wallet dd { margin: 3px 0 0; font: 400 24px/1 var(--display); }
 
 /* Tree */
-.ut-tree-wrap { grid-area: tree; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 24px 10px 72px; scrollbar-color: #fff8e7 #2a78c2; }
+.ut-tree-wrap { grid-area: tree; min-width: 0; max-width: 100%; padding: 24px 0 0; }
+.ut-tree-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 24px 10px 72px; scrollbar-color: #fff8e7 #2a78c2; }
+.ut-level-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0 0 12px; }
+.ut-level-nav button, .ut-parent-wrap select { min-height: 38px; border: 3px solid var(--ink); border-radius: 12px; background: #fff8e7; color: var(--ink); padding: 7px 12px; font: 700 12px var(--ui); cursor: pointer; }
+.ut-level-nav button[aria-pressed="true"] { background: var(--gold); box-shadow: 0 3px 0 var(--ink); }
+.ut-level-nav button:focus-visible, .ut-parent-wrap select:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.ut-parent-wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; font-size: 12px; font-weight: 700; }
+.ut-parent-wrap[hidden] { display: none; }
+.ut-level-three .ut-node-name { width: 132px; }
 .ut-branch-label { margin: 0 auto 12px; width: max-content; max-width: 100%; padding: 7px 12px; border: 2px solid var(--ink); border-radius: 12px; background: #fff8e7; font-size: 12px; font-weight: 700; text-align: center; }
 .ut-tree { position: relative; width: min(100%, 1100px); min-width: 640px; aspect-ratio: 5 / 3; margin: 0 auto; }
 .ut-pipes { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }

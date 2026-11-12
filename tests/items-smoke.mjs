@@ -108,7 +108,7 @@ for (const seed of [1, 42, 9001]) {
   once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 0 });
   t.equal(p.held, -1, 'pressing it again puts the item away');
   once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 1 });
-  t.check(p.held === -1 && events(world, 'deny').some((e) => e.reason === 'emptyslot'), 'an empty slot cannot be held');
+  t.check(p.held === 1 && !events(world, 'deny').some((e) => e.reason === 'emptyslot'), 'an empty slot can be selected without a denied-use message');
   once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 0 });
   once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, slot: 0 });
   t.equal(p.held, -1, 'weapon key puts the item away');

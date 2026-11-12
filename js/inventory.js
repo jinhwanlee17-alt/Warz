@@ -20,7 +20,7 @@
       if (!slot) return;
       var i = Number(slot.getAttribute('data-slot'));
       focus = i;
-      if (lastPlayer && lastPlayer.items[i] && opts.onSelect) opts.onSelect(i);
+      if (lastPlayer && opts.onSelect) opts.onSelect(i);
       lastKey = '';
     });
     detail.addEventListener('click', function (e) {
@@ -67,13 +67,14 @@
     if (!open || !p) return;
     lastPlayer = p;
     if (focus < 0 && p.held >= 0) focus = p.held;
-    var key = p.items.map(function (s) { return s ? s.id + ':' + s.n : '-'; }).join(',') + '|' + p.held + '|' + focus;
+    var key = p.classId + '|' + p.items.map(function (s) { return s ? s.id + ':' + s.n : '-'; }).join(',') + '|' + p.held + '|' + focus;
     if (key === lastKey) return;
     lastKey = key;
-    grid.innerHTML = p.items.map(function (s, i) {
+    grid.innerHTML = Controls.itemOrder(p).map(function (i) {
+      var s = p.items[i];
       var it = s ? ITEMS[s.id] : null;
       return '<button type="button" class="inv-slot' + (it ? ' has-item tier-' + it.tier : '') + (p.held === i ? ' is-held' : '') + (focus === i ? ' is-focus' : '') + '" data-slot="' + i + '">' +
-        '<span class="inv-key">' + esc(Controls.primary('item' + (i + 1))) + '</span>' +
+        '<span class="inv-key">' + esc(Controls.primary(Controls.itemAction(p, i))) + '</span>' +
         (it ? Icons.itemIcon(s.id, 'inv-icon') + '<b>' + esc(it.name) + '</b><small>' + (s.n > 1 ? '×' + s.n + ' · ' : '') + W.TIERS[it.tier].name + '</small>' : '<small class="inv-empty">Empty</small>') +
         '</button>';
     }).join('');
@@ -88,7 +89,7 @@
       '<div><b>' + esc(it.name) + '</b><span class="tier-tag tier-' + it.tier + '">' + W.TIERS[it.tier].name + '</span></div></div>' +
       '<p class="inv-blurb">' + esc(it.blurb) + '</p><p class="inv-stats">' + esc(Rules.itemLine(s.id)) + ' · you have ' + s.n + '</p>' +
       '<div class="modal-actions compact">' + (canUse ? '<button type="button" class="mini mini-go" data-use="' + focus + '">Use now</button>' : '') +
-      '<button type="button" class="mini" data-hold="' + focus + '">' + (p.held === focus ? 'Put away' : 'Hold (' + esc(Controls.primary('item' + (focus + 1))) + ')') + '</button></div>' +
+      '<button type="button" class="mini" data-hold="' + focus + '">' + (p.held === focus ? 'Put away' : 'Hold (' + esc(Controls.primary(Controls.itemAction(p, focus))) + ')') + '</button></div>' +
       '<p class="modal-note">' + howTo(it) + '</p><p class="modal-note">To drop the whole stack, hold it, close the inventory, and press <kbd>' + esc(Controls.primary('drop')) + '</kbd>.</p>';
   }
 

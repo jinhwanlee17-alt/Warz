@@ -12,7 +12,7 @@ t.check(CONFIG.stationMinGap >= 500, 'stations keep their distance from each oth
 t.equal(CONFIG.stationCooldown, 90, 'used station recharges for 1:30');
 t.equal(CONFIG.upgradeCost, 8, 'first-tier upgrades cost eight tokens');
 t.check(Rules.upgradeCostFor('sniper') === 8 && Rules.upgradeCostFor('sniper2') === 15, 'target tiers use eight and fifteen tokens');
-t.check(Rules.nextUpgradeCost('soldier') === 8 && Rules.nextUpgradeCost('medic') === 15 && Rules.nextUpgradeCost('medic2') === 0, 'next-tier cost follows class progression');
+t.check(Rules.nextUpgradeCost('soldier') === 8 && Rules.nextUpgradeCost('medic') === 15 && Rules.nextUpgradeCost('medic2') === 40 && Rules.nextUpgradeCost('engineer') === 0, 'next-tier cost follows all three upgrade levels');
 t.equal(CONFIG.bushes, false, 'bushes are temporarily removed');
 t.check(CONFIG.tokenLoose <= 50 && CONFIG.regularCrateCount === 210, 'sparse loose tokens and 210 regular crates');
 
@@ -110,7 +110,7 @@ t.equal(Rules.itemsOfTier('mythic').join(), 'invisibility,radar,teleporter,turre
 t.equal(Rules.itemsOfTier('legendary').join(), 'turret3,sentry3,power2,meteor', 'four legendary items');
 t.check(!ITEMS.gravitybomb, 'the gravity bomb is gone');
 t.equal(CONFIG.hotbarSize, 3, 'three item slots accompany the two class slots');
-t.check(Object.values(CLASSES).every((c) => c.loadout.length + CONFIG.hotbarSize === 5), 'every class has exactly five total hotbar slots');
+t.check(Object.entries(CLASSES).every(([id, c]) => c.loadout.length + CONFIG.hotbarSize === (id === 'engineer' ? 6 : 5)), 'Engineer has six total slots and other classes keep five');
 t.check(ITEMS.bandage.heal === 20 && ITEMS.bandage.found === 3, 'bandages: 20 HP, sets of 3');
 t.check(ITEMS.smoothie.heal === 15 && ITEMS.energybar.speed === 0.15, 'smoothie 15 HP, energy bar +15% speed');
 t.check(ITEMS.flashbang.radius === 150 && ITEMS.flashbang.fuse === WEAPONS.grenade.fuse, 'flash bang: grenade range and timing');

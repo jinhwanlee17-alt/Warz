@@ -8,7 +8,7 @@
     "dev": "node tools/serve.js",
     "dev:cf": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node tests/rules-smoke.mjs && node tests/map-updates-smoke.mjs && node tests/edge-drops-smoke.mjs && node tests/map-markers-smoke.mjs && node tests/vehicles-smoke.mjs && node tests/vehicle-driving-smoke.mjs && node tests/vehicles-online-smoke.mjs && node tests/tanks-smoke.mjs && node tests/tanks-online-smoke.mjs && node tests/rocks-smoke.mjs && node tests/tank-render-smoke.mjs && node tests/armorcrew-smoke.mjs && node tests/armorcrew-vehicles-smoke.mjs && node tests/armorcrew-online-smoke.mjs && node tests/armorcrew-render-smoke.mjs && node tests/storm-smoke.mjs && node tests/world-smoke.mjs && node tests/items-smoke.mjs && node tests/projectiles-smoke.mjs && node tests/classes-smoke.mjs && node tests/render-smoke.mjs && node tests/icons-smoke.mjs && node tests/demo-smoke.mjs && node tests/controls-smoke.mjs && node tests/sprint-smoke.mjs && node tests/charge-input-smoke.mjs && node tests/audio-smoke.mjs && node tests/ws-smoke.mjs && node tests/auth-smoke.mjs && node tests/online-replication-smoke.mjs && node tests/online-presence-smoke.mjs && node tests/input-timing-smoke.mjs && node tests/server-smoke.mjs && node tests/bots-smoke.mjs && node tests/bots-accuracy-smoke.mjs && node tests/bots-match-smoke.mjs && node tests/bots-server-smoke.mjs",
+    "test": "node tests/rules-smoke.mjs && node tests/map-updates-smoke.mjs && node tests/edge-drops-smoke.mjs && node tests/map-markers-smoke.mjs && node tests/vehicles-smoke.mjs && node tests/vehicle-driving-smoke.mjs && node tests/vehicles-online-smoke.mjs && node tests/tanks-smoke.mjs && node tests/tanks-online-smoke.mjs && node tests/rocks-smoke.mjs && node tests/tank-render-smoke.mjs && node tests/armorcrew-smoke.mjs && node tests/armorcrew-vehicles-smoke.mjs && node tests/armorcrew-online-smoke.mjs && node tests/armorcrew-render-smoke.mjs && node tests/storm-smoke.mjs && node tests/world-smoke.mjs && node tests/practice-bot-smoke.mjs && node tests/items-smoke.mjs && node tests/projectiles-smoke.mjs && node tests/classes-smoke.mjs && node tests/level3-rules-smoke.mjs && node tests/rocketeer-smoke.mjs && node tests/rocketeer-online-smoke.mjs && node tests/engineer-smoke.mjs && node tests/engineer-upgrades-smoke.mjs && node tests/sentry-choice-smoke.mjs && node tests/hotbar-smoke.mjs && node tests/sentry-iv-smoke.mjs && node tests/sentry-vehicles-smoke.mjs && node tests/sentry-online-smoke.mjs && node tests/shieldoperator-smoke.mjs && node tests/level3-online-smoke.mjs && node tests/level3-render-smoke.mjs && node tests/render-smoke.mjs && node tests/icons-smoke.mjs && node tests/demo-smoke.mjs && node tests/controls-smoke.mjs && node tests/cosmetics-smoke.mjs && node tests/cosmetics-online-smoke.mjs && node tests/cosmetics-render-smoke.mjs && node tests/emote-input-smoke.mjs && node tests/sprint-smoke.mjs && node tests/charge-input-smoke.mjs && node tests/audio-smoke.mjs && node tests/ws-smoke.mjs && node tests/auth-smoke.mjs && node tests/online-replication-smoke.mjs && node tests/online-presence-smoke.mjs && node tests/input-timing-smoke.mjs && node tests/server-smoke.mjs && node tests/bots-smoke.mjs && node tests/bots-accuracy-smoke.mjs && node tests/bots-match-smoke.mjs && node tests/bots-server-smoke.mjs",
     "test:bots": "node tests/bots-smoke.mjs && node tests/bots-accuracy-smoke.mjs && node tests/bots-match-smoke.mjs && node tests/bots-server-smoke.mjs",
     "qa": "node tools/qa.js",
     "qa:online": "node tools/qa-online.mjs",
@@ -28,7 +28,15 @@
     "qa:driving": "node tools/qa-driving.mjs",
     "qa:map-layout": "node tools/qa-map-layout.mjs",
     "qa:tanks": "node tools/qa-tanks.mjs",
-    "qa:armorcrew": "node tools/qa-armorcrew.mjs"
+    "qa:armorcrew": "node tools/qa-armorcrew.mjs",
+    "qa:locker": "node tools/qa-locker.mjs",
+    "qa:emotes": "node tools/qa-emotes.mjs",
+    "qa:level3": "node tools/qa-level3.mjs",
+    "qa:level3-menu": "node tools/qa-level3-menu.cjs",
+    "qa:practice-bot": "node tools/qa-practice-bot.mjs",
+    "qa:hotbar": "node tools/qa-hotbar.mjs",
+    "qa:sentry-visuals": "node tools/qa-sentry-visuals.mjs",
+    "qa:rocketeer": "node tools/qa-rocketeer.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.158.0"

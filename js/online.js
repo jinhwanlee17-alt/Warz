@@ -26,7 +26,11 @@
 
   function onMessage(m) {
     switch (m.t) {
-      case 'match-start': start(m); pendingJoin = null; if (cbs.onStart) cbs.onStart(state); break;
+      case 'match-start':
+        start(m); pendingJoin = null;
+        if (W.Locker && W.Locker.get) updateCosmetics(W.Locker.get());
+        if (cbs.onStart) cbs.onStart(state);
+        break;
       case 'snap': applySnapshot(m); break;
       case 'sync': applySync(m); break;
       case 'storm': applyStorm(m); break;
@@ -43,7 +47,8 @@
     var map = W.MapGen.generate(info.seed, info.teamSize), world = new W.World({ map: map, remote: true, teams: info.teamSize > 1 });
     (world.vehicles || []).forEach(function (v) { v.hidden = true; v.snaps = []; v.ox = v.oy = v.oa = 0; });
     info.players.forEach(function (o) {
-      var p = world.addPlayer({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline, x: map.size / 2, y: map.size / 2, drop: !info.rejoin, angle: -Math.PI / 2 });
+      var p = world.addPlayer({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline, face: o.face, x: map.size / 2, y: map.size / 2, drop: !info.rejoin, angle: -Math.PI / 2 });
+      setEmote(p, o.emote, world);
       p.snaps = [];
       p.seenAt = -1;
       // The roster contains identities, not positions. Keep every body out of the
@@ -51,6 +56,7 @@
       p.hidden = true;
     });
     var me = world.playerById(info.you);
+    if (info.cosmetics) world.applyCosmetics(me, info.cosmetics);
     me.isLocal = true;
     me.px = me.x; me.py = me.y;
     state = {
@@ -62,6 +68,18 @@
   }
 
   // ---------------------------------------------------------------- snapshots
+  function setEmote(p, value, world) {
+    world = world || state.world;
+    p.emote = value && W.Cosmetics.emote(value[0]) && typeof value[1] === 'number' && value[1] > 0
+      ? { id: value[0], until: world.time + Math.min(W.Cosmetics.EMOTE_DURATION, value[1]) } : null;
+  }
+  function applyLooks(rows) {
+    (rows || []).forEach(function (row) {
+      var p = byId(row[0]);
+      if (!p) return;
+      state.world.applyCosmetics(p, { color: row[1], face: row[2], emotes: p.emotes });
+    });
+  }
   function setClassIfChanged(p, idx) {
     var cls = W.CLASS_ORDER[idx];
     if (cls && p.classId !== cls) state.world.setClass(p, cls, false);
@@ -100,6 +118,7 @@
       v.type = row.type || 'humvee';
       v.r = v.type === 'tank' && W.TANK ? W.TANK.radius : W.VEHICLE.radius;
       v.hp = row.hp; v.maxHp = row.mhp; v.wreck = !!row.wreck; v.armed = !!row.armed;
+      setSentryStatus(v, row.ss);
       if (v.type === 'tank') {
         v.cannonCooldown = row.cc || 0; v.cooldown = row.cd || 0;
         v.cannonAmmo = row.cn === undefined ? 1 : row.cn;
@@ -140,12 +159,13 @@
   }
 
   function terrainEvent(e) {
-    return e.t === 'crate' || e.t === 'rock-gone' || (e.t === 'struct' && e.k === 'rock');
+    return e.t === 'crate' || e.t === 'rock-gone' || e.t === 'struct';
   }
 
   function applySnapshot(s) {
     if (!state) return;
     var world = state.world, me = state.me, now = performance.now() / 1000;
+    applyLooks(s.looks);
     var oldVehicle = me.vehicle || 0, oldSeat = me.vehicleSeat || null, oldRide = vehicleFor(me), oldMount = me.mount || 0;
     // Reconciliation preserves its own correction, not the render interpolation
     // offset; counting the latter again would make a healthy driver drift backward.
@@ -154,9 +174,12 @@
     state.serverTime = s.time;
     state.recvAt = now;
     state.snapCount++;
+    applySentryProjectiles(s.sp);
+    applyRpgRockets(s.rp);
     // The packet's terrain state must be current before replay: an input sent
     // before a crate broke must not collide with its obsolete client hitbox.
     for (var ci = 0; ci < s.e.length; ci++) if (terrainEvent(s.e[ci])) applyEvent(s.e[ci]);
+    if (s.structs) applySentryStructures(s.structs);
     var legendary = world.map.crates[world.map.legendaryCrateId];
     if (legendary && typeof s.lc === 'number' &&
         (legendary.hp !== s.lc || legendary.alive !== (s.lc > 0))) {
@@ -166,6 +189,9 @@
     var y = s.you;
     applyVehicles(s.vehicles, s.time, y && y.seat === 'driver' ? y.veh : 0, false);
     if (y) {
+      if (y.cosmetics) world.applyCosmetics(me, y.cosmetics);
+      setEmote(me, y.em);
+      me.emoteReadyAt = world.time + U.clamp(y.emcd || 0, 0, W.Cosmetics.EMOTE_COOLDOWN);
       me.seenAt = s.time;
       me.hidden = false;
       setClassIfChanged(me, y.cls);
@@ -175,6 +201,10 @@
       me.alive = y.alive; me.dropT = y.drop; me.downed = y.down; me.downT = y.downT; me.revive = y.rev; me.team = y.team;
       me.hp = y.hp; me.maxHp = y.mhp; me.armor = y.ar; me.tokens = y.tok; me.keys = y.keys;
       me.upgradeFrom = y.from || null;
+      me.upgradePath = Array.isArray(y.path) ? y.path.filter(function (id) { return !!W.CLASSES[id]; }) : [];
+      setSentryBuild(me, y.sb);
+      me.sentryWork = y.sw || null; me.sentryChoice = y.sch || null;
+      setSentryStatus(me, y.ss);
       me.slot = y.slot;
       me.weapons.forEach(function (w, i) {
         if (y.ammo[i] !== undefined) w.ammo = y.ammo[i];
@@ -204,8 +234,7 @@
       if (y.fx) for (var fi = 0; fi < W.FX_KEYS.length; fi++) me.fx[W.FX_KEYS[fi]] = y.fx[fi] || 0;
       me.regen = y.rg || 0;
       me.tpProgress = y.tp || 0;
-      var heldIt = world.heldItem(me);
-      me.shieldUp = !!heldIt && heldIt.kind === 'hold' && !me.mount && !me.vehicle && !me.downed;
+      world.refreshShield(me);
       world.reveal[me.team] = y.dr || 0;
       // Restore authoritative stamina and every speed/mount modifier before replay. Replaying
       // unacknowledged input from this baseline cannot drain the same frame a second time.
@@ -228,7 +257,7 @@
     }
     // Revealed repairers are included even outside normal view. Clear their old
     // marker state when they leave this viewer's authoritative interest set.
-    world.players.forEach(function (p) { if (p !== me) p.repairVehicle = 0; });
+    world.players.forEach(function (p) { if (p !== me) { p.repairVehicle = 0; p.sentryBuild = null; } });
     for (var i = 0; i < s.p.length; i++) {
       var a = s.p[i], p = world.playerById(a[0]);
       if (!p || p === me) continue;
@@ -260,8 +289,12 @@
     if (p.snaps.length > 16) p.snaps.shift();
     p.seenAt = time;
     p.hidden = false;
+    setEmote(p, a[20]);
     p.hp = a[4]; p.maxHp = a[5];
     setClassIfChanged(p, a[6]);
+    setSentryBuild(p, a[21]);
+    p.sentryWork = a[22] && a[22].work || null;
+    setSentryStatus(p, a[22] && a[22].status);
     p.slot = a[7];
     var f = a[8], alive = !!(f & 1);
     if (p.alive && !alive) p.deadT = 0;
@@ -274,7 +307,7 @@
     // Other players' hotbars stay private; only what they hold is shown (slot 0 of a stand-in list).
     var heldId = a[12] ? W.ITEM_ORDER[a[12] - 1] : null;
     p.items[0] = heldId ? { id: heldId, n: 1 } : null;
-    p.held = heldId ? 0 : -1;
+    p.held = heldId || (a[22] && a[22].empty) ? 0 : -1;
     p.dropT = a[9]; p.downT = a[10]; p.revive = a[11];
     p.minigunSpin = a[13] || 0; p.commandBuff = a[14] || 0; p.flameTicks = a[15] || 0;
     if (a.length > 16) {
@@ -284,6 +317,36 @@
       if (p.vehicle && !vehicleFor(p)) { p.vehicle = 0; p.vehicleSeat = null; }
     }
     if (p.snaps.length === 1) { p.x = a[1]; p.y = a[2]; p.angle = a[3]; }
+  }
+
+  function setSentryBuild(p, row) {
+    p.sentryBuild = Array.isArray(row) && row.length === 3 && row.every(Number.isFinite)
+      ? { elapsed: U.clamp(row[0], 0, W.WEAPONS.wrench.buildSeconds), x: row[1], y: row[2] } : null;
+  }
+  function setSentryStatus(p, row) {
+    var now = state.world.time;
+    p.sentrySnow = row && Array.isArray(row.snow) ? row.snow.map(function (left) { return now + Math.max(0, left); }) : [];
+    p.sentryFreezeUntil = row && row.freeze > 0 ? now + row.freeze : 0;
+    p.sentryBurn = row && row.burn ? { until: now + row.burn[0], next: now + row.burn[1], owner: row.burn[2] } : null;
+  }
+  function applySentryProjectiles(rows) {
+    if (!rows) return;
+    var world = state.world; world.sentryProjectiles = [];
+    rows.forEach(function (r) {
+      var p = { id: r[0], kind: r[1], owner: r[2], team: r[3], sentry: r[4], x: r[5], y: r[6], dx: r[7], dy: r[8], r: r[9], speed: r[10], traveled: r[11], range: r[12], age: r[13] };
+      if (r[14]) Object.assign(p, { startX: r[14][0], startY: r[14][1], targetX: r[14][2], targetY: r[14][3], flightTime: r[14][4], peakHeight: r[14][5], z: r[14][6], flightElapsed: r[14][7] });
+      world.spawnSentryProjectile(p);
+    });
+  }
+  function applySentryStructures(rows) {
+    var world = state.world, ids = {};
+    rows.forEach(function (row) { ids[row.id] = true; world.structFromServer(Object.assign({ op: world.structById(row.id) ? 'state' : 'add' }, row)); });
+    world.structures.slice().forEach(function (s) { if (!ids[s.id]) { world.destroyStruct(s, 0); world.emit({ type: 'struct', op: 'gone', struct: s, source: null }); } });
+  }
+  function applyRpgRockets(rows) {
+    if (!rows) return;
+    state.world.rpgRockets = [];
+    rows.forEach(function (rocket) { state.world.spawnRpgRocket(rocket); });
   }
 
   // Remote players render slightly in the past so there is always a snapshot pair to blend between.
@@ -365,6 +428,25 @@
   function applyEvent(e) {
     var world = state.world, me = state.me, p, def, station, crate, s, pr;
     switch (e.t) {
+      case 'rpg-shot':
+        p = byId(e.id);
+        if (p) { var muzzle = W.muzzleLength('rpg') * p.r; p.recoil = 1; world.flash(e.x + Math.cos(e.a) * muzzle, e.y + Math.sin(e.a) * muzzle, e.a, 'rpg'); world.emit({ type: 'rpg-shot', player: p, x: e.x, y: e.y }); }
+        return;
+      case 'rpg-impact':
+        world.removeRpgRocket(e.id); world.rpgImpactFx(e.x, e.y);
+        world.emit({ type: 'rpg-impact', id: e.id, x: e.x, y: e.y, owner: e.o });
+        return;
+      case 'sentry-fire':
+        s = world.structById(e.id);
+        if (s) { s.flash = 1; s.angle = e.a; world.emit({ type: 'sentry-shot', struct: s, x: e.x, y: e.y }); }
+        return;
+      case 'sentry-impact':
+        world.removeSentryProjectile(e.id); world.sentryImpactFx(e.k, e.x, e.y);
+        return;
+      case 'emote':
+        p = byId(e.id);
+        if (p && p.alive && !p.downed) setEmote(p, [e.em, e.d]);
+        return;
       case 'repair':
         p = byId(e.id);
         if (p) world.emit({ type: 'repair', player: p, vehicle: world.vehicleById(e.v), active: !!e.on });
@@ -581,6 +663,7 @@
   function applySync(m) {
     if (!state) return;
     var world = state.world, map = world.map;
+    applyLooks(m.looks);
     if (typeof m.time === 'number') { state.serverTime = m.time; state.recvAt = performance.now() / 1000; }
     applyVehicles(m.vehicles, state.serverTime, 0, true);
     state.pending = []; state.latch = freshLatch(); state.corr.x = state.corr.y = 0; state.vehicleCorr.x = state.vehicleCorr.y = state.vehicleCorr.a = 0;
@@ -589,6 +672,8 @@
     (m.rocks || []).forEach(function (id) { if (map.rocks[id]) map.rocks[id].alive = false; });
     (m.strikes || []).forEach(function (s) { applyEvent(Object.assign({ t: 'strike' }, s)); });
     if (m.tankShells) { world.tankShells = []; m.tankShells.forEach(function (shell) { world.spawnTankShell(shell); }); }
+    applySentryProjectiles(m.sentryProjectiles);
+    applyRpgRockets(m.rpgRockets);
     m.added.forEach(function (pk) { world.spawnPickupAt({ id: pk.id, type: pk.type, item: pk.it, x: pk.x, y: pk.y, amount: pk.n, lockT: pk.lk || 0 }); });
     (m.structs || []).forEach(function (s) { if (!world.structById(s.id)) world.structFromServer(Object.assign({ op: 'add' }, s)); });
     (m.zones || []).forEach(function (z) { if (!world.zoneById(z.id)) world.addZone({ id: z.id, kind: z.k, x: z.x, y: z.y, r: z.r, dur: z.dur, t: z.tl, age: z.dur - z.tl, owner: z.o, team: z.tm, dps: z.dps }); });
@@ -601,6 +686,7 @@
       p.vehicle = row[6] || 0; p.vehicleSeat = row[7] || null;
       p.vehicleWeapon = row[8] || 0;
       p.repairVehicle = row[9] || 0;
+      setSentryBuild(p, row[10]);
       if (p.vehicle && !vehicleFor(p)) { p.vehicle = 0; p.vehicleSeat = null; }
       // Sync restores the entire roster, including distant or invisible enemies.
       // Only interest-filtered snapshots may reveal their bodies again.
@@ -610,6 +696,7 @@
       if (p === state.me) { p.px = p.x; p.py = p.y; }
       if (!p.alive) p.deadT = 10;
     });
+    (m.emotes || []).forEach(function (row) { var p = byId(row[0]); if (p) setEmote(p, row[1]); });
     (world.vehicles || []).forEach(function (v) {
       v.predicted = state.me.vehicle === v.id && state.me.vehicleSeat === 'driver';
       v.ox = v.oy = v.oa = 0;
@@ -648,8 +735,8 @@
     L.dp = L.dp || Controls.hit(input, 'drop');
     var grenadeGear = state.me.weapons.some(function (w) { return w.id === 'grenade'; });
     if (grenadeGear ? !!(gear && gear.released) : Controls.hit(input, 'gear')) { L.u = true; L.uch = grenadeGear ? gear.seconds : 0; }
-    if (Controls.hit(input, 'weapon1')) L.sl = 0;
-    if (Controls.hit(input, 'weapon2')) L.sl = 1;
+    var selectedWeapon = Controls.weaponSlotHit(input, state.me);
+    if (selectedWeapon !== null) L.sl = selectedWeapon;
     L.cy += input.wheel;
   }
 
@@ -686,6 +773,24 @@
   }
 
   function requestUpgrade(classId) { return MatchNet.request({ t: 'upgrade', cls: classId }, 'upgrade-result', 6000); }
+  function chooseSentryUpgrade(variant) {
+    if (!state) return false;
+    MatchNet.send({ t: 'sentry-choice', variant: variant });
+    state.me.sentryChoice = null;
+    return true;
+  }
+  function updateCosmetics(value) {
+    if (!state) return false;
+    MatchNet.send({ t: 'cosmetics', value: W.Cosmetics.normalize(value) });
+    return true;
+  }
+  function emote(slot) {
+    if (!state || !state.me.alive || state.me.downed || state.me.dropT > 0 || !Number.isInteger(slot) || slot < 0 || slot >= 9 || state.world.time + 1e-8 < state.me.emoteReadyAt) return false;
+    state.me.emoteReadyAt = state.world.time + W.Cosmetics.EMOTE_COOLDOWN;
+    MatchNet.send({ t: 'emote', slot: slot });
+    return true;
+  }
+  function clearActions() { if (state) state.latch = freshLatch(); }
   // Hotbar and interact presses decided by the app (the inventory screen, the E key): sent with the next input.
   function selectItem(idx) { if (state && !state.me.vehicle) state.latch.ht = idx; }
   function useItem(idx) { if (state && !state.me.vehicle) { if (idx !== null && idx !== undefined) state.latch.ht = idx; state.latch.use = true; } }
@@ -703,6 +808,7 @@
     applySnapshot: applySnapshot, applyEvent: applyEvent, applySync: applySync, applyStorm: applyStorm,
     latch: latch, step: step, interpolate: interpolate, frame: frame, requestUpgrade: requestUpgrade, focus: focus,
     selectItem: selectItem, useItem: useItem, pressInteract: pressInteract,
+    updateCosmetics: updateCosmetics, emote: emote, clearActions: clearActions, chooseSentryUpgrade: chooseSentryUpgrade,
     state: function () { return state; }, joining: function () { return !!pendingJoin; }, STEP: STEP
   };
 }());

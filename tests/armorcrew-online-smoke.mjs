@@ -80,7 +80,7 @@ try {
   t.near(humvee.hp - repairStart, 100, 0.001, 'toggled Humvee repair restores100 HP in3.5 seconds without repeated key presses');
   t.near(state.world.vehicleRepairRate(state.world.vehicleById(humvee.id)), 100 / 3.5, 0.001,
     'client repair-rate helper agrees with the authoritative Humvee rate');
-  t.equal(state.world.vehicleById(humvee.id).hp, Math.round(humvee.hp * 10) / 10,
+  t.equal(state.world.vehicleById(humvee.id).hp, Math.round(humvee.hp * 100) / 100,
     'vehicle snapshots own repaired HP without applying repair event amounts twice');
   const cosmeticHp = state.world.vehicleById(humvee.id).hp;
   state.world.update(STEP);

@@ -1,0 +1,45 @@
+import { loadWarz, suite } from './harness.mjs';
+const W = loadWarz(), C = W.Cosmetics, t = suite('cosmetics');
+t.equal(C.PRESETS.length, 20, 'twenty preset circle colours');
+t.equal(new Set(C.PRESETS.map(p => p.color)).size, 20, 'each preset has a different colour');
+t.check(C.PRESETS.every(p => p.name && C.validColor(p.color)), 'presets have valid named RGB colours');
+t.equal(C.FACES.length, 7, 'six requested expressions plus no face');
+t.equal(C.EMOTES.length, 13, 'all thirteen fixed emotes are available');
+t.equal(C.EMOTES.filter(e => ['gg','hi','bye','haha','cooked'].includes(e.id)).map(e => e.glyph).join('|'), 'GG|Hi|Bye|HaHa!|Get Cooked!', 'fixed phrases have the requested capitalization');
+t.equal(C.emote('rose').glyph, '\uD83E\uDD40', 'withered rose uses the requested emoji');
+for (const bad of [null, [], 9, 'hello', { color: 'red' }, { color: '#fff' }, { color: 'url(example)' }, { face: '__proto__' }]) {
+  const c = C.normalize(bad);
+  t.check(C.validColor(c.color) && C.validFace(c.face) && c.emotes.length === 9 && new Set(c.emotes).size === 9, 'malformed cosmetic settings recover safely: ' + JSON.stringify(bad));
+}
+const fixed = C.normalize({ color: '#A1B2C3', face: 'evil', emotes: ['missing','cooked','cooked','rose','fire',null,'cry','gg','hi','bye'] });
+t.equal(fixed.color, '#a1b2c3', 'custom RGB colours normalize to canonical hex');
+t.equal(fixed.face, 'evil', 'requested valid face survives normalization');
+t.equal(fixed.emotes[1], 'cooked', 'valid later slot is preserved while repairing an earlier invalid slot');
+t.equal(fixed.emotes[3], 'rose', 'valid equipped positions remain stable');
+t.check(fixed.emotes.length === 9 && new Set(fixed.emotes).size === 9, 'invalid and duplicate slots are filled to nine unique choices');
+t.check(!C.emote('<script>') && !C.emote('__proto__') && !C.emote('arbitrary message'), 'arbitrary chat and prototype names are not emotes');
+const mutable = C.normalize(); mutable.emotes[0] = 'cooked';
+t.equal(C.normalize().emotes[0], 'smile', 'settings copies cannot mutate shared defaults');
+
+const map = W.MapGen.generate(57);
+for (const key of ['rocks','trees','bushes','buildings','crates','pickups','ponds','stations','vehicles','tanks']) map[key] = [];
+const world = new W.World({ map, storm: false }), p = world.addPlayer({ name: 'Player', x: 8000, y: 8000, team: 9, cosmetics: fixed });
+t.check(p.color === fixed.color && p.face === 'evil' && p.emotes[1] === 'cooked', 'Practice player spawns with its Locker look and loadout');
+const original = JSON.stringify([p.team,p.classId,p.hp,p.armor,p.weapons,p.items,p.tokens]);
+world.applyCosmetics(p, { ...fixed, color: '#ffffff', face: 'cry' });
+t.equal(JSON.stringify([p.team,p.classId,p.hp,p.armor,p.weapons,p.items,p.tokens]), original, 'cosmetic changes do not alter team, class, health, combat or inventory');
+t.check(p.outline !== p.color && p.outline.startsWith('#'), 'custom circle retains a contrast outline');
+for (const slot of [-1,9,1.5,'1',null,undefined]) t.check(!world.useEmote(p,slot), 'only integer equipped slots can emit: ' + slot);
+t.check(world.useEmote(p,1), 'equipped emote activates in Practice');
+t.equal(p.emote.id, 'cooked', 'slot resolves to its equipped fixed emote');
+t.near(p.emote.until-world.time,3,1e-8,'emote lasts three seconds');
+t.check(!world.useEmote(p,2), 'repeat emotes are rate limited');
+t.equal(world.events.filter(e=>e.type==='emote').length,1,'blocked repeat does not produce another event');
+world.time += 1.49; t.check(!world.useEmote(p,2),'cooldown does not end early');
+world.time += .01; t.check(world.useEmote(p,2),'next emote is available after exactly1.5 seconds');
+world.time += 2; p.downed=true; t.check(!world.useEmote(p,0),'downed players cannot emote');
+p.downed=false;p.dropT=1;t.check(!world.useEmote(p,0),'dropping players cannot emote');
+p.dropT=0;p.alive=false;t.check(!world.useEmote(p,0),'dead players cannot emote');
+p.alive=true;world.remote=true;t.check(!world.useEmote(p,0),'client mirror cannot invent authoritative emotes');
+world.remote=false;world.respawn(p,8000,8000);t.check(!p.emote && p.face==='cry','respawn clears old bubbles and retains the Locker face');
+t.done();

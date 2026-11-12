@@ -47,6 +47,7 @@
   // ---------------------------------------------------------------- dialog plumbing
   function anyOpen() { return DIALOGS.some(isOpen); }
   function openDialog(id) {
+    if (W.Locker) W.Locker.close();
     DIALOGS.forEach(function (d) { if (d !== id) $(d).hidden = true; });
     stopCapture();
     $(id).hidden = false;
@@ -206,6 +207,7 @@
 
   // ---------------------------------------------------------------- settings
   function openSettings(tab) {
+    if (opts.onSettings) opts.onSettings();
     openDialog('settings-dialog');
     showTab(tab || 'controls');
   }

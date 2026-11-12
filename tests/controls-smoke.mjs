@@ -13,10 +13,11 @@ t.equal(Controls.bindings('gear').join(), 'KeyF,KeyG', 'F and G use gear');
 t.equal(Controls.bindings('interact')[0], 'KeyE', 'E opens stations');
 t.equal(Controls.bindings('drop')[0], 'KeyQ', 'Q drops the held item stack');
 t.equal(Controls.bindings('inventory')[0], 'Tab', 'Tab opens inventory');
+t.equal(Controls.bindings('emotes')[0], 'KeyB', 'B opens the emote picker');
 t.check(Controls.bindings('swap').every((key) => key === null), 'weapon swap no longer shares Q');
 t.equal(Controls.bindings('up').join(), 'KeyW,ArrowUp', 'W and the up arrow move up');
 t.check(!Controls.bindings('mute')[0] && !Controls.bindings('mute')[1], 'mute has no key by default');
-t.equal(Controls.ACTIONS.filter((a) => a.group === 'Hotbar').length, 5, 'exactly five configurable hotbar slots');
+t.equal(Controls.ACTIONS.filter((a) => a.group === 'Hotbar').length, 6, 'six configurable hotbar slots include Engineer extra item slot');
 t.equal(['weapon1', 'weapon2', 'item1', 'item2', 'item3'].map((a) => Controls.primary(a)).join(','), '1,2,3,4,5', 'the five visible slots use consecutive keys');
 t.check(!Controls.ACTIONS.some((a) => /^item(?:[4-9]|10)$/.test(a.id)), 'no hidden mini-hotbar bindings remain');
 
@@ -28,6 +29,19 @@ t.equal(Controls.label(null), '—', 'label for an empty slot');
 t.equal(Controls.primary('fire'), 'Left click', 'primary label');
 
 const fakeInput = (down, hit) => ({ down: (c) => c === down, hit: (c) => c === hit });
+const ordinary = { classId: 'soldier', weapons: [{}, {}] }, engineer = { classId: 'engineer', weapons: [{}, {}, {}] };
+t.equal(Controls.itemOrder(ordinary).join(), '0,1,2', 'ordinary classes keep their item order');
+t.equal(Controls.itemOrder(engineer).join(), '1,2,0', 'Engineer moves only the original third hotbar slot to the end');
+t.equal(Controls.weaponSlotHit(fakeInput(null, 'Digit3'), ordinary), null, 'ordinary slot three is not a weapon');
+t.equal(Controls.itemSlotHit(fakeInput(null, 'Digit3'), ordinary), 0, 'ordinary slot three selects item zero');
+t.equal(Controls.weaponSlotHit(fakeInput(null, 'Digit3'), engineer), 2, 'Engineer slot three selects the third class weapon');
+t.equal(Controls.itemSlotHit(fakeInput(null, 'Digit3'), engineer), null, 'Engineer slot three cannot select an item too');
+t.equal(Controls.itemSlotHit(fakeInput(null, 'Digit6'), engineer), 0, 'Engineer slot six selects the retained first item');
+t.equal(Controls.itemSlotHit(fakeInput(null, 'Digit6'), ordinary), null, 'slot six does nothing for other classes');
+t.equal([0, 1, 2].map(i => Controls.primary(Controls.weaponAction(engineer, i))).join(), '1,2,3', 'Engineer weapon labels follow physical controls');
+t.equal(Controls.itemOrder(engineer).map(i => Controls.primary(Controls.itemAction(engineer, i))).join(), '4,5,6', 'Engineer item labels match physical display order');
+t.check(Controls.hotbarChanged(fakeInput(null, 'Digit6'), engineer), 'moving to the sixth slot cancels a charged projectile');
+t.equal(Controls.weaponSlotHit(fakeInput(null, 'Digit3'), { ...engineer, vehicle: 1 }), null, 'vehicle passengers cannot select the third class weapon');
 t.check(Controls.down(fakeInput('ArrowUp'), 'up'), 'secondary binding counts as held');
 t.check(Controls.hit(fakeInput(null, 'KeyF'), 'gear'), 'primary binding counts as pressed');
 t.check(!Controls.down(fakeInput('KeyX'), 'up'), 'unbound key does nothing');
@@ -80,5 +94,13 @@ t.check(customLegacy.primary('map') === 'Tab' && customLegacy.primary('inventory
 storage.setItem('warz.settings.v1', JSON.stringify({ bindings: { drop: ['KeyJ', null], inventory: ['KeyB', null], swap: ['KeyQ', null] } }));
 const current = loadWarz(['config', 'controls'], { storage }).Controls;
 t.check(current.primary('drop') === 'J' && current.primary('inventory') === 'B' && current.primary('swap') === 'Q', 'saves already defining the new actions keep their explicit choices');
+t.check(current.bindings('emotes').every(key => key === null), 'adding emotes does not steal a saved B binding');
+
+storage.setItem('warz.settings.v1', JSON.stringify({ bindings: { reload: ['Digit6', null] } }));
+const sixConflict = loadWarz(['config', 'controls'], { storage }).Controls;
+t.check(sixConflict.bindings('slot6').every(key => key === null) && sixConflict.primary('reload') === '6', 'sixth hotbar migration preserves an existing custom Digit6 binding');
+sixConflict.rebind('slot6', 0, 'KeyJ');
+t.equal(sixConflict.itemSlotHit(fakeInput(null, 'KeyJ'), engineer), 0, 'Engineer item zero follows a rebound sixth-slot action');
+t.equal(sixConflict.primary(sixConflict.itemAction(engineer, 0)), 'J', 'Engineer HUD label follows the rebound action');
 
 t.done();

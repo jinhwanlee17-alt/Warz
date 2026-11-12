@@ -102,6 +102,8 @@ body.inventory-open .hud-bc, body.inventory-open .hud-bl { visibility: hidden; }
 .pips { display: grid; grid-template-columns: repeat(8, 10px); gap: 3px; margin-left: 2px; }
 .pips i { width: 10px; height: 11px; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: rgba(255, 255, 255, 0.2); }
 .pips i.on { background: var(--gold); }
+.pips.is-many { grid-template-columns: repeat(20, 5px); gap: 2px; }
+.pips.is-many i { width: 5px; height: 7px; }
 .hud-ready {
   padding: 7px 14px; border-radius: 12px; background: var(--gold); color: var(--ink); font-size: 14px;
   box-shadow: 0 4px 0 #a37a0a; animation: readyPulse 1.2s ease-in-out infinite;
@@ -197,6 +199,7 @@ body.inventory-open .hud-bc, body.inventory-open .hud-bl { visibility: hidden; }
 .reload i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--cyan); opacity: 0.7; }
 .reload span { position: absolute; inset: 0; display: grid; place-items: center; font: 700 11px var(--ui); letter-spacing: 0.12em; text-transform: uppercase; }
 .slots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: min(600px, calc(100vw - 32px)); gap: 8px; margin-top: 14px; }
+.slots.six-slots { grid-template-columns: repeat(6, minmax(0, 1fr)); width: min(690px, calc(100vw - 32px)); }
 .slot {
   position: relative; min-width: 0; height: 122px; padding: 21px 5px 7px; border-radius: 14px; overflow: hidden;
   background: var(--panel); border: 2px solid var(--panel-line); display: grid; grid-template-rows: 46px 28px 16px; justify-items: center; align-items: center;

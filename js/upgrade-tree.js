@@ -1,8 +1,8 @@
-/* warz.io: upgrade station panel. The Soldier branches into level-one and level-two classes. */
+/* warz.io: upgrade station panel. Browse three class levels without crowding the tree. */
 (function () {
   'use strict';
   var W = window.Warz, U = W.U, C = W.CONFIG, CLASSES = W.CLASSES, WEAPONS = W.WEAPONS, Rules = W.Rules, Icons = W.Icons, L = W.TREE_LAYOUT;
-  var panel = null, opts = {}, ctx = null, selected = 'soldier', previewBranch = 'sniper', drawnBranch = '', refreshT = 0, closeTimer = null, built = false;
+  var panel = null, opts = {}, ctx = null, selected = 'soldier', previewBranch = 'sniper', previewLevel = 2, levelThreeBranch = 'sniper2', drawnBranch = '', refreshT = 0, closeTimer = null, built = false;
   var BOX_W = 1000, BOX_H = 600;
 
   function $(id) { return document.getElementById(id); }
@@ -29,35 +29,47 @@
   }
   function soonHtml(s) {
     return '<button type="button" class="ut-node is-soon" id="ut-node-' + s.id + '" data-node="' + s.id + '" style="--c:#9aa7bd;' + pct(s) + '">' +
-      Icons.LOCK + '<span class="ut-node-name">' + s.name + '<small>Coming with vehicles</small></span></button>';
+      Icons.LOCK + '<span class="ut-node-name">' + s.name + '<small>Coming soon · 40 tokens</small></span></button>';
   }
 
   function branchChoices(branch) {
-    var matching = Rules.childClasses(branch).filter(function (id) { return Rules.classParents(id).length === 1; });
-    return matching.concat(['pyromancer', 'juggernaut', 'commander']).concat('armorcrew');
+    return Rules.childClasses(branch);
   }
   function refreshBranch(p) {
-    var choices = branchChoices(previewBranch), pipes = '';
-    $('ut-branch-label').textContent = CLASSES[previewBranch].name + ' upgrades · choose one · ' + Rules.upgradeCostFor(choices[0]) + ' tokens';
-    if (drawnBranch === previewBranch) return;
-    drawnBranch = previewBranch;
-    W.CLASS_ORDER.forEach(function (id) { if (CLASSES[id].tier === 2) $('ut-node-' + id).hidden = choices.indexOf(id) < 0; });
+    var levelThree = previewLevel === 3, branch = levelThree ? levelThreeBranch : previewBranch;
+    var choices = branchChoices(branch), pipes = '', key = previewLevel + ':' + branch;
+    if (levelThree) choices = W.TREE_SOON.filter(function (s) { return s.parent === branch; }).map(function (s) { return s.id; }).concat(choices);
+    $('ut-branch-label').textContent = CLASSES[branch].name + ' upgrades · choose one · ' + (levelThree ? 40 : Rules.upgradeCostFor(choices[0])) + ' tokens';
+    $('ut-level2').setAttribute('aria-pressed', String(!levelThree));
+    $('ut-level3').setAttribute('aria-pressed', String(levelThree));
+    $('ut-parent-wrap').hidden = !levelThree;
+    $('ut-parent').value = levelThreeBranch;
+    if (drawnBranch === key) return;
+    drawnBranch = key;
+    panel.classList.toggle('ut-level-three', levelThree);
+    W.CLASS_ORDER.forEach(function (id) {
+      var node = $('ut-node-' + id), cls = CLASSES[id], position = L[id];
+      node.hidden = levelThree ? id !== branch && choices.indexOf(id) < 0 : cls.tier >= 3 || cls.tier === 2 && choices.indexOf(id) < 0;
+      node.style.left = position.x / BOX_W * 100 + '%'; node.style.top = position.y / BOX_H * 100 + '%';
+    });
+    W.TREE_SOON.forEach(function (s) { $('ut-node-' + s.id).hidden = choices.indexOf(s.id) < 0; });
+    if (levelThree) {
+      var parent = $('ut-node-' + branch); parent.style.left = '50%'; parent.style.top = '66.67%';
+    } else {
+      W.CLASS_ORDER.forEach(function (id) { if (CLASSES[id].tier === 1) pipes += pipeHtml(L[CLASSES[id].parent], L[id], id, false); });
+    }
     choices.forEach(function (id, i) {
-      var position = { x: 110 + i * 195, y: 78 }, node = $('ut-node-' + id), planned = !!soonById(id);
+      var position = levelThree ? { x: 210 + i * 290, y: 110 } : { x: 110 + i * 195, y: 78 }, node = $('ut-node-' + id), planned = !!soonById(id);
       node.hidden = false;
       node.style.left = position.x / BOX_W * 100 + '%'; node.style.top = position.y / BOX_H * 100 + '%';
-      pipes += pipeHtml(L[previewBranch], position, id, planned);
+      pipes += pipeHtml(levelThree ? { x: 500, y: 400 } : L[branch], position, id, planned);
     });
     $('ut-branch-pipes').innerHTML = pipes;
   }
 
   function build() {
     panel = $('upgrade-panel');
-    var pipes = '', nodes = '';
-    W.CLASS_ORDER.forEach(function (id) {
-      var cls = CLASSES[id];
-      if (cls.tier === 1) pipes += pipeHtml(L[cls.parent], L[id], id, false);
-    });
+    var nodes = '';
     W.CLASS_ORDER.forEach(function (id) { nodes += nodeHtml(id); });
     W.TREE_SOON.forEach(function (s) { nodes += soonHtml(s); });
     panel.innerHTML =
@@ -80,10 +92,13 @@
           '</div>' +
           '<dl class="ut-wallet"><div><dt>' + Icons.TOKEN + 'Tokens</dt><dd id="ut-tokens"></dd></div><div><dt>' + Icons.KEY + 'Keys</dt><dd id="ut-keys"></dd></div></dl>' +
         '</aside>' +
-        '<div class="ut-tree-wrap" role="region" aria-label="Class upgrade paths"><p class="ut-branch-label" id="ut-branch-label"></p><div class="ut-tree">' +
-          '<svg class="ut-pipes" viewBox="0 0 ' + BOX_W + ' ' + BOX_H + '" aria-hidden="true">' + pipes + '<g id="ut-branch-pipes"></g></svg>' +
+        '<div class="ut-tree-wrap" role="region" aria-label="Class upgrade paths">' +
+          '<nav class="ut-level-nav" aria-label="Class levels"><button type="button" id="ut-level2" aria-pressed="true">Levels 1–2</button><button type="button" id="ut-level3" aria-pressed="false">Level 3 · 40 tokens</button></nav>' +
+          '<label class="ut-parent-wrap" id="ut-parent-wrap" hidden>Upgrading from <select id="ut-parent">' + W.CLASS_ORDER.filter(function (id) { return CLASSES[id].tier === 2; }).map(function (id) { return '<option value="' + id + '">' + CLASSES[id].name + '</option>'; }).join('') + '</select></label>' +
+          '<p class="ut-branch-label" id="ut-branch-label"></p><div class="ut-tree-scroll"><div class="ut-tree">' +
+          '<svg class="ut-pipes" viewBox="0 0 ' + BOX_W + ' ' + BOX_H + '" aria-hidden="true"><g id="ut-branch-pipes"></g></svg>' +
           '<div id="ut-nodes" role="group" aria-label="Classes">' + nodes + '</div>' +
-        '</div></div>' +
+        '</div></div></div>' +
         '<article class="ut-card ut-detail" id="ut-detail">' +
           '<header class="ut-detail-head"><span class="ut-detail-icon" id="ut-portrait"></span>' +
             '<div><h3 id="ut-detail-title"></h3><span class="ut-state" id="ut-detail-state"></span></div></header>' +
@@ -95,11 +110,14 @@
           '</div>' +
         '</article>' +
       '</div>' +
-      '<footer class="ut-footer"><p class="ut-hint">Click a level-one class to see its five choices · Lvl 1: ' + Rules.upgradeCostFor('sniper') + ' tokens · Lvl 2: ' + Rules.upgradeCostFor('sniper2') + ' tokens · Station recharge: ' +
+      '<footer class="ut-footer"><p class="ut-hint">Choose a class to preview its upgrades · Lvl 1: ' + Rules.upgradeCostFor('sniper') + ' tokens · Lvl 2: ' + Rules.upgradeCostFor('sniper2') + ' tokens · Lvl 3: 40 tokens · Station recharge: ' +
         U.formatTime(C.stationCooldown) + ' · ' + W.Controls.primary('interact') + ' or Esc closes</p><p id="ut-status" role="status" aria-live="polite"></p></footer>';
 
     $('ut-close').addEventListener('click', close);
     $('ut-action').addEventListener('click', act);
+    $('ut-level2').addEventListener('click', function () { previewLevel = 2; selected = previewBranch; refresh(); });
+    $('ut-level3').addEventListener('click', function () { previewLevel = 3; selected = 'engineer'; refresh(); });
+    $('ut-parent').addEventListener('change', function () { levelThreeBranch = this.value; selected = 'engineer'; refresh(); });
     Array.prototype.forEach.call(panel.querySelectorAll('.ut-node'), function (btn) {
       btn.addEventListener('click', function () { select(btn.getAttribute('data-node')); });
     });
@@ -117,7 +135,7 @@
       return;
     }
     if (e.code === 'Tab') {
-      var controls = Array.prototype.filter.call(panel.querySelectorAll('button'), function (b) { return !b.disabled && b.getClientRects().length; });
+      var controls = Array.prototype.filter.call(panel.querySelectorAll('button, select'), function (b) { return !b.disabled && b.getClientRects().length; });
       if (!controls.length) return;
       var first = controls[0], last = controls[controls.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
@@ -149,10 +167,15 @@
     ctx = context;
     var kids = Rules.childClasses(ctx.player.classId);
     var cls = CLASSES[ctx.player.classId];
-    selected = cls.tier === 1 ? branchChoices(cls.id)[0] : kids.length ? kids[0] : ctx.player.classId;
+    selected = kids.length ? kids[0] : ctx.player.classId;
+    previewLevel = cls.tier >= 2 ? 3 : 2;
     if (cls.tier === 1) previewBranch = cls.id;
-    else if (cls.tier === 2) previewBranch = ctx.player.upgradeFrom || cls.parent;
-    else previewBranch = 'sniper';
+    else if (cls.tier === 2) { levelThreeBranch = cls.id; previewBranch = ctx.player.upgradeFrom || cls.parent; }
+    else if (cls.tier === 3) {
+      levelThreeBranch = ctx.player.upgradeFrom || cls.parent;
+      var ancestors = ctx.player.upgradePath || [];
+      previewBranch = ancestors.filter(function (id) { return CLASSES[id] && CLASSES[id].tier === 1; })[0] || CLASSES[levelThreeBranch].parent;
+    } else { previewBranch = 'sniper'; levelThreeBranch = 'sniper2'; }
     $('ut-status').textContent = '';
     panel.hidden = false;
     document.body.classList.add('tree-open');
@@ -172,7 +195,8 @@
 
   function select(id) {
     selected = id;
-    if (CLASSES[id] && CLASSES[id].tier === 1) previewBranch = id;
+    if (CLASSES[id] && CLASSES[id].tier === 1) { previewBranch = id; previewLevel = 2; }
+    if (CLASSES[id] && CLASSES[id].tier === 2) { levelThreeBranch = id; previewLevel = 3; }
     $('ut-status').textContent = '';
     refresh();
   }
@@ -205,7 +229,7 @@
     $('ut-tokens').textContent = String(p.tokens);
     $('ut-keys').textContent = String(p.keys);
 
-    // Center: five contextual choices, with one clean branch bus.
+    // Center: only the choices on the branch being previewed.
     refreshBranch(p);
     W.CLASS_ORDER.forEach(function (id) {
       var rel = Rules.relation(p, id), node = $('ut-node-' + id), sub = $('ut-node-sub-' + id), badge = $('ut-node-badge-' + id), cost = Rules.upgradeCostFor(id);
@@ -224,7 +248,7 @@
       var node = $('ut-node-' + s.id);
       node.className = 'ut-node is-soon' + (s.id === selected ? ' is-selected' : '');
       node.setAttribute('aria-pressed', String(s.id === selected));
-      node.setAttribute('aria-label', s.name + ', level 2, planned for the vehicle update');
+      node.setAttribute('aria-label', s.name + ', level 3, coming soon, requires ' + CLASSES[s.parent].name + ', 40 tokens');
     });
 
     // Right: detail card
@@ -235,16 +259,16 @@
       detail.style.setProperty('--c', '#9aa7bd');
       $('ut-portrait').innerHTML = Icons.LOCK;
       $('ut-detail-title').textContent = planned.name;
-      $('ut-detail-state').textContent = 'PLANNED · VEHICLES';
+      $('ut-detail-state').textContent = 'COMING SOON · LVL 3';
       $('ut-detail-desc').textContent = planned.description;
-      $('ut-stats').innerHTML = '';
-      action.textContent = 'Coming with vehicles';
+      $('ut-stats').innerHTML = '<li><strong>Requires</strong><span>' + CLASSES[planned.parent].name + '</span></li><li><strong>Cost</strong><span>40 tokens when released</span></li>';
+      action.textContent = 'Coming soon';
       action.disabled = true;
-      note.textContent = 'This upgrade will unlock when vehicles arrive. It cannot be purchased yet.';
+      note.textContent = 'Engineer, Shield Operator and Rocketeer are available at level three. This class cannot be purchased yet.';
       return;
     }
     var cls = CLASSES[selected], rel = Rules.relation(p, selected), cost = Rules.upgradeCostFor(selected), parents = Rules.classParents(selected);
-    var required = parents.length > 1 ? 'a level-one class' : cls.parent ? CLASSES[cls.parent].name : 'Soldier';
+    var required = parents.length > 1 ? (cls.tier === 3 ? 'any level-two class' : 'a level-one class') : cls.parent ? CLASSES[cls.parent].name : 'Soldier';
     detail.style.setProperty('--c', cls.color);
     $('ut-portrait').innerHTML = Icons.classIcon(selected, { className: 'ut-portrait-art' });
     $('ut-detail-title').textContent = cls.name;
@@ -282,15 +306,15 @@
       action.disabled = true;
       action.textContent = rel === 'current' ? 'Your current class' : rel === 'owned' ? 'Already unlocked'
         : rel === 'locked' && (parents.length > 1 || Rules.relation(p, cls.parent) !== 'branch') ? 'Choose ' + required + ' first' : 'Locked · you chose ' + current.name;
-      note.textContent = rel === 'branch' ? 'You get one Lvl 1 class per match, like a skill tree branch. Start a new match to try another class.'
+      note.textContent = rel === 'branch' ? 'You can choose one class at each level per match. Start a new match to try another branch.'
         : rel === 'current' && Rules.childClasses(cls.id).length ? 'Collect ' + Rules.nextUpgradeCost(cls.id) + ' tokens, then choose the next upgrade on your branch.'
-        : rel === 'current' && cls.tier >= 2 ? 'You have reached the final upgrade on this class branch.'
+        : rel === 'current' && cls.tier >= 3 ? 'You have reached the final upgrade on this class branch.'
         : rel === 'current' ? 'Collect ' + Rules.nextUpgradeCost(cls.id) + ' tokens, then pick a Lvl 1 class here.' : '';
     }
   }
 
   function act() {
-    if (!ctx || !opts.onUpgrade) return;
+    if (!ctx || !opts.onUpgrade || $('ut-action').disabled || !CLASSES[selected]) return;
     var result = opts.onUpgrade(selected, ctx);
     if (result && typeof result.then === 'function') {
       // Online: the server decides. Show progress until its answer arrives.

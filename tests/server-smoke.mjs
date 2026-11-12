@@ -259,7 +259,8 @@ sE.x = 3000; sE.y = 3000; sE.vx = sE.vy = 0;
 sF.x = 3000; sF.y = 3400; sF.vx = sF.vy = 0;
 sG.x = 3500; sG.y = 3000; sG.vx = sG.vy = 0; sG.fx.invisible = 30;
 mE.drop('snap');
-const beforeCommand = await waitSnap(mE, m => m.you.cb === 0);
+// A packet already in the socket can predate the fixture; wait for its new class.
+const beforeCommand = await waitSnap(mE, m => m.you.cb === 0 && m.you.cls === live2.classIndex.indexOf('commander'));
 t.check(!beforeCommand.p.some(row => row[0] === sG.id), 'invisible enemy is absent from snapshots before commander radar activates');
 mE.drop('snap'); mF.drop('snap'); mG.drop('snap');
 mE.seq = (mE.seq || 0) + 1;

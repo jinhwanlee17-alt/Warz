@@ -187,17 +187,24 @@
     for (i = 0; i < map.stations.length; i++) if (visible(v, map.stations[i].x, map.stations[i].y, 80)) this.drawStationCore(ctx, map.stations[i], t);
     this.drawZones(ctx, world, v, t, false, viewer);
     this.drawStructures(ctx, world, v, t, viewer);
+    if (viewer && viewer.alive && !viewer.downed && !viewer.vehicle && viewer.sentryBuild) this.drawSentryBuild(ctx, viewer, t, true);
     this.drawVehicles(ctx, world, v, t, viewer);
     this.drawGrenades(ctx, world, v, t, false);
     this.drawBullets(ctx, world, v);
     this.drawTankShells(ctx, world, v);
+    this.drawRpgRockets(ctx, world, v);
+    this.drawSentryProjectiles(ctx, world, v, false);
     for (i = 0; i < world.players.length; i++) {
       var p = world.players[i];
-      if (p.dropT <= 0 && !p.hidden && visible(v, p.x, p.y, 90)) this.drawPlayer(ctx, p, t, opts);
+      if (p.dropT <= 0 && !p.hidden && visible(v, p.x, p.y, 90)) {
+        this.drawPlayer(ctx, p, t, opts);
+        this.drawSentryStatus(ctx, world, p, viewer);
+      }
     }
     this.drawCanopies(ctx, map, v, viewer, dt);
     this.drawRoofs(ctx, map, v, viewer, dt);
     this.drawGrenades(ctx, world, v, t, true);
+    this.drawSentryProjectiles(ctx, world, v, true);
     // Dropping players are above everything, parachute and all.
     for (i = 0; i < world.players.length; i++) if (world.players[i].dropT > 0 && !world.players[i].hidden) this.drawPlayer(ctx, world.players[i], t, opts);
     this.drawZones(ctx, world, v, t, true, viewer); // smoke hides whatever is under it
@@ -675,6 +682,19 @@
       ctx.save(); ctx.rotate(-0.55);
       roundRect(ctx, -r * 0.1, -r * 0.08, r * 0.2, r * 0.65, r * 0.06); ctx.fill();
       roundRect(ctx, -r * 0.45, -r * 0.4, r * 0.9, r * 0.32, r * 0.08); ctx.fill(); ctx.restore();
+    } else if (classId === 'engineer') {
+      ctx.save(); ctx.rotate(-0.7);
+      ctx.beginPath(); ctx.moveTo(-r * 0.55, 0); ctx.lineTo(r * 0.23, 0); ctx.lineWidth = r * 0.22; ctx.stroke();
+      ctx.beginPath(); ctx.arc(r * 0.28, 0, r * 0.24, 0.7, TAU - 0.7); ctx.lineWidth = r * 0.14; ctx.stroke(); ctx.restore();
+    } else if (classId === 'shieldoperator') {
+      ctx.beginPath(); ctx.moveTo(-r * 0.48, -r * 0.42); ctx.quadraticCurveTo(0, -r * 0.65, r * 0.48, -r * 0.42);
+      ctx.lineTo(r * 0.4, r * 0.24); ctx.lineTo(0, r * 0.6); ctx.lineTo(-r * 0.4, r * 0.24); ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-r * 0.22, -r * 0.18); ctx.lineTo(r * 0.22, -r * 0.18); ctx.stroke();
+    } else if (classId === 'rocketeer') {
+      ctx.save(); ctx.rotate(-0.6);
+      ctx.beginPath(); ctx.moveTo(-r * 0.6, -r * 0.17); ctx.lineTo(r * 0.25, -r * 0.17); ctx.lineTo(r * 0.65, 0); ctx.lineTo(r * 0.25, r * 0.17); ctx.lineTo(-r * 0.6, r * 0.17); ctx.lineTo(-r * 0.4, 0); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-r * 0.32, -r * 0.17); ctx.lineTo(-r * 0.52, -r * 0.42); ctx.lineTo(-r * 0.12, -r * 0.42); ctx.lineTo(r * 0.05, -r * 0.17); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-r * 0.32, r * 0.17); ctx.lineTo(-r * 0.52, r * 0.42); ctx.lineTo(-r * 0.12, r * 0.42); ctx.lineTo(r * 0.05, r * 0.17); ctx.fill(); ctx.restore();
     } else if (classId === 'medic') {
       var a = r * 0.16, b = r * 0.5;
       ctx.fillRect(-a, -b, a * 2, b * 2);
@@ -714,8 +734,27 @@
     ctx.restore();
   };
 
-  Renderer.prototype.drawWeapon = function (ctx, weaponId, r, recoil, spin, time) {
-    if (weaponId === 'hammer') { this.drawHammer(ctx, r, recoil); return; }
+  Renderer.prototype.drawWeapon = function (ctx, weaponId, r, recoil, spin, time, reloading) {
+    if (weaponId === 'hammer' || weaponId === 'engineerhammer') { this.drawHammer(ctx, r, recoil); return; }
+    if (weaponId === 'wrench') { this.drawWrench(ctx, r, spin, time); return; }
+    if (weaponId === 'rpg') {
+      ctx.save(); ctx.translate(-recoil * r * 0.22, 0);
+      ctx.fillStyle = '#899755'; ctx.strokeStyle = '#39452d'; ctx.lineWidth = 3;
+      roundRect(ctx, r * 0.1, -r * 0.26, r * 1.8, r * 0.52, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#52603e'; ctx.fillRect(r * 0.1, -r * 0.33, r * 0.18, r * 0.66);
+      ctx.fillStyle = '#bdc48e'; ctx.beginPath(); ctx.moveTo(r * 1.55, -r * 0.3); ctx.lineTo(r * 1.95, -r * 0.43); ctx.lineTo(r * 2.4, 0); ctx.lineTo(r * 1.95, r * 0.43); ctx.lineTo(r * 1.55, r * 0.3); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#344533'; ctx.fillRect(r * 0.65, -r * 0.39, r * 0.35, r * 0.15); ctx.restore(); return;
+    }
+    if (weaponId === 'shieldpistol' || weaponId === 'explosiveshield') {
+      ctx.save();
+      if (weaponId === 'shieldpistol' && reloading) { ctx.rotate(Math.PI / 2); ctx.globalAlpha *= 0.6; }
+      this.drawShield(ctx, r, weaponId === 'explosiveshield', !reloading);
+      ctx.restore();
+      if (weaponId === 'shieldpistol') {
+        ctx.save(); ctx.translate(r * 0.56, 0); this.drawWeapon(ctx, 'pistol', r, recoil, 0, time); ctx.restore();
+      }
+      return;
+    }
     var b = W.BARRELS[weaponId] || {}, kick = -recoil * r * 0.22;
     ctx.lineWidth = 3.5;
     ctx.fillStyle = PAL.barrel;
@@ -752,6 +791,45 @@
     }
   };
 
+  Renderer.prototype.drawWrench = function (ctx, r, building, t) {
+    ctx.save(); ctx.rotate(building ? Math.sin((t || 0) * 14) * 0.18 : 0.35);
+    ctx.fillStyle = '#b7cbd7'; ctx.strokeStyle = '#344854'; ctx.lineWidth = 3;
+    roundRect(ctx, r * 0.55, -r * 0.15, r * 1.25, r * 0.3, 3); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(r * 1.88, 0, r * 0.43, 0.75, TAU - 0.75); ctx.lineTo(r * 1.79, -r * 0.17);
+    ctx.lineTo(r * 1.79, r * 0.17); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#344854'; ctx.beginPath(); ctx.arc(r * 0.72, 0, r * 0.06, 0, TAU); ctx.fill(); ctx.restore();
+  };
+
+  Renderer.prototype.drawShield = function (ctx, r, explosive, raised) {
+    var R = r + 10, arc = W.ITEMS.riotshield.arc;
+    ctx.beginPath(); ctx.arc(0, 0, R, -arc, arc);
+    ctx.strokeStyle = explosive ? '#6e2933' : '#3f4c63'; ctx.lineWidth = 16; ctx.stroke();
+    ctx.strokeStyle = explosive ? '#f15c5b' : raised ? '#9fd4ff' : '#c3ccda'; ctx.lineWidth = 9; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, R + 3, -arc * 0.7, arc * 0.7); ctx.stroke();
+    if (explosive) {
+      ctx.fillStyle = '#fff2c6'; ctx.beginPath(); ctx.moveTo(R + 4, 0); ctx.lineTo(R - 3, -5); ctx.lineTo(R - 3, 5); ctx.closePath(); ctx.fill();
+    }
+  };
+
+  Renderer.prototype.drawSentryBuild = function (ctx, p, t, preview) {
+    var build = p.sentryBuild;
+    if (!build || !p.alive || p.downed || p.mount || p.vehicle || p.hidden || p.dropT > 0) return;
+    var progress = U.clamp(build.elapsed / W.WEAPONS.wrench.buildSeconds, 0, 1);
+    ctx.save();
+    if (preview) {
+      ctx.translate(build.x, build.y); ctx.globalAlpha *= 0.25 + progress * 0.4;
+      this.drawEmplacement(ctx, { r: W.STRUCT_RADIUS.sentry, kind: 'sentry', item: 'sentry', angle: p.angle, flash: 0, target: 0 }, W.TIERS.epic, true);
+      ctx.globalAlpha = 0.9; ctx.strokeStyle = '#ffe893'; ctx.lineWidth = 3; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.arc(0, 0, W.STRUCT_RADIUS.sentry + 16, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    } else {
+      ctx.translate(p.x + (p.ox || 0), p.y + (p.oy || 0));
+      ctx.strokeStyle = 'rgba(27,43,54,0.8)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(0, 0, p.r + 10, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = '#ffe893'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, p.r + 10, -Math.PI / 2, -Math.PI / 2 + progress * TAU); ctx.stroke();
+    }
+    ctx.restore();
+  };
+
   Renderer.prototype.drawParachute = function (ctx, r, drop, color, t) {
     var R = r * 2.3, alpha = Math.min(1, (drop - 0.08) * 4);
     if (alpha <= 0) return;
@@ -770,7 +848,9 @@
   };
 
   Renderer.prototype.drawPlayer = function (ctx, p, t, opts) {
+    opts = opts || {};
     if (p.hidden || p.vehicle) return; // Occupants are drawn in their seats by drawVehicle.
+    if (p.fx && p.fx.invisible > 0 && opts.viewer && opts.viewer !== p && opts.viewer.team !== p.team) return;
     var r = p.r, scale = 1, alpha = 1, lift = 0, drop = p.dropT > 0 ? p.dropT / C.dropDuration : 0;
     var px = p.x + (p.ox || 0), py = p.y + (p.oy || 0); // ox/oy: smoothed correction toward the server position
     var invisible = p.fx && p.fx.invisible > 0, held = p.held >= 0 && p.items && p.items[p.held] ? W.ITEMS[p.items[p.held].id] : null;
@@ -806,7 +886,8 @@
       var hammerSwing = p.meleeSwing > 0 ? U.clamp(p.meleeSwing / 0.24, 0, 1) : 0;
       ctx.rotate(hammerSwing && !p.repairVehicle ? p.meleeAngle : p.angle);
       if (p.repairVehicle) this.drawHammer(ctx, r, 0.5 + 0.5 * Math.sin(t * 13));
-      else if (held) this.drawHeld(ctx, held, r, p.recoil, p.shieldUp); else this.drawWeapon(ctx, p.weapons[p.slot].id, r, p.weapons[p.slot].id === 'hammer' ? hammerSwing : p.recoil, p.minigunSpin, t);
+      else if (held) this.drawHeld(ctx, held, r, p.recoil, p.shieldUp);
+      else if (p.held < 0) this.drawWeapon(ctx, p.weapons[p.slot].id, r, W.WEAPONS[p.weapons[p.slot].id].kind === 'melee' ? hammerSwing : p.recoil, p.sentryBuild ? 1 : p.minigunSpin, t, p.weapons[p.slot].reloading);
       ctx.restore();
     }
     ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
@@ -836,6 +917,14 @@
       ctx.beginPath();
       ctx.moveTo(-r * 0.4, -r * 0.4); ctx.lineTo(r * 0.4, r * 0.4); ctx.moveTo(r * 0.4, -r * 0.4); ctx.lineTo(-r * 0.4, r * 0.4);
       ctx.stroke();
+    } else if (W.CosmeticArt && W.CosmeticArt.face(ctx, p.face, r, body)) {
+      // A chosen face owns the head; preserve the class mark as a small shoulder badge.
+      if (p.classId !== 'soldier') {
+        ctx.save(); ctx.translate(r * 0.76, r * 0.63);
+        ctx.fillStyle = '#283748'; ctx.strokeStyle = '#f2f3de'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.43, 0, TAU); ctx.fill(); ctx.stroke();
+        emblem(ctx, p.classId, r * 0.56); ctx.restore();
+      }
     } else emblem(ctx, p.classId, r);
     if (p.healFlash > 0) {
       ctx.strokeStyle = 'rgba(99,255,158,' + p.healFlash.toFixed(2) + ')';
@@ -845,6 +934,7 @@
     if (drop > 0) this.drawParachute(ctx, r, drop, p.color, t);
     ctx.restore();
     if (p.repairVehicle && p.alive && !p.downed) this.drawRepair(ctx, p, px, py, t);
+    if (p.sentryBuild && !(invisible && opts.viewer && opts.viewer !== p && opts.viewer.team !== p.team)) this.drawSentryBuild(ctx, p, t, false);
     if (!p.alive || drop > 0) return;
     if (p.hp < p.maxHp || p.downed) {
       var bw = r * 2.3, bx = px - bw / 2, by = py + r + 11, k = U.clamp(p.hp / p.maxHp, 0, 1);
@@ -853,9 +943,9 @@
       ctx.fillStyle = p.downed ? '#ff5a4f' : k > 0.5 ? '#7ee05c' : k > 0.25 ? '#ffd23f' : '#ff5a4f';
       roundRect(ctx, bx, by, Math.max(3, bw * k), 7, 3.5); ctx.fill();
     }
-    if ((opts.names && !p.isLocal) || p.downed) {
+    if ((opts.names && !p.isLocal) || p.downed || p.practiceBot) {
       var viewer = opts.viewer, mate = viewer && viewer !== p && viewer.team === p.team;
-      var label = p.downed ? (p.isLocal ? 'DOWNED' : p.name + ' · DOWNED') : p.name;
+      var label = p.downed ? (p.isLocal ? 'DOWNED' : p.name + ' · DOWNED') : p.name + (p.practiceBot ? ' · ∞ HP' : '');
       ctx.font = '16px ' + FONT;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -864,6 +954,53 @@
       ctx.strokeText(label, px, py - r - 16);
       ctx.fillStyle = p.downed ? '#ff8a7a' : mate ? '#8cff6a' : '#ffffff';
       ctx.fillText(label, px, py - r - 16);
+    }
+    this.drawEmote(ctx, p, t, px, py - r - 66, opts.viewer);
+  };
+
+  // These are fixed Locker emotes, not arbitrary chat text. Draw below foliage, roofs and smoke like the body.
+  Renderer.prototype.drawEmote = function (ctx, p, t, x, y, viewer) {
+    if (!p || p.hidden || p.alive === false || p.downed || p.dropT > 0 || !p.emote || !W.Cosmetics) return false;
+    if (p.fx && p.fx.invisible > 0 && viewer && viewer !== p && viewer.team !== p.team) return false;
+    var left = p.emote.until - t, def = W.Cosmetics.emote(p.emote.id);
+    if (!(left > 0) || !Number.isFinite(left) || !def) return false;
+    var age = Math.max(0, (W.Cosmetics.EMOTE_DURATION || 3) - left);
+    var pop = this.reducedMotion ? 1 : age < 0.16 ? 0.76 + age / 0.16 * 0.3 : age < 0.28 ? 1.06 - (age - 0.16) / 0.12 * 0.06 : 1;
+    var words = /^(gg|hi|bye|haha|cooked)$/.test(def.id), text = def.glyph || def.label;
+    ctx.save(); ctx.translate(x, y); ctx.scale(pop, pop);
+    ctx.globalAlpha = Math.min(1, left / 0.3);
+    ctx.font = words ? '20px ' + FONT : '30px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+    var width = Math.max(52, ctx.measureText(text).width + 28), height = 46;
+    ctx.fillStyle = 'rgba(9,17,27,0.24)'; roundRect(ctx, -width / 2 + 2, -height / 2 + 4, width, height, 13); ctx.fill();
+    ctx.fillStyle = '#fffdf3'; ctx.strokeStyle = '#263446'; ctx.lineWidth = 3;
+    roundRect(ctx, -width / 2, -height / 2, width, height, 13); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-6, height / 2 - 1); ctx.lineTo(0, height / 2 + 8); ctx.lineTo(7, height / 2 - 1); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-6, height / 2); ctx.lineTo(0, height / 2 + 8); ctx.lineTo(7, height / 2); ctx.stroke();
+    ctx.fillStyle = '#243648'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, 0, words ? 1 : 2);
+    ctx.restore(); return true;
+  };
+
+  Renderer.prototype.drawVehicleEmotes = function (ctx, world, car, t, viewer) {
+    if (car.wreck || car.hidden || !car.seats || !W.Cosmetics) return;
+    var occupants = ['driver', 'rearLeft', 'gunner', 'rearRight'].map(function (seat) {
+      return car.seats[seat] && world.playerById(car.seats[seat]);
+    }).filter(function (p) {
+      return p && p.emote && p.emote.until > t && W.Cosmetics.emote(p.emote.id) && !p.hidden && p.alive !== false && !p.downed && !(p.dropT > 0) &&
+        !(p.fx && p.fx.invisible > 0 && viewer && viewer !== p && viewer.team !== p.team);
+    });
+    // Two columns keep even four long phrases readable without covering the entire vehicle in one row.
+    var column = 82;
+    ctx.save();
+    for (var n = 0; n < occupants.length; n++) {
+      var def = W.Cosmetics.emote(occupants[n].emote.id), words = /^(gg|hi|bye|haha|cooked)$/.test(def.id);
+      ctx.font = words ? '20px ' + FONT : '30px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      column = Math.max(column, ctx.measureText(def.glyph || def.label).width + 42);
+    }
+    ctx.restore();
+    for (var i = 0; i < occupants.length; i++) {
+      var p = occupants[i], row = Math.floor(i / 2), pair = occupants.length - row * 2 > 1;
+      var dx = pair ? (i % 2 - 0.5) * column : 0;
+      this.drawEmote(ctx, p, t, car.x + (car.ox || 0) + dx, car.y + (car.oy || 0) - (car.r || 80) - 56 - row * 64, viewer);
     }
   };
 
@@ -885,13 +1022,7 @@
     var tier = W.TIERS[it.tier], kick = -recoil * r * 0.2;
     ctx.lineWidth = 3;
     if (it.kind === 'hold') {
-      // Riot shield: a wide plate across your front.
-      var R = r + 10, arc = W.ITEMS.riotshield.arc;
-      ctx.beginPath(); ctx.arc(0, 0, R, -arc, arc);
-      ctx.strokeStyle = '#3f4c63'; ctx.lineWidth = 16; ctx.stroke();
-      ctx.strokeStyle = shieldUp ? '#9fd4ff' : '#c3ccda'; ctx.lineWidth = 9; ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(0, 0, R + 3, -arc * 0.7, arc * 0.7); ctx.stroke();
+      this.drawShield(ctx, r, false, shieldUp);
       return;
     }
     var hx = r * 1.45 + kick, hy = r * 0.65;
@@ -930,8 +1061,11 @@
   };
 
   Renderer.prototype.drawEmplacement = function (ctx, s, tier, mine) {
-    var r = s.r, sentry = s.kind === 'sentry', level = /3$/.test(s.item) ? 3 : /2$/.test(s.item) ? 2 : 1;
+    var r = s.r, sentry = s.kind === 'sentry', item = W.ITEMS[s.item], variant = item && item.sentryVariant;
+    var iv = variant && W.SENTRY_IV && W.SENTRY_IV[variant], level = iv ? 4 : /3$/.test(s.item) ? 3 : /2$/.test(s.item) ? 2 : 1;
     var teamColor = mine ? '#8cff6a' : '#ff5a4f', edge = '#172130';
+    var visualScale = iv && iv.visualScale || 1;
+    if (visualScale !== 1) { ctx.save(); ctx.scale(visualScale, visualScale); }
     ctx.fillStyle = 'rgba(0,0,0,0.24)'; ctx.beginPath(); ctx.ellipse(4, 7, r + 10, r + 6, 0, 0, TAU); ctx.fill();
     ctx.lineWidth = 4; ctx.strokeStyle = edge;
     if (sentry) {
@@ -948,15 +1082,21 @@
       ctx.save(); ctx.rotate(s.angle);
       // Upgraded heads gain side armor and twin/triple forward emitters.
       if (level > 1) {
-        ctx.fillStyle = tier.color; ctx.strokeStyle = edge; ctx.lineWidth = 3;
+        ctx.fillStyle = iv ? iv.color : tier.color; ctx.strokeStyle = edge; ctx.lineWidth = 3;
         roundRect(ctx, -r * 0.75, -r * 0.95, r * 1.15, r * 1.9, 5); ctx.fill(); ctx.stroke();
       }
       ctx.strokeStyle = edge; ctx.lineWidth = 3; ctx.fillStyle = '#d1e1e9';
-      for (var b = 0; b < level; b++) {
-        roundRect(ctx, r * 0.3 - s.flash * 3, (b - (level - 1) / 2) * 9 - 3, r * 1.15, 6, 2); ctx.fill(); ctx.stroke();
+      var emitters = iv ? (variant === 'bullets' ? 4 : variant === 'rockets' ? 3 : 1) : level;
+      var bore = iv && variant !== 'bullets' && variant !== 'rockets' ? (variant === 'cannons' ? 14 : 11) : 6;
+      for (var b = 0; b < emitters; b++) {
+        roundRect(ctx, r * 0.3 - s.flash * 3, (b - (emitters - 1) / 2) * 9 - bore / 2, r * (variant === 'cannons' ? 1.55 : 1.15), bore, 2); ctx.fill(); ctx.stroke();
       }
       roundRect(ctx, -r * 0.7, -r * 0.65, r * 1.35, r * 1.3, 5);
       ctx.fillStyle = '#35465d'; ctx.fill(); ctx.strokeStyle = edge; ctx.stroke();
+      if (iv) {
+        ctx.fillStyle = iv.color; ctx.beginPath(); ctx.arc(-r * 0.27, 0, 6, 0, TAU); ctx.fill();
+        ctx.strokeStyle = '#172130'; ctx.lineWidth = 2; ctx.stroke();
+      }
       ctx.fillStyle = s.target ? '#ff5a4f' : '#7fe9ff';
       roundRect(ctx, r * 0.12, -r * 0.4, 7, r * 0.8, 3); ctx.fill();
       ctx.strokeStyle = '#bfd6e7'; ctx.lineWidth = 3;
@@ -1000,9 +1140,15 @@
       ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
       ctx.beginPath(); ctx.arc(0, 0, r + 13, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
     }
+    if (visualScale !== 1) ctx.restore();
   };
 
   // ---------------------------------------------------------------- vehicles
+  function seatFace(ctx, p, x, y, rotation, viewer) {
+    if (!p || p.hidden || !W.CosmeticArt || (p.fx && p.fx.invisible > 0 && viewer && viewer !== p && viewer.team !== p.team)) return;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-rotation);
+    W.CosmeticArt.face(ctx, p.face, 10, p.color); ctx.restore();
+  }
   Renderer.prototype.drawTank = function (ctx, world, car, t, viewer, access) {
     var x = car.x + (car.ox || 0), y = car.y + (car.oy || 0), angle = car.angle + (car.oa || 0), wreck = car.wreck;
     var edge = '#27342b', body = wreck ? '#505551' : '#6f8151', cannonFlash = car.cannonFlash || 0, flash = car.flash || 0;
@@ -1065,6 +1211,7 @@
       ctx.beginPath(); ctx.arc(at[0], at[1], 15, 0, TAU); ctx.fill(); ctx.stroke();
       ctx.fillStyle = p ? p.color : '#b4bec9'; ctx.strokeStyle = p ? p.outline : '#35434b'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(at[0], at[1], 11, 0, TAU); ctx.fill(); ctx.stroke();
+      seatFace(ctx, p, at[0], at[1], angle, viewer);
       if (p && p.isLocal) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(at[0], at[1], 15, 0, TAU); ctx.stroke(); }
     });
     if (wreck) {
@@ -1074,6 +1221,7 @@
     }
     ctx.restore();
     this.drawVehicleInfo(ctx, world, car, viewer, access);
+    this.drawVehicleEmotes(ctx, world, car, t, viewer);
   };
 
   Renderer.prototype.drawVehicle = function (ctx, world, car, t, viewer, access) {
@@ -1131,6 +1279,7 @@
       ctx.beginPath(); ctx.arc(at[0], at[1], 11, 0, TAU);
       ctx.fillStyle = p ? p.color : '#b4bec9'; ctx.fill(); ctx.strokeStyle = p ? p.outline : '#35434b'; ctx.lineWidth = 3; ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.arc(at[0] - 3, at[1] - 3, 4, 0, TAU); ctx.fill();
+      seatFace(ctx, p, at[0], at[1], angle, viewer);
       if (p && p.isLocal) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(at[0], at[1], 14, 0, TAU); ctx.stroke(); }
     });
     if (car.armed) {
@@ -1145,6 +1294,7 @@
         var gunner = world.playerById(seats.gunner);
         ctx.fillStyle = gunner ? gunner.color : '#b4bec9'; ctx.strokeStyle = gunner ? gunner.outline : '#35434b'; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(-8, 0, 11, 0, TAU); ctx.fill(); ctx.stroke();
+        seatFace(ctx, gunner, -8, 0, Number.isFinite(car.gunAngle) ? car.gunAngle : car.angle, viewer);
         if (gunner && gunner.isLocal) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(-8, 0, 14, 0, TAU); ctx.stroke(); }
       }
       if (!wreck && flash > 0.05) {
@@ -1159,6 +1309,7 @@
     }
     ctx.restore();
     this.drawVehicleInfo(ctx, world, car, viewer, access);
+    this.drawVehicleEmotes(ctx, world, car, t, viewer);
   };
 
   Renderer.prototype.drawVehicleInfo = function (ctx, world, car, viewer, access) {
@@ -1196,8 +1347,9 @@
     var list = world.structures;
     for (var i = 0; i < list.length; i++) {
       var s = list[i];
-      if (!s.alive || !visible(v, s.x, s.y, s.r + 40)) continue;
       var it = W.ITEMS[s.item], tier = it ? W.TIERS[it.tier] : W.TIERS.epic, mine = !!viewer && s.team === viewer.team;
+      var iv = it && W.SENTRY_IV && W.SENTRY_IV[it.sentryVariant], visualScale = iv && iv.visualScale || 1;
+      if (!s.alive || !visible(v, s.x, s.y, (s.r + 40) * visualScale)) continue;
       var shake = s.shake > 0 ? Math.sin(t * 90) * s.shake * 2 : 0;
       ctx.save();
       ctx.translate(s.x + shake, s.y);
@@ -1227,14 +1379,14 @@
       ctx.restore();
       if (s.kind === 'rock') this.drawRockHealth(ctx, s);
       if (s.kind !== 'rock' && s.maxHp && s.hp < s.maxHp) {
-        var bw = s.r * 2.4, k = s.hp / s.maxHp;
-        ctx.fillStyle = 'rgba(20,24,30,0.75)'; roundRect(ctx, s.x - bw / 2 - 2, s.y - s.r - 18, bw + 4, 9, 4); ctx.fill();
-        ctx.fillStyle = k > 0.5 ? '#7ee05c' : k > 0.25 ? '#ffd23f' : '#ff5a4f'; roundRect(ctx, s.x - bw / 2, s.y - s.r - 16, Math.max(2, bw * k), 5, 2.5); ctx.fill();
+        var bw = s.r * 2.4 * visualScale, k = s.hp / s.maxHp, barY = s.y - (s.r + 18) * visualScale;
+        ctx.fillStyle = 'rgba(20,24,30,0.75)'; roundRect(ctx, s.x - bw / 2 - 2, barY, bw + 4, 9, 4); ctx.fill();
+        ctx.fillStyle = k > 0.5 ? '#7ee05c' : k > 0.25 ? '#ffd23f' : '#ff5a4f'; roundRect(ctx, s.x - bw / 2, barY + 2, Math.max(2, bw * k), 5, 2.5); ctx.fill();
       }
       if (it && s.kind !== 'rock' && s.kind !== 'teleporter') {
         ctx.font = '13px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,22,30,0.8)'; ctx.strokeText(it.name, s.x, s.y + s.r + 24);
-        ctx.fillStyle = mine ? '#8cff6a' : '#ffb3ad'; ctx.fillText(it.name, s.x, s.y + s.r + 24);
+        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,22,30,0.8)'; ctx.strokeText(it.name, s.x, s.y + (s.r + 24) * visualScale);
+        ctx.fillStyle = mine ? '#8cff6a' : '#ffb3ad'; ctx.fillText(it.name, s.x, s.y + (s.r + 24) * visualScale);
       }
     }
   };
@@ -1425,6 +1577,20 @@
     }
   };
 
+  Renderer.prototype.drawRpgRockets = function (ctx, world, view) {
+    (world.rpgRockets || []).forEach(function (rocket) {
+      if (!visible(view, rocket.x, rocket.y, 90)) return;
+      var r = rocket.r || W.WEAPONS.rpg.projectileRadius, tail = Math.min(90, rocket.traveled || 0);
+      ctx.save(); ctx.translate(rocket.x, rocket.y); ctx.rotate(Math.atan2(rocket.dy, rocket.dx));
+      ctx.strokeStyle = 'rgba(255,190,95,.55)'; ctx.lineWidth = r * .8;
+      if (tail > 0) { ctx.beginPath(); ctx.moveTo(-tail, 0); ctx.lineTo(-r, 0); ctx.stroke(); }
+      ctx.fillStyle = '#b8c47c'; ctx.strokeStyle = '#35462f'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(r * 1.6, 0); ctx.lineTo(r * .35, -r * .65); ctx.lineTo(-r * 1.3, -r * .65); ctx.lineTo(-r * 1.3, r * .65); ctx.lineTo(r * .35, r * .65); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ff983d'; ctx.beginPath(); ctx.moveTo(-r * 1.3, -r * .45); ctx.lineTo(-r * 2.7, 0); ctx.lineTo(-r * 1.3, r * .45); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e4ecc0'; ctx.fillRect(-r * .2, -r * .53, r * .25, r * 1.06); ctx.restore();
+    });
+  };
+
   Renderer.prototype.drawTankShells = function (ctx, world, view) {
     (world.tankShells || []).forEach(function (shell) {
       if (!visible(view, shell.x, shell.y, 90)) return;
@@ -1437,6 +1603,63 @@
       ctx.fillStyle = '#fff2bf'; ctx.fillRect(4, -3, 4, 6);
       ctx.restore();
     });
+  };
+
+  Renderer.prototype.drawSentryProjectiles = function (ctx, world, view, airborne) {
+    var list = world.sentryProjectiles || [];
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i], def = W.SENTRY_IV && W.SENTRY_IV[g.kind], z = g.z || 0;
+      if (!def || airborne !== (z > 1)) continue;
+      var visualRadius = def.visualRadius || g.r;
+      var tailLimit = g.kind === 'cannons' ? Math.max(75, visualRadius * 3) : g.kind === 'fireballs' ? 30 : 40;
+      if (!visible(view, g.x, g.y, z + Math.max(70, tailLimit + visualRadius))) continue;
+      ctx.save();
+      if (g.kind === 'grenades') {
+        ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.ellipse(g.x, g.y + 3, g.r, g.r * .7, 0, 0, TAU); ctx.fill();
+      }
+      ctx.translate(g.x, g.y - z); ctx.rotate(Math.atan2(g.dy, g.dx));
+      var tail = Math.min(g.traveled || 0, tailLimit);
+      if (tail > 0) {
+        ctx.strokeStyle = rgba(def.color, .5); ctx.lineWidth = visualRadius * (g.kind === 'fireballs' ? 1.7 : .8);
+        ctx.beginPath(); ctx.moveTo(-tail, 0); ctx.lineTo(0, 0); ctx.stroke();
+      }
+      ctx.fillStyle = def.color; ctx.strokeStyle = g.kind === 'snowballs' ? '#5d9ebb' : '#303a37'; ctx.lineWidth = 2;
+      if (g.kind === 'rockets') {
+        ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(1, -5); ctx.lineTo(-10, -5); ctx.lineTo(-10, 5); ctx.lineTo(1, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ff6f32'; ctx.beginPath(); ctx.moveTo(-10, -4); ctx.lineTo(-22, 0); ctx.lineTo(-10, 4); ctx.fill();
+      } else if (g.kind === 'fireballs') {
+        ctx.beginPath(); ctx.moveTo(-g.r * 2.5, 0); ctx.quadraticCurveTo(g.r, -g.r * 1.6, g.r, 0); ctx.quadraticCurveTo(g.r, g.r * 1.6, -g.r * 2.5, 0); ctx.fill();
+        ctx.fillStyle = '#ffeaa5'; ctx.beginPath(); ctx.arc(0, 0, g.r * .55, 0, TAU); ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.arc(0, 0, visualRadius, 0, TAU); ctx.fill(); ctx.stroke();
+        if (g.kind === 'grenades') {
+          ctx.rotate(g.age * 8); ctx.fillStyle = '#57723a'; ctx.fillRect(-3, -g.r - 4, 6, 6);
+          ctx.strokeStyle = '#e6edc4'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-4, -g.r + 1); ctx.lineTo(5, -g.r + 1); ctx.stroke();
+        } else {
+          ctx.fillStyle = '#fff7df'; ctx.beginPath(); ctx.arc(-visualRadius * .25, -visualRadius * .25, visualRadius * .3, 0, TAU); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+  };
+
+  Renderer.prototype.drawSentryStatus = function (ctx, world, p, viewer) {
+    if (!p.alive || p.hidden || p.vehicle || p.dropT > 0 || (p.fx.invisible > 0 && viewer && viewer !== p && viewer.team !== p.team)) return;
+    var frozen = p.sentryFreezeUntil > world.time, slow = world.activeSentrySnow && world.activeSentrySnow(p);
+    var burning = p.sentryBurn && p.sentryBurn.until > world.time;
+    if (!frozen && !slow && !burning) return;
+    ctx.save(); ctx.translate(p.x + (p.ox || 0), p.y + (p.oy || 0));
+    if (frozen || slow) {
+      ctx.strokeStyle = frozen ? '#d5f9ff' : '#80d7f2'; ctx.lineWidth = frozen ? 4 : 2; ctx.fillStyle = 'rgba(155,225,255,.2)';
+      ctx.beginPath();
+      for (var i = 0; i < 6; i++) { var a = i * TAU / 6, x = Math.cos(a) * (p.r + 7), y = Math.sin(a) * (p.r + 7); if (!i) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+      ctx.closePath(); if (frozen) ctx.fill(); ctx.stroke();
+    }
+    if (burning) {
+      ctx.strokeStyle = '#ff964c'; ctx.lineWidth = 3; ctx.setLineDash([5, 6]); ctx.lineDashOffset = -world.time * 20;
+      ctx.beginPath(); ctx.arc(0, 0, p.r + 4, 0, TAU); ctx.stroke();
+    }
+    ctx.restore();
   };
 
   Renderer.prototype.drawGrenades = function (ctx, world, v, t, airborne) {

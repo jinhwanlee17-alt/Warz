@@ -24,7 +24,7 @@
     projectileChargeTime: 0.75, // hold time for maximum grenade or launcher range
     pondSpeedMul: 0.62,
     upgradeCost: 8,             // first-tier compatibility value; use Rules.upgradeCostFor for a target class
-    upgradeCosts: { 1: 8, 2: 15 },
+    upgradeCosts: { 1: 8, 2: 15, 3: 40 },
     stationCooldown: 90,        // seconds before a used upgrade station works again
     stationCount: 9,            // 75% fewer upgrade stations than the previous 36
     stationMinGap: 520,
@@ -140,6 +140,20 @@
   WEAPONS.tankmg = Object.assign({}, WEAPONS.turret, { id: 'tankmg', name: 'Tank Machine Gun', damage: 8, mag: 1000, reload: 4, fireInterval: 0.09, blurb: '1000 rounds; four-second reload. 8 damage per shot.' });
   WEAPONS.hammer = { id: 'hammer', name: 'Repair Hammer', kind: 'melee', damage: 30, range: 90, halfAngle: 0.75,
     fireInterval: 0.6, mag: 1, reload: 0, recoil: 0, blurb: '30 base melee damage. Use gear to repair 100 HP every 3.5 seconds on a Humvee or every 2 seconds on a tank. Nearby enemies can see you on their map while repairing.' };
+  WEAPONS.engineerhammer = Object.assign({}, WEAPONS.hammer, { id: 'engineerhammer', name: "Engineer's Hammer",
+    blurb: '30 melee damage. Hold fire toward a friendly sentry to repair 12 HP/s or upgrade it when fully repaired. Sentry II/III: 8 tokens and 8 seconds each. Sentry IV: choose a type, then 30 tokens and 30 seconds.' });
+  W.ENGINEER = { repairRate: 12, reach: 150, upgradeCost: 8, upgradeSeconds: 8, finalCost: 30, finalSeconds: 30 };
+  WEAPONS.wrench = { id: 'wrench', name: 'Sentry Wrench', kind: 'ability', buildSeconds: 10, range: 150,
+    mag: 1, cooldown: 0, reload: 0, recoil: 0, blurb: 'Hold fire for 10 seconds to build a normal sentry in front of you. Release to cancel construction.' };
+  WEAPONS.shieldpistol = Object.assign({}, WEAPONS.pistol, { id: 'shieldpistol', name: 'Riot Shield + Pistol', shield: 'riot',
+    blurb: 'Fire a Basic Pistol while keeping your riot shield raised. Ten rounds, 8 damage per shot; protection covers your front.' });
+  WEAPONS.explosiveshield = { id: 'explosiveshield', name: 'Explosive Shield', kind: 'shield', shield: 'explosive',
+    mag: 1, cooldown: 0, reload: 0, recoil: 0, blurb: 'Red riot shield. Blocks frontal bullets, grenades, launcher blasts and flashbangs. Does not block fire, snow, gravity, smoke, poison, lightning, meteors, airstrikes or tanks.' };
+  WEAPONS.rpg = { id: 'rpg', name: 'RPG', kind: 'rocket', mag: 1, fireInterval: 0.25, reload: 3,
+    projectileSpeed: 1100, projectileRadius: 12, range: CONFIG.worldSize * 2, unlimitedRange: true, recoil: 90,
+    explosion: { minDamage: 10, maxDamage: 200, radius: WEAPONS.grenade.explosion.radius * 0.9 },
+    vehicleDamage: { humvee: { minDamage: 10, maxDamage: 500 }, tank: { minDamage: 10, maxDamage: 1000 } },
+    blurb: 'A straight-flying rocket with unlimited range. 10–200 blast damage to players, 10–500 to Humvees and 10–1000 to tanks. One rocket per 3-second reload; unlimited reserve. Blast radius is 10% smaller than a grenade.' };
 
   var CLASSES = W.CLASSES = {
     soldier: {
@@ -180,8 +194,26 @@
   CLASSES.armorcrew = { id: 'armorcrew', name: 'Armor Crewmember', tier: 2, parent: 'medic', hp: 150, armor: 0,
     loadout: ['hammer', 'pistol'], color: '#c5c98a', description: '150 HP and permanent 10% damage reduction. Hammer and pistol; +5% vehicle weapon damage, +15% Humvee speed, faster tank fire and two cannon rounds before a 3-second reload. Use gear to repair vehicles; nearby enemies see your location while repairing.' };
   W.CLASS_ORDER = ['soldier', 'sniper', 'shotgunner', 'medic', 'grenadier', 'sniper2', 'commander', 'shotgunner2', 'juggernaut', 'medic2', 'grenadier2', 'pyromancer', 'armorcrew'];
-  W.CLASS_PLANNED = {};
   ['pyromancer', 'juggernaut', 'commander', 'armorcrew'].forEach(function (id) { CLASSES[id].parents = ['sniper', 'shotgunner', 'medic', 'grenadier']; });
+  var levelTwoParents = W.CLASS_ORDER.filter(function (id) { return CLASSES[id].tier === 2; });
+  CLASSES.engineer = { id: 'engineer', name: 'Engineer', tier: 3, parent: 'sniper2', parents: levelTwoParents.slice(), hp: 100, armor: 0,
+    loadout: ['wrench', 'pistol', 'engineerhammer'], color: '#efc562', description: 'Wrench, Basic Pistol and Engineer’s Hammer. Build sentries in 10 seconds; repair or upgrade them with the hammer. Your old slot-3 item moves to slot 6.' };
+  CLASSES.shieldoperator = { id: 'shieldoperator', name: 'Shield Operator', tier: 3, parent: 'sniper2', parents: levelTwoParents.slice(), hp: 100, armor: 0,
+    loadout: ['shieldpistol', 'explosiveshield'], color: '#82bedb', description: 'A riot shield and Basic Pistol share one slot, letting you fire while protected. Your second slot holds a red explosive shield. Available from any level-two class.' };
+  W.CLASS_ORDER.push('engineer', 'shieldoperator');
+  CLASSES.rocketeer = { id: 'rocketeer', name: 'Rocketeer', tier: 3, parent: 'grenadier2', hp: 65, armor: 0,
+    loadout: ['rpg', 'pistol'], color: '#d0a765', description: '65 HP with an RPG and Basic Pistol. Rockets cross the island and deal up to 200 damage to players, 500 to Humvees, or 1000 to tanks. Requires Grenadier II.' };
+  W.CLASS_ORDER.push('rocketeer');
+  W.CLASS_PLANNED = {};
+  [
+    ['shotgunner3', 'Shotgunner III', 'shotgunner2'], ['sniper3', 'Sniper III', 'sniper2'],
+    ['magicmedic', 'Magic Medic', 'medic2'],
+    ['president', 'President', 'commander'], ['pyromaniac', 'Pyromaniac', 'pyromancer'],
+    ['tankcommander', 'Tank Commander', 'armorcrew'], ['juggernaut2', 'Juggernaut II', 'juggernaut']
+  ].forEach(function (entry) {
+    W.CLASS_PLANNED[entry[0]] = { id: entry[0], name: entry[1], parent: entry[2], tier: 3,
+      description: 'A future level-three upgrade for ' + CLASSES[entry[2]].name + '. This class is not playable yet.' };
+  });
 
   // Crate tiers. `share` divides the regular crates (80/10/8/2); the one central legendary is separate. `tokens` is the drop range,
   // `armor` the chance of an armor plate, and `loot` the chance of an item of each rarity (one roll, one item at most).
@@ -289,9 +321,10 @@
     soldier: { x: 500, y: 510 },
     sniper: { x: 140, y: 305 }, shotgunner: { x: 380, y: 305 }, medic: { x: 620, y: 305 }, grenadier: { x: 860, y: 305 },
     sniper2: { x: 80, y: 78 }, commander: { x: 200, y: 78 }, shotgunner2: { x: 320, y: 78 }, juggernaut: { x: 440, y: 78 },
-    medic2: { x: 560, y: 78 }, armorcrew: { x: 680, y: 78 }, grenadier2: { x: 800, y: 78 }, pyromancer: { x: 920, y: 78 }
+    medic2: { x: 560, y: 78 }, armorcrew: { x: 680, y: 78 }, grenadier2: { x: 800, y: 78 }, pyromancer: { x: 920, y: 78 },
+    engineer: { x: 500, y: 110 }, shieldoperator: { x: 790, y: 110 }, rocketeer: { x: 210, y: 110 }
   };
-  W.TREE_SOON = [];
+  W.TREE_SOON = Object.keys(W.CLASS_PLANNED).map(function (id) { return Object.assign({ x: 210, y: 110 }, W.CLASS_PLANNED[id]); });
 
   W.MODES = [
     { id: 'solo', name: 'Solo', size: 1, blurb: 'Just you against the lobby.' },
@@ -328,11 +361,15 @@
   W.BARRELS.shotgun2 = { trap: { x: 0.2, len: 1.75, h0: 0.6, h1: 1.05 } };
   W.BARRELS.sniper2 = { parts: [{ x: 0.2, len: 2.65, h: 0.36 }, { x: 0.7, len: 0.8, h: 0.72 }] };
   W.BARRELS.launcher2 = { parts: [{ x: 0.2, len: 1.75, h: 0.92 }, { x: 1.55, len: 0.3, h: 1.1 }] };
+  W.BARRELS.rpg = { parts: [{ x: 0.1, len: 2.05, h: 0.52 }, { x: 1.65, len: 0.6, h: 0.86 }] };
   W.BARRELS.flamethrower = { parts: [{ x: 0.2, len: 1.6, h: 0.65 }, { x: 1.3, len: 0.5, h: 0.9 }] };
   W.BARRELS.revolver = { parts: [{ x: 0.2, len: 1.6, h: 0.5 }, { x: 0.5, len: 0.5, h: 0.75 }] };
   W.BARRELS.minigun = { parts: [{ x: 0.2, len: 2.0, h: 0.85 }, { x: 1.7, len: 0.4, h: 1.05 }] };
   W.BARRELS.commandpistol = { parts: [{ x: 0.2, len: 1.4, h: 0.5 }] };
   W.BARRELS.commandradar = { parts: [{ x: 0.25, len: 0.85, h: 0.9 }] };
+  W.BARRELS.shieldpistol = W.BARRELS.pistol;
+  W.BARRELS.explosiveshield = { held: 'shield' };
+  W.BARRELS.wrench = { held: 'wrench' };
   W.muzzleLength = function (weaponId) {
     var b = W.BARRELS[weaponId], max = 1.2;
     if (b && b.parts) b.parts.forEach(function (p) { max = Math.max(max, p.x + p.len); });
@@ -375,7 +412,9 @@
       if (player) current = player.classId;
       if (!CLASSES[current] || !CLASSES[target]) return 'locked';
       if (current === target) return 'current';
-      var walk = CLASSES[current];
+      var path = player && Array.isArray(player.upgradePath) && player.upgradePath.length && player.upgradePath.every(function (id) { return typeof id === 'string' && !!CLASSES[id]; }) ? player.upgradePath : null;
+      if (path && path.indexOf(target) >= 0) return 'owned';
+      var walk = path ? null : CLASSES[current];
       while (walk && walk.parent) {
         var parent = walk.id === current && player && player.upgradeFrom ? player.upgradeFrom : walk.parent;
         if (parent === target) return 'owned';
@@ -446,6 +485,8 @@
     },
     weaponLine: function (id) {
       var w = WEAPONS[id];
+      if (id === 'wrench') return w.buildSeconds + ' s to build a normal sentry · hold fire';
+      if (id === 'explosiveshield') return 'Frontal bullet, grenade and flash protection · tank weapons bypass';
       if (w.kind === 'gun') {
         if (w.pellets) return w.damageFar + '–' + w.damageNear + ' dmg by distance · ' + w.mag + ' rounds';
         if (w.unlimitedRange) return w.damage + '–' + w.damageMax + ' dmg by distance · ' + w.mag + ' rounds · unlimited range';
@@ -453,6 +494,7 @@
         return w.damage + ' dmg · ' + w.mag + (w.mag === 1 ? ' round' : ' rounds');
       }
       if (w.kind === 'launcher') return '0–' + w.explosion.maxDamage + ' blast · ' + w.landFuse + ' s fuse · ' + w.mag + ' rounds · endless grenades';
+      if (w.kind === 'rocket') return w.explosion.minDamage + '–' + w.explosion.maxDamage + ' blast · up to ' + w.vehicleDamage.humvee.maxDamage + ' vs Humvees / ' + w.vehicleDamage.tank.maxDamage + ' vs tanks · ' + w.reload + ' s reload · unlimited range';
       if (w.kind === 'throwable') return '×' + w.count + ' · 0–' + w.explosion.maxDamage + ' blast';
       if (w.kind === 'flame') return w.damage + '–' + w.damageMax + ' dmg per ' + w.fireInterval + ' s · area flame';
       if (w.kind === 'melee') return w.damage + ' melee damage · ' + w.fireInterval + ' s between swings · vehicle repair';

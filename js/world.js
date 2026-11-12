@@ -17,6 +17,7 @@
     this.map = opts.map;
     this.demo = !!opts.demo;
     this.remote = !!opts.remote;
+    this.practice = !!opts.practice && !this.remote && !this.demo;
     this.teams = !!opts.teams;
     this.rng = U.rng((this.map.seed ^ 0x5bd1e995) >>> 0);
     this.time = 0;
@@ -70,9 +71,11 @@
 
   // ---------------------------------------------------------------- players
   World.prototype.addPlayer = function (o) {
-    var color = o.color || '#2f9bff';
+    var look = W.Cosmetics.normalize(o.cosmetics || { color: o.color, face: o.face, emotes: o.emotes });
+    var color = o.cosmetics ? look.color : o.color || look.color;
     var p = {
       id: o.id || this.nextId++, name: o.name || 'Player', color: color, outline: o.outline || U.shade(color, -0.3),
+      face: look.face, emotes: look.emotes, emote: null, emoteReadyAt: 0,
       x: o.x, y: o.y, vx: 0, vy: 0, r: C.playerRadius, angle: o.angle || 0,
       classId: 'soldier', hp: 100, maxHp: 100, armor: 0, weapons: [], slot: 0, lastSlot: 0,
       grenades: 0, medkitCd: 0, throwCd: 0, tokens: o.tokens || 0, keys: o.keys || 0,
@@ -91,6 +94,41 @@
     this.setClass(p, o.classId || 'soldier', true);
     this.players.push(p);
     return p;
+  };
+
+  World.prototype.applyCosmetics = function (p, value) {
+    var look = W.Cosmetics.normalize(value);
+    p.color = look.color; p.outline = U.shade(look.color, -0.3); p.face = look.face; p.emotes = look.emotes;
+    return look;
+  };
+
+  // Training targets exist only in an explicitly offline Practice world. Keep HP
+  // finite for physics/rendering while allowing hits and damage feedback forever.
+  World.prototype.isPracticeBot = function (p) { return this.practice && !this.remote && !!p && p.practiceBot === true; };
+  World.prototype.spawnPracticeBot = function (player) {
+    if (!this.practice || this.remote || !player || this.players.indexOf(player) < 0 || !player.alive || player.downed || player.dropT > 0) return null;
+    for (var radius = 140; radius <= 380; radius += 40) {
+      for (var i = 0; i < 32; i++) {
+        var offset = Math.ceil(i / 2) * (i % 2 ? 1 : -1) / 32 * U.TAU;
+        var angle = player.angle + offset, x = player.x + Math.cos(angle) * radius, y = player.y + Math.sin(angle) * radius;
+        if (!this.spotFree(x, y, C.playerRadius + 6, false) || this.inPond(x, y) || !this.lineClear(player.x, player.y, x, y)) continue;
+        var p = this.addPlayer({ name: 'Practice target', x: x, y: y, color: '#ff9a48', bot: true, angle: angle + Math.PI });
+        p.practiceBot = true;
+        p.controller = null;
+        this.text(x, y - p.r - 35, '∞ HP', '#ffdc75', 20);
+        return p;
+      }
+    }
+    return null;
+  };
+  World.prototype.useEmote = function (p, slot) {
+    if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || !Number.isInteger(slot) || slot < 0 || slot >= 9 || this.time + 1e-8 < p.emoteReadyAt) return false;
+    var id = p.emotes[slot];
+    if (!W.Cosmetics.emote(id)) return false;
+    p.emote = { id: id, until: this.time + W.Cosmetics.EMOTE_DURATION };
+    p.emoteReadyAt = this.time + W.Cosmetics.EMOTE_COOLDOWN;
+    this.emit({ type: 'emote', player: p, id: id, duration: W.Cosmetics.EMOTE_DURATION });
+    return true;
   };
 
   World.prototype.teamStanding = function (team, except) {
@@ -126,6 +164,7 @@
     if (p.vehicle && this.exitVehicle) this.exitVehicle(p, true);
     p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.alive = true; p.deadT = 0; p.hitFlash = 0;
     p.downed = false; p.downT = 0; p.revive = 0;
+    p.emote = null; p.emoteReadyAt = 0;
     p.stamina = C.staminaMax; p.sprintExhausted = false; p.sprintRestT = 0; p.sprinting = false;
     this.resetItems(p);
     this.setClass(p, classId || 'soldier', true);
@@ -177,7 +216,7 @@
   };
 
   World.prototype.updatePlayer = function (p, dt) {
-    var intent = (p.controller && p.controller(p, this, dt)) || IDLE;
+    var intent = this.isPracticeBot(p) ? IDLE : (p.controller && p.controller(p, this, dt)) || IDLE;
     p.meleeSwing = Math.max(0, (p.meleeSwing || 0) - dt);
     p.recoil = Math.max(0, p.recoil - dt * 7);
     p.hitFlash = Math.max(0, p.hitFlash - dt * 6);
@@ -188,7 +227,7 @@
     var cur = p.weapons[p.slot];
     if (cur.reloading) {
       cur.reloadT -= dt;
-      if (cur.reloadT <= 0) {
+      if (cur.reloadT <= 0.00000001) {
         cur.reloading = false; cur.reloadT = 0; cur.ammo = WEAPONS[cur.id].mag;
         this.emit({ type: 'reloaded', player: p, weapon: cur.id });
       }
@@ -225,6 +264,7 @@
     if (intent.reload) this.startReload(p);
     if (!dropped && intent.utility) this.useUtility(p, intent);
     if (!dropped && (intent.fire || intent.firePressed)) { if (p.held >= 0) this.useHeld(p, intent); else this.trigger(p, intent); }
+    this.refreshShield(p);
     this.moveStep(p, intent, dt);
   };
 
@@ -304,8 +344,10 @@
   };
 
   World.prototype.downPlayer = function (p, src, cause) {
+    if (this.isPracticeBot(p)) return;
     if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     p.downed = true; p.downT = DOWNED_TIME; p.hp = DOWNED_HP; p.revive = 0; p.reviver = null;
+    p.emote = null;
     p.vx = 0; p.vy = 0; p.scoping = false;
     p.sprinting = false;
     if (p.mount) this.dismount(p, true);
@@ -498,6 +540,7 @@
   World.prototype.aimedProjectile = function (p) {
     if (p.mount || p.vehicle) return null; // Mounted fire belongs to the turret, regardless of the equipped weapon.
     var held = this.heldItem(p);
+    if (p.held >= 0 && !held) return null;
     if (held) return held.kind === 'throw' ? held.id : null;
     var w = p.weapons[p.slot], def = w && WEAPONS[w.id];
     return def && (def.kind === 'launcher' || def.kind === 'throwable') ? def.id : null;
@@ -913,21 +956,23 @@
     var trueDamage = cause === 'lightning', raw = cause === 'storm' || cause === 'snow';
     if (!trueDamage && !raw) {
       if (fx && fx.immune > 0) { this.text(p.x, p.y - p.r - 14, 'IMMUNE', '#7fe9ff', 18); this.emit({ type: 'blocked', player: p, how: 'immune', source: src }); return; }
-      if (from && this.shieldBlocks(p, from.x, from.y)) {
+      if (from && this.shieldBlocks(p, from.x, from.y, cause)) {
         this.sparks(hx === undefined ? p.x : hx, hy === undefined ? p.y : hy, 1, 0, '#cfd8e6', 4);
         this.text(p.x, p.y - p.r - 14, 'BLOCKED', '#cfd8e6', 16);
         this.emit({ type: 'blocked', player: p, how: 'shield', source: src });
         return;
       }
-      if (src && src !== p && cause !== 'airstrike' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg') amount *= this.damageMul(src);
+      if (src && src !== p && cause !== 'airstrike' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn') amount *= this.damageMul(src);
       amount = Math.round(amount * this.reduceMul(p) * 10) / 10;
       if (amount <= 0) return;
     }
     // The Armor Crew passive is permanent personal protection, including true damage and the storm.
     if (p.classId === 'armorcrew') amount = Math.round(amount * W.ARMOR_CREW.damageTakenMul * 10) / 10;
     var absorbed = trueDamage ? 0 : Math.min(p.armor, amount);
-    p.armor -= absorbed;
-    p.hp -= amount - absorbed;
+    if (!this.isPracticeBot(p)) {
+      p.armor -= absorbed;
+      p.hp -= amount - absorbed;
+    }
     if (src && src !== p) { src.stats.damage += amount; src.stats.hits++; }
     this.showDamage(p, amount, hx, hy);
     this.emit({ type: 'damage', target: p, source: src, amount: amount, cause: cause, x: hx === undefined ? p.x : hx, y: hy === undefined ? p.y - p.r : hy });
@@ -953,8 +998,10 @@
   };
 
   World.prototype.killPlayer = function (p, src, cause) {
+    if (this.isPracticeBot(p)) return;
     var wasDowned = p.downed, team = p.team;
     p.alive = false; p.hp = 0; p.deadT = 0; p.vx = 0; p.vy = 0; p.nearStation = null;
+    p.emote = null;
     p.sprinting = false;
     p.downed = false; p.downT = 0; p.revive = 0; p.scoping = false; p.wantsRevive = false;
     if (src && src !== p) src.stats.kills++;
@@ -1110,6 +1157,7 @@
 
   // Tokens and keys always; armor only below the cap; items only while a hotbar slot (or stack) has room.
   World.prototype.wantsPickup = function (p, pk) {
+    if (this.isPracticeBot(p)) return false;
     if (pk.type === 'armor') return p.armor < C.armorMax;
     if (pk.type === 'item') return !!pk.item && this.canTake(p, pk.item);
     return true;

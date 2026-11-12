@@ -1,0 +1,7 @@
+.sentry-upgrade-card { width: min(920px, calc(100vw - 28px)); }
+.sentry-upgrade-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.sentry-upgrade-option { display: flex; flex-direction: column; gap: 12px; padding: 20px 16px; text-align: left; border: 2px solid var(--sentry-color); border-radius: 14px; background: #191c22; color: #edf3fb; cursor: pointer; font: inherit; line-height: 1.5; }
+.sentry-upgrade-option strong { font-size: 1.15rem; color: var(--sentry-color); }
+.sentry-upgrade-option:hover, .sentry-upgrade-option:focus-visible { background: #303641; outline: 3px solid #fff; outline-offset: 2px; }
+.sentry-upgrade-hp { font-weight: 800; }
+@media (max-width: 650px) { .sentry-upgrade-options { grid-template-columns: 1fr; } .sentry-upgrade-option { gap: 6px; padding: 14px; } }

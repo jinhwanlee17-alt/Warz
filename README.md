@@ -95,9 +95,9 @@ The server verifies Apple's ID token the same way (issuer `https://appleid.apple
 | Modes | Solo, Duos, Trios, Squads. Teams: no friendly fire except commander airstrikes; grenades can damage their thrower, team medkit heals, knocked-down players bleed out in 30 s unless a teammate holds `E` next to them (medics revive twice as fast). When the last standing member falls, the team is out. |
 | Spawn | evenly spaced coastal Drop Stations: 50 Solo, 25 Duos, 16 Trios, 12 Squads; 1.8 s parachute drop. Teammates land together; extra partial/no-fill teams receive separate nearby coastal positions |
 | Start | Soldier: 100 HP, 0 armor, Basic AR + Basic Pistol |
-| Tokens | a few in the open, in buildings and inside every crate. **8 tokens buy level 1; 15 tokens buy level 2.** |
+| Tokens | a few in the open, in buildings and inside every crate. **8 tokens buy level 1; 15 tokens buy level 2; 40 tokens buy level 3.** |
 | Crates | 210 regular crates: 80% common, 10% rare, 8% epic, 2% mythic (whole-crate rounding). Exactly one legendary crate at the center drops all four legendary items and announces its destruction to everyone. Its gold marker appears on both maps until the crate breaks. |
-| Items | One five-slot hotbar: two weapons/class gear (`1`–`2`) and three items (`3`–`5`). Press `E` near an item to pick it up; select an item and left click to use it or `Q` to drop its entire stack. `Tab` opens item details. Class weapons stay with you. See **Items** below. |
+| Items | Two weapons/class gear (`1`–`2`) and three items (`3`–`5`); Engineer adds its hammer in slot `3` and moves that item to `6`. Press `E` near an item to pick it up; select an item and left click to use it or `Q` to drop its entire stack. `Tab` opens item details. Class weapons stay with you. See **Items** below. |
 | Upgrade Stations | 9 per island (glowing blue hexagons). `E` opens the class tree. A used station recharges for **1:30** unless you spend a **station key**. |
 | Ammo | infinite; magazines reload automatically |
 | Humvees | Eight per island on a slightly varied inner ring, 1,000 HP each. WASD steers through gradual curves at up to 378 units/s (30% slower than the previous speed). At cruising speed the hull crushes contacted crates of every tier, releasing their normal loot; slower vehicles stop against crates. Ram damage is 65 × current speed / maximum speed. E boards from any side or exits. Seats fill in order: driver, machine gunner if equipped, then rear passengers, limited by the match team size. Solo vehicles have only a driver seat. In team modes every Humvee has two rear passenger seats; two also have a separate Turret I gunner position on the side. The hull absorbs damage for all occupants. A destroyed Humvee ejects its crew and remains an indestructible, solid wreck. |
@@ -114,7 +114,7 @@ The server verifies Apple's ID token the same way (issuer `https://appleid.apple
 
 Bots live on the server, inside the match (`server/core/bots/`). Each one is an ordinary player whose inputs come
 from code instead of a socket: it returns the same move / aim / fire / item intent a browser sends, so every rule
-that applies to a player applies to a bot. Offline Practice has no bots.
+that applies to a player applies to a bot. Offline Practice starts without bots. In **Esc → Settings**, choose **Spawn practice bot** to add a nearby stationary target with unlimited HP. It never attacks or picks up loot, while hits still show damage numbers. The same button is available in the pause menu's practice tools.
 
 - **The lobby**: in team modes bots first fill the open spots on teams that have Fill switched on, then make up
   whole teams until there are 50 players. A party with Fill off keeps its empty spots. Bots have ordinary names
@@ -170,7 +170,34 @@ You pick **one** Lvl 1 class per match; the other branches lock. Then spend 15 t
 | Any level 1 | Juggernaut | 150 HP, 25% slower; 5-damage minigun with 0.75-second spin-up and 20 rounds/second; basic pistol |
 | Any level 1 | Commander | 100 HP; 15-damage, 12-round pistol; radar grants the team +25% damage/speed/fire rate for 15 seconds, with a 45-second cooldown. Cursor airstrike warns for 5 seconds, radius 225, then deals 250 damage to everyone inside, including allies |
 
-Aim in a direction and release fire to throw a grenade or launcher shell. A quick tap gives a short throw; holding for 0.75 seconds reaches maximum range, with the preview growing as you charge. Mouse distance does not set range. Hand grenades reach 560 world units, the launcher 660, and Launcher II 700. Hold/release the gear key also charges the Grenadier's hand grenade. Grenades can damage their owner. Sentries target opposing players first, then crates. Foliage has no hidden center collision.
+Aim in a direction and release fire to throw a grenade or launcher shell. A quick tap gives a short throw; holding for 0.75 seconds reaches maximum range, with the preview growing as you charge. Mouse distance does not set range. Hand grenades reach 560 world units, the launcher 660, and Launcher II 700. Hold/release the gear key also charges the Grenadier's hand grenade. Grenades can damage their owner. Sentries target opposing players and occupied enemy vehicles first, then crates. Vehicle hits damage the hull, preserving occupants' HP. Foliage has no hidden center collision.
+
+## Level-three classes
+
+Engineer and Shield Operator are available from **any level-two class for 40 tokens** and have 100 HP. Rocketeer requires **Grenadier II**, costs **40 tokens**, and has **65 HP**. All use the same station recharge and key rules.
+
+| Class | Equipment |
+| --- | --- |
+| Engineer | Sentry Wrench, Basic Pistol, and Engineer's Hammer in slots 1–3. Hold fire with the wrench for 10 seconds to construct an ordinary 50-HP sentry. The hammer deals 30 melee damage and repairs a friendly sentry at 12 HP/second. The previous slot-3 item moves to slot 6; slots 4–5 stay in place. |
+| Rocketeer | RPG + Basic Pistol. One rocket, then a 3-second reload, with unlimited reserve ammo. Click to fire immediately in the aimed direction. Rockets cross the island and explode on contact in a radius 10% smaller than a grenade: 10–200 player damage, 10–500 Humvee damage, or 10–1000 tank damage. Direct hits deal the maximum; blast damage falls with distance. |
+| Shield Operator | Slot 1 combines a forward-facing riot shield with a Basic Pistol: 10 rounds, 8 damage, normal reload, shield stays raised while shooting. Slot 2 is a red explosive shield, with no pistol. It also blocks frontal grenades, both grenade launchers, and flashbangs. Both class shields retain the normal shield movement penalty. |
+
+The pistol's riot shield is inactive during reload. The class shields do not stop fire, snowbombs, gravity bombs, smoke, poison, lightning, meteors, commander airstrikes, tank weapons, or vehicle ramming. Hits from behind bypass the shields. Selecting an item or an empty slot puts the class shield away. Every class can select empty item slots and remain empty-handed.
+
+Aim the Engineer's hammer at a friendly sentry and hold fire to repair it. At full health, continued hammer work upgrades Sentry I to II, then II to III: each costs 8 tokens and takes 8 seconds. Sentry III offers all six Sentry IV weapons: bullets, grenades, rockets, snowballs, fireballs, and cannons. The upgrade costs 30 tokens and takes 30 seconds. Releasing fire, changing equipment, boarding, leaving reach, or damage to the sentry interrupts construction; tokens are spent only on completion. The wrench cannot build through cover or on occupied ground.
+
+| Sentry IV weapon | HP | Attack |
+| --- | --- | --- |
+| Bullets | 250 | 50 damage, 25% faster firing than Sentry III |
+| Grenades | 310 | 8/second, normal 100-damage grenade blast; arcs over cover and bursts on contact or landing |
+| Rockets | 150 | 15/second, unlimited travel across the island; 0–25 player blast damage, 10–80 Humvee damage, or 10–100 tank damage bypassing tank resistance, in half a grenade's blast radius |
+| Snowballs | 100 | 50/second, 10 damage; each hit slows movement 5% for 3 seconds; 20 active stacks freeze for 5 seconds |
+| Fireballs | 300 | 50/second, 20 damage plus a refreshed 3-second burn ticking 1 damage every 0.1 seconds |
+| Cannons | 760 | Once every 5 seconds, bullet-speed projectile; 500 damage through shields, 510 to vehicles; destroys the first rock hit and stops. Double-size sentry visuals and a rock-sized cannonball. |
+
+Tanks take 75% less damage from regular bullets, turrets and sentries, except rocket sentries and the cannon's explicit 510 damage. Rocket sentries bypass this resistance and deal their full 10–100 tank damage. Rocketeer's RPG is an anti-tank explosive and deals its full 10–1000 base tank damage. Snowballs deal 75% less damage to tanks and 50% less to Humvees. Each vehicle snow hit slows fire/reload clocks by 5%, up to 50%, with independently expiring 3-second stacks. Tanks cannot burn; Humvees can. Sentry IV variants are upgrade-only and do not change crate drops.
+
+Seven additional level-three branches are visible but **not playable yet**: Shotgunner III from Shotgunner II, Sniper III from Sniper II, Magic Medic from Medic II, President from Commander, Pyromaniac from Pyromancer, Tank Commander from Armor Crewmember, and Juggernaut II from Juggernaut.
 
 ## Items
 
@@ -190,7 +217,18 @@ Your items drop where you die. All numbers live in `W.ITEMS` / `W.CRATES` in `js
 `3`–`5` hold a hotbar item · `R` reload · `F`/`G` gear (medkit / grenade) ·
 `Q` drop the held item stack · `E` pick up item / Upgrade Station / mount a turret / hold to revive · `Tab` inventory · `M` map · `Esc` menu
 
+Engineer uses `3` for its hammer and `6` for the item previously in slot 3. Empty item slots can also be selected.
+
 ## How the online play works
+
+The main-menu **Locker** saves your look in this browser: twenty preset colours, an HSV colour wheel,
+brightness and RGB/hex input, plus six optional faces. Items remain locked. Equip nine of thirteen fixed
+emotes, then press **B** in a match and choose **Q W E R T Y U I O** (slots 1-9), or click a slot.
+The compact 3×3 picker sits on the right without pausing movement, sprinting, aiming or firing. Movement
+keys remain held when selecting an emote; other selection shortcuts are consumed so Q/E/R cannot also
+drop an item, interact or reload. B or Esc closes the panel.
+Other players see your chosen colour, face and a three-second emote bubble. Emotes have a 1.5-second cooldown
+and use a fixed server-validated list; there is no text chat. Rejoining restores appearances and active bubbles.
 
 - One WebSocket to the **hub** for the menu (accounts, friends, parties, queue). When a match forms, the hub hands
   every player a one-time ticket; the client opens a second WebSocket to that **match**.

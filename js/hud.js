@@ -3,7 +3,7 @@
   'use strict';
   var W = window.Warz, U = W.U, C = W.CONFIG, WEAPONS = W.WEAPONS, CLASSES = W.CLASSES, Icons = W.Icons, Controls = W.Controls;
   var el = {}, cache = {}, mini = null, bannerTimer = 0, lastClass = null, lastWeaponsKey = '', modeLabel = 'Solo', teamKey = '', buffKey = '';
-  var ITEMS = W.ITEMS, baseHints = '';
+  var ITEMS = W.ITEMS, baseHints = '', hintPlayer = null;
   var VEHICLE_ROLES = { driver: 'Driver', gunner: 'Gunner', rearLeft: 'Rear left', rearRight: 'Rear right' };
   function vehicleName(v) { return v.type === 'tank' ? 'Tank' : 'Humvee'; }
   function vehicleRepairLabel(v) { return '100 HP / ' + W.ARMOR_CREW.repairSecondsPer100[v.type === 'tank' ? 'tank' : 'humvee'] + 's'; }
@@ -46,27 +46,30 @@
   }
 
   // Key hints follow the player's bindings.
-  function refreshHints() {
+  function refreshHints(p) {
+    if (p) hintPlayer = p;
+    p = hintPlayer;
     var k = function (a) { return '<kbd>' + esc(Controls.primary(a)) + '</kbd>'; };
     baseHints =
-      '<span>' + k('interact') + ' pick up / station / revive / mount</span><span>' + k('weapon1') + '…' + k('item3') + ' hotbar · click to use</span>' +
+      '<span>' + k('interact') + ' pick up / station / revive / mount</span><span>' + k('weapon1') + '…' + k(p && p.weapons.length > 2 ? 'slot6' : 'item3') + ' hotbar · click to use</span>' +
       '<span>' + k('drop') + ' drop held item</span><span>' + k('inventory') + ' inventory</span><span>' + k('sprint') + ' sprint</span>' +
-      '<span>' + k('map') + ' map · ' + k('reload') + ' reload</span>' +
-      '<span>' + k('weapon1') + k('weapon2') + ' / wheel switch weapons</span><span><kbd>Esc</kbd> menu</span>';
+      '<span>' + k('map') + ' map · ' + k('reload') + ' reload</span><span>' + k('emotes') + ' emotes</span>' +
+      '<span>' + k('weapon1') + k('weapon2') + (p && p.weapons.length > 2 ? k('item1') : '') + ' / wheel switch weapons</span><span><kbd>Esc</kbd> menu</span>';
     el['hud-keys'].innerHTML = baseHints;
     delete cache.keyhints;
     lastWeaponsKey = '';
     delete cache.prompt;
   }
 
-  // Three item cards join the two class weapon/gear cards in one five-slot row.
+  // Three inventory stacks keep their identity while Engineer adds a class slot.
   function buildHotbar(p) {
-    var html = '';
-    for (var i = 0; i < p.items.length; i++) {
+    var html = '', order = Controls.itemOrder(p);
+    for (var oi = 0; oi < order.length; oi++) {
+      var i = order[oi];
       var s = p.items[i], it = s ? ITEMS[s.id] : null;
       html += '<div class="slot item-slot' + (p.held === i ? ' selected' : '') + (it ? ' has-item tier-' + it.tier : ' empty') + '" data-slot="' + i + '" title="' +
         (it ? esc(it.name) + ' (' + W.TIERS[it.tier].name + ') · ' + esc(it.blurb) : 'Empty slot') + '">' +
-        '<span class="slot-key">' + esc(Controls.primary('item' + (i + 1))) + '</span>' +
+        '<span class="slot-key">' + esc(Controls.primary(Controls.itemAction(p, i))) + '</span>' +
         (it ? Icons.itemIcon(s.id, 'slot-icon item-slot-icon') + '<span class="slot-name">' + esc(it.name) + '</span><span class="slot-state">×' + s.n + '</span>' :
           '<span class="slot-empty-art" aria-hidden="true">+</span><span class="slot-name">Empty</span><span class="slot-state">Item</span>') + '</div>';
     }
@@ -114,19 +117,22 @@
   function buildSlots(p) {
     var html = '', gearKey = esc(Controls.primary('gear'));
     p.weapons.forEach(function (w, i) {
-      var def = WEAPONS[w.id], gear = def.kind === 'throwable' || def.kind === 'medkit' || def.kind === 'ability';
+      var def = WEAPONS[w.id], gear = def.kind === 'throwable' || def.kind === 'medkit' || (def.kind === 'ability' && w.id !== 'wrench');
       html += '<div class="slot" id="hud-slot-' + i + '" data-kind="' + def.kind + '">' +
-        '<span class="slot-key">' + esc(Controls.primary('weapon' + (i + 1))) + (gear ? '<em>' + gearKey + '</em>' : '') + '</span>' +
+        '<span class="slot-key">' + esc(Controls.primary(Controls.weaponAction(p, i))) + (gear ? '<em>' + gearKey + '</em>' : '') + '</span>' +
         Icons.weaponIcon(w.id, 'slot-icon') +
         '<span class="slot-name">' + def.name + '</span>' +
         '<span class="slot-state" id="hud-slot-state-' + i + '"></span>' +
         '<i class="slot-cooldown" id="hud-slot-cd-' + i + '"></i></div>';
     });
     el['hud-slots'].innerHTML = html + buildHotbar(p);
+    el['hud-slots'].classList.toggle('six-slots', p.weapons.length > 2);
   }
 
   function slotState(p, w) {
     var def = WEAPONS[w.id];
+    if (w.id === 'wrench') return p.sentryBuild ? Math.round(p.sentryBuild.elapsed / def.buildSeconds * 100) + '% built' : 'Hold to build';
+    if (def.kind === 'shield') return 'Blocks blasts';
     if (def.kind === 'throwable') return '×' + p.grenades;
     if (def.kind === 'medkit') return p.medkitCd > 0 ? Math.ceil(p.medkitCd) + 's' : 'Ready';
     if (def.kind === 'ability') return p.commandCd > 0 ? Math.ceil(p.commandCd) + 's' : 'Ready';
@@ -173,12 +179,27 @@
     var canSelectTank = tank && (role === 'driver' || vehicleRole(world, vehicle, role) === 'Cannon & machine gun');
     var gearKeys = Controls.bindings('gear').filter(Boolean).map(function (code) { return esc(Controls.label(code)); }).join(' / ');
     var repairing = p.repairVehicle && world.vehicleById ? world.vehicleById(p.repairVehicle) : null;
-    set('repairhidden', el['hud-repair'], 'hidden', !repairing);
+    var building = p.alive && !p.downed && !p.vehicle && !p.mount && p.sentryBuild;
+    var sentryWork = p.alive && !p.downed && !p.vehicle && !p.mount && p.sentryWork;
+    var sentry = sentryWork && world.structById(sentryWork.struct);
+    set('repairhidden', el['hud-repair'], 'hidden', !repairing && !building && !sentry);
     if (repairing) {
       set('repairname', el['hud-repair-name'], 'text', 'Repairing ' + vehicleName(repairing));
       set('repairhp', el['hud-repair-text'], 'text', Math.ceil(repairing.hp) + ' / ' + repairing.maxHp + ' Vehicle HP');
       set('repairwidth', el['hud-repair-fill'], 'width', (U.clamp(repairing.hp / repairing.maxHp, 0, 1) * 100).toFixed(1) + '%');
       set('repairnote', el['hud-repair-note'], 'html', vehicleRepairLabel(repairing) + ' · <b>Visible to nearby enemies</b><br>' + gearKeys + ' to stop · moving or firing also stops');
+    } else if (building) {
+      var buildDuration = WEAPONS.wrench.buildSeconds, buildProgress = U.clamp(building.elapsed / buildDuration, 0, 1);
+      set('repairname', el['hud-repair-name'], 'text', 'Building Sentry');
+      set('repairhp', el['hud-repair-text'], 'text', Math.round(buildProgress * 100) + '% · ' + Math.max(0, buildDuration - building.elapsed).toFixed(1) + 's remaining');
+      set('repairwidth', el['hud-repair-fill'], 'width', (buildProgress * 100).toFixed(1) + '%');
+      set('repairnote', el['hud-repair-note'], 'html', 'Keep holding ' + esc(Controls.primary('fire')) + ' · release to cancel');
+    } else if (sentry) {
+      var isRepair = sentryWork.kind === 'repair', sentryProgress = U.clamp(isRepair ? sentry.hp / sentry.maxHp : sentryWork.elapsed / sentryWork.total, 0, 1);
+      set('repairname', el['hud-repair-name'], 'text', isRepair ? 'Repairing ' + ITEMS[sentry.item].name : 'Building ' + ITEMS[sentryWork.next].name);
+      set('repairhp', el['hud-repair-text'], 'text', isRepair ? Math.ceil(sentry.hp) + ' / ' + sentry.maxHp + ' Sentry HP' : Math.round(sentryProgress * 100) + '% · ' + Math.max(0, sentryWork.total - sentryWork.elapsed).toFixed(1) + 's remaining');
+      set('repairwidth', el['hud-repair-fill'], 'width', (sentryProgress * 100).toFixed(1) + '%');
+      set('repairnote', el['hud-repair-note'], 'html', (isRepair ? '12 HP per second' : sentryWork.cost + ' tokens on completion') + ' · keep holding ' + esc(Controls.primary('fire')) + '<br>Release or move out of reach to stop');
     }
     set('vehicleclass', el.hud, 'class', vehicle ? 'in-vehicle' + (tank ? ' in-tank' : '') : '');
     set('vehiclehidden', el['hud-vehicle'], 'hidden', !vehicle);
@@ -212,6 +233,7 @@
     var upgradeCost = W.Rules.nextUpgradeCost(p.classId), pips = '', have = Math.min(upgradeCost, p.tokens);
     for (i = 0; i < upgradeCost; i++) pips += '<i class="' + (i < have ? 'on' : '') + '"></i>';
     set('pips', el['hud-token-pips'], 'html', pips);
+    set('pipsc', el['hud-token-pips'], 'class', 'pips' + (upgradeCost > 20 ? ' is-many' : ''));
     set('pipsh', el['hud-token-pips'], 'hidden', upgradeCost === 0);
     set('keys', el['hud-key-count'], 'text', String(p.keys));
     var canUpgrade = W.Rules.childClasses(p.classId).length > 0;
@@ -238,6 +260,7 @@
 
     if (lastClass !== p.classId) {
       lastClass = p.classId;
+      refreshHints(p);
       el['hud-class-icon'].innerHTML = Icons.classIcon(p.classId);
       el['hud-class-name'].textContent = cls.name;
       el['hud-class-tier'].textContent = 'LVL ' + cls.tier;
@@ -256,11 +279,12 @@
 
     var wkey = p.weapons.map(function (w) { return w.id; }).join(',') + '|' +
       p.items.map(function (s) { return s ? s.id + ':' + s.n : '-'; }).join(',') + '|' + p.held;
-    if (wkey !== lastWeaponsKey) { lastWeaponsKey = wkey; buildSlots(p); ['ss0', 'ss1', 'sc0', 'sc1', 'sl0', 'sl1'].forEach(function (k) { delete cache[k]; }); }
+    if (wkey !== lastWeaponsKey) { lastWeaponsKey = wkey; buildSlots(p); p.weapons.forEach(function (_, idx) { ['ss', 'sc', 'sl'].forEach(function (prefix) { delete cache[prefix + idx]; }); }); }
     p.weapons.forEach(function (w, idx) {
       set('ss' + idx, $('hud-slot-state-' + idx), 'text', slotState(p, w));
       var def = WEAPONS[w.id], cd = 0;
-      if (def.kind === 'medkit') cd = p.medkitCd / def.cooldown;
+      if (w.id === 'wrench') cd = building ? 1 - U.clamp(building.elapsed / def.buildSeconds, 0, 1) : 0;
+      else if (def.kind === 'medkit') cd = p.medkitCd / def.cooldown;
       else if (def.kind === 'ability') cd = p.commandCd / def.cooldown;
       else if (w.reloading) cd = w.reloadT / def.reload;
       set('sc' + idx, $('hud-slot-cd-' + idx), 'width', (cd * 100).toFixed(1) + '%');
@@ -281,18 +305,21 @@
     else if (vehicle) { big = role === 'driver' ? 'Drive' : role === 'gunner' ? '∞' : 'Ride'; max = ''; label = role === 'driver' ? moveKeys + ' · steer' : role === 'gunner' ? 'Turret I · hold click to fire' : 'Passenger · weapons stowed'; }
     else if (p.mount) { big = '∞'; max = ''; label = 'turret · click to fire · ' + Controls.primary('interact') + ' to get off'; }
     else if (heldIt) { big = String(p.items[p.held].n); max = ''; label = heldIt.name + (heldIt.kind === 'hold' ? ' · raised' : heldIt.kind === 'target' ? ' · click a target' : ' · click to use'); }
+    else if (p.held >= 0) { big = 'Empty'; max = ''; label = 'Empty hands · choose a weapon or item'; }
     else if (cdef.kind === 'throwable') { big = String(p.grenades); max = ''; label = 'grenades'; }
     else if (cdef.kind === 'medkit') { big = p.medkitCd > 0 ? Math.ceil(p.medkitCd) + 's' : 'Ready'; max = ''; label = 'medkit'; }
+    else if (cur.id === 'wrench') { big = building ? Math.max(0, cdef.buildSeconds - building.elapsed).toFixed(1) + 's' : cdef.buildSeconds + 's'; max = ''; label = 'Hold ' + Controls.primary('fire') + ' to build a sentry · release cancels'; }
+    else if (cdef.kind === 'shield') { big = 'Raised'; max = ''; label = 'Explosive shield · face incoming bullets, grenades and flashbangs'; }
     else if (cdef.kind === 'ability') { big = p.commandCd > 0 ? Math.ceil(p.commandCd) + 's' : 'Ready'; max = ''; label = 'Aim, then click · radar + team boost + airstrike'; }
-    else if (cdef.kind === 'melee') { big = 'Hammer'; max = ''; label = 'Hold click to swing · ' + gearKeys + ' repairs nearby vehicles'; }
-    else { big = String(cur.ammo); max = '/ ' + cdef.mag; label = cdef.zoom ? (p.scoping ? 'scoped' : 'hold ' + Controls.primary('scope') + ' to scope') : '∞ ammo'; }
-    if (!vehicle && !heldIt && cdef.windup && p.minigunSpin > 0 && p.minigunSpin < cdef.windup) label = 'Spinning up · ' + Math.round(p.minigunSpin / cdef.windup * 100) + '%';
+    else if (cdef.kind === 'melee') { big = 'Hammer'; max = ''; label = cur.id === 'engineerhammer' ? '30 damage · hold near a sentry to repair or upgrade' : 'Hold click to swing · ' + gearKeys + ' repairs nearby vehicles'; }
+    else { big = String(cur.ammo); max = '/ ' + cdef.mag; label = cur.id === 'shieldpistol' ? (cur.reloading ? 'Reloading · riot shield lowered' : 'Riot shield raised · pistol · ∞ reserve') : cur.id === 'rpg' ? (cur.reloading ? 'Reloading RPG · ' + cdef.reload + ' seconds' : 'RPG · unlimited range · ∞ reserve') : cdef.zoom ? (p.scoping ? 'scoped' : 'hold ' + Controls.primary('scope') + ' to scope') : '∞ ammo'; }
+    if (!vehicle && p.held < 0 && cdef.windup && p.minigunSpin > 0 && p.minigunSpin < cdef.windup) label = 'Spinning up · ' + Math.round(p.minigunSpin / cdef.windup * 100) + '%';
     if (!vehicle && world.aimedProjectile(p)) label = 'Hold 0.75 s for range · release to throw';
     set('ammo', el['hud-ammo'], 'text', big);
     set('ammomax', el['hud-ammo-max'], 'text', max);
     set('ammolabel', el['hud-ammo-label'], 'text', label);
     var tankReload = tank && ((vehicleWeapon === 'mg' && vehicle.mgReload > 0) || (vehicleWeapon === 'cannon' && vehicle.cannonReload > 0));
-    set('reloading', el['hud-reload'], 'hidden', tankReload ? false : !cur.reloading || p.downed || !!vehicle);
+    set('reloading', el['hud-reload'], 'hidden', tankReload ? false : !cur.reloading || p.downed || !!vehicle || p.held >= 0);
     if (tankReload) {
       var reloadLeft = vehicleWeapon === 'cannon' ? vehicle.cannonReload : vehicle.mgReload;
       var reloadDuration = vehicleWeapon === 'cannon' ? W.TANK.cannonInterval : W.TANK.mgReload;

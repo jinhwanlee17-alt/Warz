@@ -17,9 +17,15 @@ export class MemoryStorage {
 }
 
 export function loadWarz(files = ['config', 'util', 'map', 'world', 'items', 'class-combat'], options = {}) {
+  if (files.includes('config') && !files.includes('cosmetics')) { files = files.slice(); files.splice(files.indexOf('config') + 1, 0, 'cosmetics'); }
+  if (files.includes('render') && !files.includes('cosmetic-art')) { files = files.slice(); files.splice(files.indexOf('render'), 0, 'cosmetic-art'); }
   // Keep explicit simulation subsets on the same combat implementation as the game.
   if (files.includes('items') && !files.includes('class-combat')) { files = files.slice(); files.splice(files.indexOf('items') + 1, 0, 'class-combat'); }
   if (files.includes('items') && !files.includes('vehicles')) { files = files.slice(); files.splice(files.indexOf('class-combat') + 1, 0, 'vehicles'); }
+  if (files.includes('vehicles') && !files.includes('level3-combat')) { files = files.slice(); files.splice(files.indexOf('vehicles') + 1, 0, 'level3-combat'); }
+  if (files.includes('vehicles') && !files.includes('sentry-combat')) { files = files.slice(); files.splice(files.indexOf('vehicles') + 1, 0, 'sentry-combat'); }
+  if (files.includes('level3-combat') && !files.includes('engineer')) { files = files.slice(); files.splice(files.indexOf('level3-combat') + 1, 0, 'engineer'); }
+  if (files.includes('engineer') && !files.includes('rpg')) { files = files.slice(); files.splice(files.indexOf('engineer') + 1, 0, 'rpg'); }
   const storage = options.storage || new MemoryStorage();
   const sandbox = { console, localStorage: storage, crypto: globalThis.crypto, TextEncoder, setTimeout, clearTimeout, performance };
   sandbox.window = sandbox;
