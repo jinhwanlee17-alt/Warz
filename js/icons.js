@@ -4,6 +4,8 @@
   var W = window.Warz, U = W.U;
 
   function barrelSvg(weaponId, cx, cy, r) {
+    if (weaponId === 'dualrevolver' || weaponId === 'pyrodualrevolver') return barrelSvg('revolver', cx, cy - r * 0.5, r * 0.8) + barrelSvg('revolver', cx, cy + r * 0.5, r * 0.8);
+    if (weaponId === 'medicstaff') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" stroke="#4b3462" stroke-width=".12"><path d="M.35.55L1.6-.25" stroke="#d4b475" stroke-width=".24"/><circle cx="1.75" cy="-.35" r=".42" fill="#b7ffe3"/><path d="M1.75-.62V-.08M1.48-.35H2.02" stroke="#44b992" stroke-width=".14"/></g>';
     if (weaponId === 'wrench') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" fill="#bbcbd5" stroke="#344854" stroke-width=".12"><path d="M.35-.14H1.5A.48.48 0 0 1 2.19-.37L1.91-.18V.18L2.19.37A.48.48 0 0 1 1.5.14H.35Z"/><circle cx=".5" cy="0" r=".07" fill="#344854" stroke="none"/></g>';
     if (weaponId === 'shieldpistol' || weaponId === 'explosiveshield') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" stroke-linecap="round"><path d="M.58-1.15Q1.5 0 .58 1.15" fill="none" stroke="#263749" stroke-width=".56"/><path d="M.58-1.15Q1.5 0 .58 1.15" fill="none" stroke="' + (weaponId === 'explosiveshield' ? '#f15c5b' : '#9fd4ff') + '" stroke-width=".33"/>' + (weaponId === 'shieldpistol' ? '<rect x="1.05" y="-.17" width=".8" height=".34" fill="#8e9ba8" stroke="#344854" stroke-width=".12"/>' : '') + '</g>';
     if (weaponId === 'hammer' || weaponId === 'engineerhammer') return '<g transform="rotate(24 ' + cx + ' ' + cy + ')" stroke="#26333c" stroke-width="3"><rect x="' + (cx + r * 0.4) + '" y="' + (cy - r * 0.12) + '" width="' + r * 1.5 + '" height="' + r * 0.24 + '" rx="2" fill="#b9874c"/><rect x="' + (cx + r * 1.55) + '" y="' + (cy - r * 0.55) + '" width="' + r * 0.6 + '" height="' + r * 1.1 + '" rx="3" fill="#aab9c0"/></g>';
@@ -21,15 +23,16 @@
   }
 
   function emblemSvg(classId, cx, cy, r) {
-    classId = classId.replace(/2$/, '');
+    classId = classId.replace(/[23]$/, '');
     var c = 'rgba(255,255,255,0.92)';
-    if (classId === 'pyromancer') return '<path d="M44 42C62 61 52 70 44 69C29 67 34 56 39 52L40 61Z" fill="' + c + '"/>';
+    if (classId === 'pyromancer' || classId === 'pyromaniac') return '<path d="M44 42C62 61 52 70 44 69C29 67 34 56 39 52L40 61Z" fill="' + c + '"/>' + (classId === 'pyromaniac' ? '<path d="M31 45L34 48M55 45L52 48" stroke="' + c + '" stroke-width="3" stroke-linecap="round"/>' : '');
     if (classId === 'juggernaut') return '<path d="M34 45H54L52 61L44 69L36 61Z" fill="none" stroke="' + c + '" stroke-width="3"/>';
     if (classId === 'commander') return '<path d="M34 52L44 46L54 52M34 59L44 53L54 59M34 66L44 60L54 66" fill="none" stroke="' + c + '" stroke-width="3"/>';
     if (classId === 'armorcrew') return '<g transform="rotate(-32 ' + cx + ' ' + cy + ')" fill="' + c + '"><rect x="' + (cx - r * 0.1) + '" y="' + cy + '" width="' + r * 0.2 + '" height="' + r * 0.6 + '" rx="1"/><rect x="' + (cx - r * 0.45) + '" y="' + (cy - r * 0.35) + '" width="' + r * 0.9 + '" height="' + r * 0.35 + '" rx="2"/></g>';
     if (classId === 'engineer') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ') rotate(-42)" fill="' + c + '"><path d="M-.55-.12H.12A.35.35 0 0 1 .65-.28L.4-.12V.12L.65.28A.35.35 0 0 1 .12.12H-.55Z"/></g>';
     if (classId === 'shieldoperator') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" fill="none" stroke="' + c + '" stroke-width=".13"><path d="M-.48-.42Q0-.65.48-.42L.4.24 0 .6-.4.24Z"/><path d="M-.22-.18H.22"/></g>';
     if (classId === 'rocketeer') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ') rotate(-35)" fill="' + c + '"><path d="M-.6-.17H.25L.65 0 .25.17H-.6L-.4 0Z"/><path d="M-.32-.17L-.52-.42H-.12L.05-.17M-.32.17L-.52.42H-.12L.05.17"/></g>';
+    if (classId === 'magicmedic') return '<g transform="translate(' + cx + ' ' + cy + ') scale(' + r + ')" fill="' + c + '"><path d="M-.14-.48H.14V-.14H.48V.14H.14V.48H-.14V.14H-.48V-.14H-.14Z"/><path d="M.43-.75L.49-.57 .67-.51 .49-.45 .43-.27 .37-.45 .19-.51 .37-.57Z"/></g>';
     if (classId === 'medic') {
       var a = r * 0.16, b = r * 0.5;
       return '<rect x="' + (cx - a) + '" y="' + (cy - b) + '" width="' + a * 2 + '" height="' + b * 2 + '" fill="' + c + '"/>' +
@@ -91,12 +94,19 @@
   WEAPON_ART.engineerhammer = WEAPON_ART.hammer;
   WEAPON_ART.rpg = '<path d="M3 11L10 9V22L3 20Z" fill="#59633e"/><rect x="9" y="11" width="37" height="9" rx="2" fill="#8d9a5b"/><path d="M37 10L49 6 62 15 49 24 37 21Z" fill="#b4b986" stroke="#3e4c38" stroke-width="2"/><path d="M20 20H27L25 29H19Z"/><rect x="24" y="6" width="9" height="5" rx="1"/>';
   WEAPON_ART.shotgun2 = WEAPON_ART.shotgun + '<rect x="35" y="7" width="27" height="3"/><path d="M7 6l2-4 2 4 4 1-3 3 1 4-4-2-4 2 1-4-3-3z" fill="#ffd76c"/>';
+  WEAPON_ART.shotgun3 = WEAPON_ART.shotgun2 + '<path d="M43 22v7m5-7v7m5-7v7" stroke="#ffd76c" stroke-width="3"/>';
   WEAPON_ART.sniper2 = WEAPON_ART.sniper + '<rect x="48" y="13" width="14" height="7" rx="2"/><circle cx="27" cy="9" r="2" fill="#70d9ff"/>';
   WEAPON_ART.launcher2 = WEAPON_ART.launcher + '<rect x="20" y="9" width="3" height="8" fill="#ffbf66"/><rect x="27" y="9" width="3" height="8" fill="#ffbf66"/>';
   WEAPON_ART.medkit2 = WEAPON_ART.medkit + '<path d="M7 12l3 5 5-9M49 23l3 5 6-10" fill="none" stroke="#62e0a6" stroke-width="3"/>';
   WEAPON_ART.revolver = '<rect x="29" y="9" width="30" height="6" rx="2"/><circle cx="28" cy="16" r="8"/><circle cx="28" cy="16" r="3" fill="#172136"/><path d="M18 16h10l-5 15H12zM21 9l-4-5h6l4 5z"/>';
+  WEAPON_ART.dualrevolver = '<g transform="translate(1 -2) scale(.75)">' + WEAPON_ART.revolver + '</g><g transform="translate(15 10) scale(.75)" stroke="#1d2938" stroke-width="1.2">' + WEAPON_ART.revolver + '</g>';
+  WEAPON_ART.medicstaff = '<path d="M13 28L43 8" stroke="#604574" stroke-width="7" stroke-linecap="round"/><path d="M13 28L43 8" stroke="#d4b475" stroke-width="4"/><circle cx="46" cy="9" r="8" fill="#b7ffe3" stroke="#4c7878" stroke-width="2"/><path d="M46 4V14M41 9H51" stroke="#42a988" stroke-width="3"/><path d="M28 3V9M25 6H31" stroke="#e0b9ff" stroke-width="2"/>';
+  WEAPON_ART.magicmedkit = WEAPON_ART.medkit + '<path d="M6 9V19M1 14H11M56 3V11M52 7H60" stroke="#a5f5d4" stroke-width="3"/>';
   WEAPON_ART.minigun = '<rect x="5" y="9" width="19" height="16" rx="3"/><path d="M24 8H60V12H24zM24 15H60V19H24zM24 22H60V26H24z"/><rect x="46" y="6" width="5" height="22"/><rect x="12" y="24" width="8" height="7"/>';
   WEAPON_ART.flamethrower = '<rect x="5" y="8" width="13" height="22" rx="5"/><rect x="19" y="12" width="27" height="7" rx="2"/><path d="M23 19h7l-2 11h-7z"/><path d="M47 17C52 10 52 6 51 3C61 9 63 16 58 22C53 26 49 22 47 17Z" fill="#ff9e40"/>';
+  WEAPON_ART.pyroflamethrower = WEAPON_ART.flamethrower + '<path d="M22 7H40M22 10H40" fill="none" stroke="#ffbd67" stroke-width="2"/>';
+  WEAPON_ART.pyrodualrevolver = WEAPON_ART.dualrevolver + '<path d="M53 4L56 9L52 13L49 10Z" fill="#ff9e40"/>';
+  WEAPON_ART.firegun = '<path d="M10 10H41L47 15L41 21H23L21 31H12L14 21H10Z" fill="#c57340" stroke="#613e35" stroke-width="2"/><path d="M31 9V22M36 10V21" stroke="#ffc77a" stroke-width="3"/><path d="M47 18C50 11 54 9 52 3C63 10 64 20 57 24C50 27 47 23 47 18Z" fill="#ff843b"/><path d="M54 21Q50 17 55 11Q61 20 54 21Z" fill="#fff2b3"/>';
   WEAPON_ART.commandpistol = '<rect x="15" y="8" width="37" height="9" rx="2"/><path d="M17 17h11l-2 14H15z"/><path d="M34 5l4 3 4-3M34 21l4 3 4-3" fill="none" stroke="#ffd76c" stroke-width="2"/>';
   WEAPON_ART.commandradar = '<circle cx="32" cy="17" r="13" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="32" cy="17" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M32 17L42 7M32 3V6M18 17H21M43 17H46M32 28V31" stroke="#75cfff" stroke-width="2"/><circle cx="26" cy="13" r="2" fill="#ff6464"/>';
 

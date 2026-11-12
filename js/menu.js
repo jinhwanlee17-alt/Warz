@@ -5,6 +5,7 @@
   var W = window.Warz, Controls = W.Controls, Account = W.Account, Party = W.Party, Lobby = W.Lobby, Net = W.Net;
   var DIALOGS = ['mode-dialog', 'party-dialog', 'lobby-dialog', 'settings-dialog', 'friends-dialog'];
   var opts = {}, capture = null, lastQuery = '', lastResults = null, googleLoading = false, appleLoading = false, appleReady = false;
+  var practiceStarting = false;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -83,6 +84,9 @@
   function modeName(id) { var m = W.MODES.filter(function (x) { return x.id === id; })[0]; return m ? m.name : id; }
   function renderModes() {
     var on = online(), party = Party.current();
+    $('mode-party-practice').hidden = !(party && party.members.length > 1);
+    $('mode-party-practice').disabled = !on || practiceStarting || !party || party.leader !== party.you;
+    $('mode-party-practice').textContent = party && party.leader !== party.you ? 'Party practice: leader starts' : 'Practice with party';
     $('mode-list').innerHTML = W.MODES.map(function (m) {
       return '<button type="button" class="mode" data-mode="' + m.id + '"' + (on ? '' : ' disabled') + '><span class="mode-dots" aria-hidden="true">' + dots(m.size) + '</span>' +
         '<b>' + m.name + '</b><small>' + m.blurb + '</small></button>';
@@ -119,6 +123,19 @@
     openDialog('party-dialog');
   }
   function startPractice() { closeDialogs(true); if (opts.onPractice) opts.onPractice(); }
+  function startPartyPractice() {
+    if (practiceStarting || inMatch()) return;
+    var party = Party.current();
+    if (!party || party.members.length < 2) { status('party-status', 'Invite a friend to practice together.'); return; }
+    if (party.leader !== party.you) { status('party-status', reason('leader')); return; }
+    practiceStarting = true; renderParty(); renderModes();
+    status('party-status', 'Starting private practice…'); status('mode-status', 'Starting private practice…');
+    Net.request({ t: 'practice-start' }, 'practice-start-result', 10000).then(function (r) {
+      practiceStarting = false;
+      if (!inMatch()) { renderModes(); if (isOpen('party-dialog')) renderParty(); }
+      if (!r.ok) { status('party-status', reason(r.reason)); status('mode-status', reason(r.reason)); }
+    });
+  }
 
   // ---------------------------------------------------------------- lobby (solo queue)
   function openLobby() { renderLobby(); openDialog('lobby-dialog'); }
@@ -147,9 +164,12 @@
       $('party-friends').innerHTML = '';
       $('party-status').textContent = '';
       $('party-start').disabled = true;
+      $('party-practice').disabled = true;
       return;
     }
     var leader = party.members.some(function (m) { return m.leader && m.name === party.you; });
+    $('party-practice').disabled = !leader || party.members.length < 2 || !online() || practiceStarting;
+    $('party-practice').textContent = practiceStarting ? 'Starting practice…' : 'Practice with party';
     $('party-eyebrow').textContent = modeName(party.mode) + ' · teams of ' + party.size;
     var slots = party.members.map(function (m) {
       return '<div class="party-slot' + (m.name === party.you ? ' is-you' : '') + '">' + avatar(m.name) + '<b>' + esc(m.name) + '</b><small>' + (m.leader ? 'Team leader' : 'Teammate') + '</small>' +
@@ -565,6 +585,8 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function (btn) { btn.addEventListener('click', function () { closeDialogs(); }); });
     $('mode-list').addEventListener('click', function (e) { var btn = e.target.closest('[data-mode]'); if (btn && !btn.disabled) chooseMode(btn.getAttribute('data-mode')); });
     $('practice-btn').addEventListener('click', startPractice);
+    $('mode-party-practice').addEventListener('click', startPartyPractice);
+    $('party-practice').addEventListener('click', startPartyPractice);
     $('mode-team-open').addEventListener('click', function () { renderParty(); openDialog('party-dialog'); });
     $('mode-team-leave').addEventListener('click', function () { Party.leave(); renderModes(); status('mode-status', 'You left the team.'); });
     $('lobby-leave').addEventListener('click', function () { Lobby.leave(); openModePicker(); });

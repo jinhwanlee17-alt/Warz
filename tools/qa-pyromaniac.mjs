@@ -1,0 +1,97 @@
+// Isolated browser controls for Pyromaniac. Live checks stay in local Practice.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createApp } from '../server/node/index.mjs';
+import { openBrowser, sleep } from './qa-browser.cjs';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const publishedUrl = process.env.WARZ_QA_URL || process.argv[2] || '';
+const outDir = path.join(root, 'output', publishedUrl ? 'qa-live-pyromaniac' : 'qa-pyromaniac');
+const app = createApp({ dataDir: null, log: { info() {}, warn: console.warn, error: console.error } });
+let b; const checks = [];
+const check = (ok, message) => { assert.ok(ok, message); checks.push(message); console.log('ok  ' + message); };
+try {
+  const port = publishedUrl ? null : (await app.listen(0, '127.0.0.1')).port;
+  b = await openBrowser({ outDir, width: 1440, height: 900 });
+  const evaluate = (fn, ...args) => b.evaluate('(' + fn.toString() + ')(...' + JSON.stringify(args) + ')');
+  const key = (code, down) => b.cmd('Input.dispatchKeyEvent', { type: down ? 'rawKeyDown' : 'keyUp', code, key: code.slice(-1).toLowerCase(), windowsVirtualKeyCode: code.charCodeAt(code.length - 1) });
+  const press = async code => { await key(code, true); await sleep(80); await key(code, false); await sleep(180); };
+  const mouse = async down => b.cmd('Input.dispatchMouseEvent', { type: down ? 'mousePressed' : 'mouseReleased', x: 1120, y: 450, button: 'left', buttons: down ? 1 : 0, clickCount: 1 });
+  const click = async selector => {
+    const at = await evaluate(s => { const e = document.querySelector(s); e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, selector);
+    for (const down of [true, false]) await b.cmd('Input.dispatchMouseEvent', { type: down ? 'mousePressed' : 'mouseReleased', ...at, button: 'left', buttons: down ? 1 : 0, clickCount: 1 });
+  };
+  await b.cmd('Page.navigate', { url: publishedUrl || 'http://127.0.0.1:' + port + '/?seed=57' });
+  await b.waitFor('window.Warz?.App?.ready && Warz.Net.online()');
+  await evaluate(() => {
+    window.pyroQA = { sounds: [], fireballFrames: 0 };
+    const renderer = Warz.debug.renderer(), draw = renderer.drawBullets, play = Warz.Audio.play;
+    renderer.drawBullets = function (ctx, world) { if (world.bullets.some(b => b.weapon === 'firegun')) pyroQA.fireballFrames++; return draw.apply(this, arguments); };
+    Warz.Audio.play = function (id, volume) { pyroQA.sounds.push(id); return play.call(this, id, volume); };
+    Warz.App.startPractice();
+  });
+  await b.waitFor('Warz.App.state()==="play" && Warz.debug.player()');
+  await evaluate(() => {
+    const W = Warz, w = W.debug.match().world, p = W.debug.player(); w.storm = null;
+    for (const key of ['trees', 'bushes', 'buildings', 'crates', 'pickups', 'ponds', 'drops', 'rocks']) w.map[key] = [];
+    w.solids = new W.U.SpatialHash(256); w.structures = [];
+    w.vehicles.forEach((v, i) => { v.x = 15000 + i * 100; v.y = 15000; });
+    w.players.forEach(o => { if (o !== p) { o.x = o.y = 17000; o.controller = () => ({ mx: 0, my: 0 }); } });
+    p.x = p.px = 5000; p.y = p.py = 5000; p.ox = p.oy = p.vx = p.vy = 0; p.alive = true; p.downed = false; p.dropT = 0;
+    w.setClass(p, 'pyromancer', true); p.tokens = 40;
+    w.map.stations = [{ ...w.map.stations[0], id: 0, number: 1, x: 4940, y: 5000, cooldown: 0 }]; p.nearStation = w.map.stations[0];
+  });
+  await sleep(500); await press('KeyE'); await b.waitFor('Warz.UpgradeTree.isOpen()');
+  await click('#ut-node-pyromaniac');
+  check(await evaluate(() => document.getElementById('ut-stats').textContent.includes('150') && document.getElementById('ut-stats').textContent.includes('50%') && document.getElementById('ut-action').textContent.includes('40 tokens')), 'class preview describes 150 HP, 50% resistance and the 40-token upgrade');
+  await b.shot('01-pyromaniac-upgrade.png');
+  await click('#ut-action'); await b.waitFor('Warz.debug.player().classId==="pyromaniac" && !Warz.UpgradeTree.isOpen()');
+  check(await evaluate(() => Warz.debug.player().maxHp === 150 && Warz.debug.player().tokens === 0 && Warz.debug.player().weapons.map(w => w.id).join() === 'pyroflamethrower,pyrodualrevolver'), 'station action gives both Pyromaniac weapons and charges exactly 40 tokens');
+  check(await evaluate(() => document.getElementById('hud-ammo').textContent === '∞' && document.getElementById('hud-ammo-label').textContent.includes('50 tokens')), 'flamethrower HUD shows unlimited ammo and the additional Firegun purchase');
+  check(await evaluate(() => !document.getElementById('hud-fire').hidden && document.getElementById('hud-fire-text').textContent === '50 / 50 remaining' && document.getElementById('hud-fire-reset').textContent === 'Ready'), 'Pyromaniac has a visible full fire bar before first use');
+  await b.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1120, y: 450 });
+  await mouse(true); await b.waitFor('Warz.debug.player().pyroHeat>1');
+  check(await evaluate(() => pyroQA.sounds.includes('pyroflamethrower') && !Warz.debug.player().weapons[0].reloading), 'held upgraded flamethrower plays its sound without reloading');
+  check(await evaluate(() => Warz.debug.player().pyroFireBar <= 49 && Warz.debug.player().pyroFireBar > 40 && document.getElementById('hud-fire-reset').textContent.includes('Refills in')), 'running the flamethrower drains the fire bar and starts its refill timer');
+  for (const [heat, damage, interval] of [[2.5, 10, .25], [5, 15, .25], [7.5, 45, .15], [10, 70, .1]]) {
+    await evaluate(h => { Warz.debug.player().pyroHeat = h; }, heat); await sleep(100);
+    check(await evaluate((d, i) => document.getElementById('hud-ammo-label').textContent.includes(d + ' damage / ' + i + 's'), damage, interval), 'flamethrower displays ' + damage + ' damage every ' + interval + 's after ' + heat + ' seconds');
+  }
+  await b.shot('02-pyromaniac-flamethrower.png'); await mouse(false); await sleep(160);
+  check(await evaluate(() => Warz.debug.player().pyroHeat === 0), 'releasing fire resets flamethrower heat');
+  await press('Digit2'); await mouse(true); await sleep(80); await mouse(false); await sleep(120);
+  check(await evaluate(() => Warz.debug.player().weapons[1].ammo === 8 && pyroQA.sounds.includes('pyrodualrevolver')), 'Pyro dual revolvers fire two rounds together with audio');
+  await evaluate(() => { Warz.debug.player().tokens = 49; }); await press('KeyF');
+  check(await evaluate(() => !Warz.debug.player().pyroFiregun && Warz.debug.player().tokens === 49), '49 tokens cannot buy the Firegun or spend tokens');
+  await evaluate(() => { Warz.debug.player().tokens = 50; }); await press('KeyG');
+  await b.waitFor('Warz.debug.player().pyroFiregun');
+  check(await evaluate(() => Warz.debug.player().tokens === 0 && Warz.debug.player().weapons[1].id === 'firegun' && Warz.debug.player().weapons.length === 2), 'gear upgrade spends 50 tokens and replaces the dual revolvers with one Firegun');
+  check(await evaluate(() => Warz.WEAPONS.firegun.infiniteAmmo && document.getElementById('hud-ammo').textContent === '∞' && document.getElementById('hud-ammo-max').textContent === ''), 'Firegun shows unlimited ammo instead of a magazine');
+  await evaluate(() => { const p = Warz.debug.player(); p.pyroFireBar = 50; p.pyroFireResetAt = 0; pyroQA.shotsBefore = p.stats.shots; });
+  await press('Digit2'); await mouse(true); await sleep(500);
+  check(await evaluate(() => { const p = Warz.debug.player(); return pyroQA.fireballFrames > 0 && pyroQA.sounds.includes('firegun') && p.pyroFireBar === Math.max(0, 50 - (p.stats.shots - pyroQA.shotsBefore) * 7) && !p.weapons[1].reloading; }), 'Firegun produces visible fireballs and sound while spending seven fire per shot without reloading');
+  check(await evaluate(() => { const p = Warz.debug.player(); return document.getElementById('hud-ammo-label').textContent.includes(Math.round(p.pyroFireBar * 18) + ' next shot damage'); }), 'Firegun HUD previews damage from the remaining fire before the next shot');
+  await b.shot('03-pyromaniac-firegun.png'); await b.waitFor('Warz.debug.player().pyroFireBar === 0', 2500);
+  await evaluate(() => { pyroQA.emptyShots = Warz.debug.player().stats.shots; }); await sleep(350); await mouse(false);
+  check(await evaluate(() => Warz.debug.player().stats.shots === pyroQA.emptyShots && !Warz.debug.player().weapons[1].reloading && document.getElementById('hud-ammo-label').textContent.includes('Fire bar empty')), 'an empty fire bar pauses the Firegun until refill without entering a reload');
+  await press('KeyR');
+  check(await evaluate(() => !Warz.debug.player().weapons[1].reloading && Warz.debug.player().pyroFireBar === 0), 'the reload key neither reloads the Firegun nor bypasses its empty fire bar');
+  await b.shot('04-pyromaniac-empty-fire.png');
+  await press('Digit1'); await mouse(true); await sleep(300); await mouse(false);
+  check(await evaluate(() => Warz.debug.player().stats.shots > pyroQA.emptyShots && Warz.debug.player().pyroFireBar === 0), 'the flamethrower keeps firing while the fire bar is empty');
+  await evaluate(() => { const w = Warz.debug.match().world, p = Warz.debug.player(); p.pyroFireResetAt = w.time + .2; });
+  await b.waitFor('Warz.debug.player().pyroFireBar === 50'); await sleep(80);
+  check(await evaluate(() => document.getElementById('hud-fire-text').textContent === '50 / 50 remaining' && document.getElementById('hud-fire-reset').textContent === 'Ready'), 'the fire window expires while idle and the HUD refills to 50');
+  await press('Digit2');
+  check(await evaluate(() => document.getElementById('hud-ammo-label').textContent.includes('900 next shot damage')), 'a refilled fire bar previews 900 damage for the first shot');
+  await mouse(true); await sleep(80); await mouse(false);
+  check(await evaluate(() => { const w = Warz.debug.match().world, p = Warz.debug.player(); return p.pyroFireBar < 50 && p.pyroFireBar > 0 && w.pyroFireTime(p) > 59 && !p.weapons[1].reloading; }), 'Firegun fire resumes after the refill and starts a fresh one-minute window');
+  await b.cmd('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false }); await sleep(180);
+  check(await evaluate(() => { const bar = document.getElementById('hud-fire').getBoundingClientRect(); return bar.width > 100 && bar.left >= 0 && bar.right <= innerWidth && bar.bottom <= innerHeight; }), 'the fire bar fits a narrow viewport');
+  await b.shot('05-pyromaniac-narrow.png');
+  check(await evaluate(() => !/undefined|NaN/.test(document.getElementById('hud').innerHTML)), 'Pyromaniac HUD values remain valid after transformation');
+  check(b.errors.length === 0, 'Pyromaniac browser play completes without exceptions');
+  fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify({ checks, errors: b.errors }, null, 2));
+  console.log('Pyromaniac browser QA: all ' + checks.length + ' checks passed');
+} finally { if (b) { if (b.errors.length) console.error('Browser exceptions:', JSON.stringify(b.errors)); await b.close(); } if (!publishedUrl) await app.close(); }

@@ -179,6 +179,16 @@ body.inventory-open .hud-bc, body.inventory-open .hud-bl { visibility: hidden; }
 .bar-stamina i { background: linear-gradient(180deg, #69e9dd, #23a99c); }
 .bar-stamina i.exhausted { background: linear-gradient(180deg, #d7ab76, #a56e44); }
 .bar-stamina span { font-size: 11px; color: #edfffc; }
+.pyro-fire { margin: 8px 0; padding: 7px 9px 8px; border: 1px solid #b75c37; border-radius: 12px; background: rgba(38, 24, 22, 0.9); }
+.pyro-fire-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: #ffbc81; }
+.pyro-fire-heading b { font-size: 11px; letter-spacing: .14em; }
+.pyro-fire-heading span { font-size: 11px; color: #f2c6a4; }
+.bar-fire { height: 20px; margin-top: 5px; border-color: #89533d; background: #3a2520; }
+.bar-fire i { background: linear-gradient(90deg, #c6472e, #ff9b42); }
+.bar-fire span { color: #fff3d5; font-size: 11px; }
+.pyro-fire.is-empty { border-color: #ff875a; }
+.pyro-fire.is-empty .bar-fire { background: #612c24; }
+.pyro-fire.is-empty .pyro-fire-heading span { color: #ffb6a1; }
 .bar-armor { height: 18px; }
 .bar-armor i { background: linear-gradient(180deg, #9cc6ff, #5b93e6); }
 .bar-armor span { font-size: 11px; color: #c8d8f0; }
@@ -485,7 +495,7 @@ body #vignette.hit:not(.low):not(.storm) { background: none; }
 .mate.is-dead { opacity: 0.55; }
 .pill-spectate { background: rgba(60, 20, 90, 0.85); border-color: #d7a6ff; }
 #hud-feed .feed-kill { border-left-color: #ff8a7a; }
-body.online-match #test-tools-section { display: none; }
+body.online-match:not(.practice-match) #test-tools-section { display: none; }
 .death-place { margin: 8px 0 0; font: 400 24px/1.1 var(--display); color: #2f7fc2; }
 .death-card h2.is-win { color: #46b52f; }
 .lg-mate { background: #4fa3ff; --marker: #4fa3ff; }

@@ -42,6 +42,11 @@ t.equal([0, 1, 2].map(i => Controls.primary(Controls.weaponAction(engineer, i)))
 t.equal(Controls.itemOrder(engineer).map(i => Controls.primary(Controls.itemAction(engineer, i))).join(), '4,5,6', 'Engineer item labels match physical display order');
 t.check(Controls.hotbarChanged(fakeInput(null, 'Digit6'), engineer), 'moving to the sixth slot cancels a charged projectile');
 t.equal(Controls.weaponSlotHit(fakeInput(null, 'Digit3'), { ...engineer, vehicle: 1 }), null, 'vehicle passengers cannot select the third class weapon');
+const magicMedic = { classId: 'magicmedic', weapons: [{}, {}, {}] };
+t.equal(Controls.weaponSlotHit(fakeInput(null, 'Digit3'), magicMedic), 2, 'Magic Medic slot three selects the permanent medkit');
+t.equal(Controls.itemSlotHit(fakeInput(null, 'Digit3'), magicMedic), null, 'Magic Medic medkit does not also select an inventory item');
+t.equal(Controls.itemSlotHit(fakeInput(null, 'Digit6'), magicMedic), 0, 'Magic Medic keeps the original slot-three item in slot six');
+t.equal(Controls.itemOrder(magicMedic).map(i => Controls.primary(Controls.itemAction(magicMedic, i))).join(), '4,5,6', 'Magic Medic inventory labels match the six-slot order');
 t.check(Controls.down(fakeInput('ArrowUp'), 'up'), 'secondary binding counts as held');
 t.check(Controls.hit(fakeInput(null, 'KeyF'), 'gear'), 'primary binding counts as pressed');
 t.check(!Controls.down(fakeInput('KeyX'), 'up'), 'unbound key does nothing');

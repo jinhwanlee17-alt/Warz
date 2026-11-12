@@ -23,7 +23,8 @@ async function main() {
     };
     await b.cmd('Page.navigate', { url: url.href });
     await b.waitFor('window.Warz?.App?.ready');
-    if (deployedUrl) check(await evaluate(() => new Set([...document.scripts].filter(s => s.src.includes('/js/')).map(s => new URL(s.src).searchParams.get('v'))).size === 1 && Warz.CLASSES.engineer && Warz.CLASSES.shieldoperator && Warz.CLASSES.rocketeer), 'published game includes all three released level-three classes with one asset version');
+    check(await evaluate(() => Warz.CLASS_ORDER.filter(id => Warz.CLASSES[id].tier === 3).length === 6 && Object.keys(Warz.CLASS_PLANNED).length === 4), 'class browser offers six released upgrades and four future branches');
+    if (deployedUrl) check(await evaluate(() => new Set([...document.scripts].filter(s => s.src.includes('/js/')).map(s => new URL(s.src).searchParams.get('v'))).size === 1 && ['engineer', 'shieldoperator', 'rocketeer', 'shotgunner3', 'magicmedic', 'pyromaniac'].every(id => Warz.CLASSES[id])), 'published game includes all six released level-three classes with one asset version');
     await evaluate(() => {
       Warz.App.startPractice();
       const m = Warz.debug.match(), w = m.world, p = m.player;
@@ -74,6 +75,22 @@ async function main() {
     await b.waitFor('!Warz.UpgradeTree.isOpen()');
     await fixture('commander');
     check(await evaluate(() => document.getElementById('ut-node-rocketeer').hidden), 'Rocketeer is not offered from another level-two branch');
+    for (const [id, parent, hp] of [['shotgunner3', 'shotgunner2', 175], ['magicmedic', 'medic2', 300], ['pyromaniac', 'pyromancer', 150]]) {
+      await fixture(parent);
+      check(await evaluate((id, parent) => {
+        const shown = [...document.querySelectorAll('.ut-node')].filter(el => !el.hidden).map(el => el.dataset.node).sort();
+        return shown.join() === [parent, 'engineer', 'shieldoperator', id].sort().join();
+      }, id, parent), parent + ' displays its released class alongside the two shared upgrades');
+      await click('#ut-node-' + id);
+      check(await evaluate((id, hp) => !document.getElementById('ut-action').disabled && document.getElementById('ut-stats').textContent.includes(String(hp)) && document.getElementById('ut-action').textContent.includes('40 tokens') && !/penetrat|tank.*defen/i.test(document.getElementById('ut-detail').textContent), id, hp), id + ' preview has the correct health, 40-token price and public equipment details');
+      await b.shot(id + '-upgrade-desktop.png');
+      await click('#ut-action'); await b.waitFor('Warz.debug.player().classId === ' + JSON.stringify(id));
+      check(await evaluate(id => {
+        const p = Warz.debug.player();
+        return p.tokens === 0 && p.maxHp === Warz.CLASSES[id].hp && p.weapons.map(w => w.id).join() === Warz.CLASSES[id].loadout.join();
+      }, id), id + ' can be purchased through the real station action');
+      await b.waitFor('!Warz.UpgradeTree.isOpen()');
+    }
     await fixture('armorcrew');
     await click('#ut-node-shieldoperator'); await click('#ut-action');
     await b.waitFor('Warz.debug.player().classId === "shieldoperator"');

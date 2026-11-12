@@ -515,6 +515,7 @@
     if (this.remote || !s || !s.alive || s.kind !== 'rock' || this.structById(s.id) !== s) return false;
     if (!(s.maxHp > 0)) { s.maxHp = W.PLAYER_ROCK ? W.PLAYER_ROCK.hp : 1000; s.hp = s.maxHp; }
     var damage = W.TANK ? W.TANK.playerRockRamDamage : 100, src = sourceId ? this.playerById(sourceId) : null;
+    damage = Math.round(damage * this.outgoingClassDamageMul(src) * 10) / 10;
     var amount = Math.min(s.hp, damage);
     s.hp = Math.max(0, s.hp - damage); s.shake = 1;
     if (src) src.stats.damage += amount;
@@ -532,6 +533,7 @@
       if (m && m.alive) { this.damagePlayer(m, amount, sourceId, cause || 'turret', hx, hy); return; }
     }
     var src = sourceId ? this.playerById(sourceId) : null;
+    amount *= this.outgoingClassDamageMul(src);
     s.hp -= amount;
     s.shake = 1;
     if (src) src.stats.damage += amount;

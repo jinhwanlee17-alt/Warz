@@ -264,7 +264,7 @@
       $('ut-stats').innerHTML = '<li><strong>Requires</strong><span>' + CLASSES[planned.parent].name + '</span></li><li><strong>Cost</strong><span>40 tokens when released</span></li>';
       action.textContent = 'Coming soon';
       action.disabled = true;
-      note.textContent = 'Engineer, Shield Operator and Rocketeer are available at level three. This class cannot be purchased yet.';
+      note.textContent = 'Engineer, Shield Operator, Rocketeer, Shotgunner III and Magic Medic are available at level three. This class cannot be purchased yet.';
       return;
     }
     var cls = CLASSES[selected], rel = Rules.relation(p, selected), cost = Rules.upgradeCostFor(selected), parents = Rules.classParents(selected);
@@ -280,6 +280,9 @@
     var rows = '<li><strong>HP</strong><span><b>' + cls.hp + '</b>' + (cls.hp !== current.hp && rel === 'available' ? ' (' + (cls.hp - current.hp) + ' from now)' : '') + '</span></li>' +
       '<li><strong>Armor</strong><span><b>' + cls.armor + '</b></span></li>';
     if (cls.speed && cls.speed !== 1) rows += '<li><strong>Speed</strong><span><b>' + Math.round(cls.speed * 100) + '%</b> of normal movement speed</span></li>';
+    if (cls.id === 'shotgunner3') rows += '<li><strong>Protection</strong><span><b>25%</b> less incoming damage</span></li><li><strong>Damage</strong><span><b>+10%</b> with all weapons and gear</span></li>';
+    if (cls.id === 'magicmedic') rows += '<li><strong>Revive</strong><span>Revive teammates to full health without consuming a medkit.</span></li><li><strong>Hotbar</strong><span>Three class tools. Your old slot-3 item moves to slot 6.</span></li>';
+    if (cls.id === 'pyromaniac') rows += '<li><strong>Protection</strong><span><b>50%</b> less incoming damage</span></li><li><strong>Firegun</strong><span>Use gear to spend <b>50 tokens</b> and transform the dual revolvers into one fireball gun.</span></li>';
     if (cls.id === 'armorcrew') rows += '<li><strong>Protection</strong><span><b>10%</b> less incoming damage</span></li>' +
       '<li><strong>Repair</strong><span><b>100 HP</b> · Humvee: ' + W.ARMOR_CREW.repairSecondsPer100.humvee + 's · Tank: ' + W.ARMOR_CREW.repairSecondsPer100.tank + 's. Toggle ' + W.Controls.bindings('gear').map(function (code) { return W.Controls.label(code); }).join(' / ') + ' near a damaged vehicle. Repairing reveals you to nearby enemies.</span></li>';
     cls.loadout.forEach(function (id, i) {

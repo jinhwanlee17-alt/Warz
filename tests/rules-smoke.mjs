@@ -110,7 +110,7 @@ t.equal(Rules.itemsOfTier('mythic').join(), 'invisibility,radar,teleporter,turre
 t.equal(Rules.itemsOfTier('legendary').join(), 'turret3,sentry3,power2,meteor', 'four legendary items');
 t.check(!ITEMS.gravitybomb, 'the gravity bomb is gone');
 t.equal(CONFIG.hotbarSize, 3, 'three item slots accompany the two class slots');
-t.check(Object.entries(CLASSES).every(([id, c]) => c.loadout.length + CONFIG.hotbarSize === (id === 'engineer' ? 6 : 5)), 'Engineer has six total slots and other classes keep five');
+t.check(Object.entries(CLASSES).every(([id, c]) => c.loadout.length + CONFIG.hotbarSize === (['engineer', 'magicmedic'].includes(id) ? 6 : 5)), 'Engineer and Magic Medic have six total slots and other classes keep five');
 t.check(ITEMS.bandage.heal === 20 && ITEMS.bandage.found === 3, 'bandages: 20 HP, sets of 3');
 t.check(ITEMS.smoothie.heal === 15 && ITEMS.energybar.speed === 0.15, 'smoothie 15 HP, energy bar +15% speed');
 t.check(ITEMS.flashbang.radius === 150 && ITEMS.flashbang.fuse === WEAPONS.grenade.fuse, 'flash bang: grenade range and timing');

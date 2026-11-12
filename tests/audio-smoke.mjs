@@ -28,7 +28,7 @@ vm.createContext(sandbox);
 for (const file of ['config', 'audio']) vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', file + '.js'), 'utf8'), sandbox);
 const W = sandbox.Warz;
 W.Audio.unlock();
-for (const weapon of Object.values(W.WEAPONS).filter(w => ['gun', 'flame', 'launcher', 'rocket', 'turret', 'melee'].includes(w.kind))) {
+for (const weapon of Object.values(W.WEAPONS).filter(w => ['gun', 'flame', 'launcher', 'rocket', 'turret', 'melee', 'firegun'].includes(w.kind))) {
   context.currentTime += 1;
   const before = sources.length, gains = ramps.length;
   W.Audio.play(weapon.id, 0.75);

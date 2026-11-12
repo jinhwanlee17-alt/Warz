@@ -24,10 +24,10 @@
     { id: 'emotes', name: 'Emote picker', group: 'World' },
     { id: 'map', name: 'Island map', group: 'World' },
     { id: 'mute', name: 'Mute sound', group: 'World' },
-    { id: 'item1', name: 'Hotbar slot 3 (item / Engineer hammer)', group: 'Hotbar' },
+    { id: 'item1', name: 'Hotbar slot 3 (item / third class tool)', group: 'Hotbar' },
     { id: 'item2', name: 'Hotbar slot 4 (item)', group: 'Hotbar' },
     { id: 'item3', name: 'Hotbar slot 5 (item)', group: 'Hotbar' },
-    { id: 'slot6', name: 'Hotbar slot 6 (Engineer item)', group: 'Hotbar' }
+    { id: 'slot6', name: 'Hotbar slot 6 (with three class tools)', group: 'Hotbar' }
   ];
   var DEFAULTS = W.DEFAULT_BINDINGS = {
     up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
@@ -123,8 +123,8 @@
   function lift(input, action) { var b = bindings(action); return !!input.lift && (input.lift(b[0]) || input.lift(b[1])); }
   function primary(action) { var b = bindings(action); return label(b[0] || b[1]); }
 
-  // Item storage never moves: Engineer's original item 1 is displayed in slot 6.
-  function extraWeapon(p) { return !!p && p.classId === 'engineer' && !!p.weapons && p.weapons.length > 2; }
+  // Item storage never moves: a third class tool displays original item 1 in slot 6.
+  function extraWeapon(p) { return !!p && !!p.weapons && p.weapons.length > 2; }
   function itemAction(p, index) { return extraWeapon(p) && index === 0 ? 'slot6' : 'item' + (index + 1); }
   function weaponAction(p, index) { return index === 2 ? 'item1' : 'weapon' + (index + 1); }
   function itemOrder(p) { return extraWeapon(p) ? [1, 2, 0] : [0, 1, 2]; }

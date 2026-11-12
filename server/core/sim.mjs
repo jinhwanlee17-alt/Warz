@@ -13,5 +13,7 @@ import '../../js/sentry-combat.js';
 import '../../js/level3-combat.js';
 import '../../js/engineer.js';
 import '../../js/rpg.js';
+import '../../js/magic-medic.js';
+import '../../js/pyromaniac.js';
 
 export const Warz = globalThis.Warz;

@@ -4,14 +4,15 @@ const W = loadWarz(), t = suite('level3 rules'), { CLASSES, Rules, WEAPONS } = W
 const parents = W.CLASS_ORDER.filter(id => CLASSES[id].tier === 2);
 const released = W.CLASS_ORDER.filter(id => CLASSES[id].tier === 3);
 const planned = {
-  shotgunner3: 'shotgunner2', sniper3: 'sniper2', magicmedic: 'medic2',
-  president: 'commander', pyromaniac: 'pyromancer', tankcommander: 'armorcrew', juggernaut2: 'juggernaut'
+  sniper3: 'sniper2',
+  president: 'commander', tankcommander: 'armorcrew', juggernaut2: 'juggernaut'
 };
-t.equal(released.join(), 'engineer,shieldoperator,rocketeer', 'Engineer, Shield Operator and Rocketeer are released at level three without reordering older class indices');
-t.equal(Object.keys(W.CLASS_PLANNED).sort().join(), Object.keys(planned).sort().join(), 'the seven unreleased classes remain planned');
-t.equal(W.TREE_SOON.length, 7, 'seven future branches remain visible in the tree');
+t.equal(released.join(), 'engineer,shieldoperator,rocketeer,shotgunner3,magicmedic,pyromaniac', 'new classes append without reordering older network class indices');
+t.equal(Object.keys(W.CLASS_PLANNED).sort().join(), Object.keys(planned).sort().join(), 'the four unreleased classes remain planned');
+t.equal(W.TREE_SOON.length, 4, 'four future branches remain visible in the tree');
 for (const id of released) {
-  const allowed = id === 'rocketeer' ? ['grenadier2'] : parents;
+  t.check(W.TREE_LAYOUT[id] && Number.isFinite(W.TREE_LAYOUT[id].x) && Number.isFinite(W.TREE_LAYOUT[id].y), id + ' has a valid class-browser position so menu initialization can complete');
+  const allowed = ['rocketeer', 'shotgunner3', 'magicmedic', 'pyromaniac'].includes(id) ? [CLASSES[id].parent] : parents;
   t.equal(Rules.upgradeCostFor(id), 40, id + ' costs 40 tokens');
   t.equal(Rules.nextUpgradeCost(id), 0, id + ' is the final upgrade');
   t.equal(Rules.classParents(id).slice().sort().join(), allowed.slice().sort().join(), id + ' accepts its specified level-two predecessors');
@@ -49,7 +50,8 @@ function arena() {
   return new W.World({ map: { ...template, rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], ponds: [], stations: [], vehicles: [] }, storm: false });
 }
 for (const id of released) {
-  const first = id === 'rocketeer' ? 'grenadier' : 'medic', second = id === 'rocketeer' ? 'grenadier2' : 'commander';
+  const branch = { rocketeer: ['grenadier', 'grenadier2'], shotgunner3: ['shotgunner', 'shotgunner2'], magicmedic: ['medic', 'medic2'], pyromaniac: ['grenadier', 'pyromancer'] }[id] || ['medic', 'commander'];
+  const [first, second] = branch;
   const w = arena(), p = w.addPlayer({ classId: 'soldier', x: 4000, y: 4000 });
   const st = { id: 0, number: 1, x: p.x + 60, y: p.y, cooldown: 0 }; w.map.stations = [st];
   p.tokens = 63; p.keys = 1;
@@ -61,7 +63,7 @@ for (const id of released) {
   t.check(result.ok && result.usedKey && p.tokens === 0 && p.keys === 0, id + ' spends exactly 40 tokens and one key at a cooling station');
   t.equal(p.hp, Math.min(70, CLASSES[id].hp), id + ' preserves existing health capped at its new maximum');
   t.equal(p.weapons.map(slot => slot.id).join(), CLASSES[id].loadout.join(), id + ' gives the class loadout');
-  t.check(p.weapons.length === (id === 'engineer' ? 3 : 2) && p.items.length === 3, id + ' has its class weapon slots and preserves all three item stacks');
+  t.check(p.weapons.length === CLASSES[id].loadout.length && p.items.length === 3, id + ' has its class weapon slots and preserves all three item stacks');
   t.equal(p.upgradeFrom, second, id + ' remembers the actual level-two predecessor');
   t.check(Rules.relation(p, first) === 'owned' && Rules.relation(p, second) === 'owned' && Rules.relation(p, 'sniper') === 'branch', id + ' remembers the entire actual class path');
   w.setClass(p, id, false);

@@ -19,7 +19,7 @@ function drawing() {
   } });
   return { ctx, calls, stack };
 }
-for (const id of ['wrench', 'engineerhammer', 'shieldpistol', 'explosiveshield', 'rpg']) {
+for (const id of ['wrench', 'engineerhammer', 'shieldpistol', 'explosiveshield', 'rpg', 'shotgun3', 'dualrevolver', 'medicstaff', 'magicmedkit', 'pyroflamethrower', 'pyrodualrevolver', 'firegun']) {
   for (const active of [0, 1]) {
     const d = drawing(); renderer.drawWeapon(d.ctx, id, 24, .25, active, 1);
     t.equal(d.stack.length, 0, id + ' restores all canvas state, active=' + active);
@@ -42,7 +42,7 @@ for (const id of ['wrench', 'engineerhammer', 'shieldpistol', 'explosiveshield',
   t.check(d.calls.some(c => c.op === 'rotate' && c.args[0] === Math.PI / 2), 'reloading shield visibly rotates down beside the player');
   t.equal(d.stack.length, 0, 'lowered shield restores canvas state');
 }
-for (const id of ['engineer', 'shieldoperator', 'rocketeer']) {
+for (const id of ['engineer', 'shieldoperator', 'rocketeer', 'shotgunner3', 'magicmedic', 'pyromaniac']) {
   const svg = W.Icons.classIcon(id);
   t.check(svg.includes('<svg') && !/undefined|NaN|Infinity/.test(svg), id + ' has a complete finite class portrait');
 }
@@ -84,5 +84,44 @@ for (const preview of [false, true]) {
   t.equal(JSON.stringify(rocket), before, 'RPG drawing never changes physical projectile state');
   const offscreen = drawing(); renderer.drawRpgRockets(offscreen.ctx, { rpgRockets: [{ ...rocket, x: 10000 }] }, { x0: 0, y0: 0, x1: 300, y1: 300 });
   t.equal(offscreen.calls.length, 0, 'offscreen RPG rockets are culled');
+}
+{
+  const staff = { owner: 8, x: 120, y: 130, recharge: 0, rate: 25, active: true };
+  const world = { placedMedicStaffs: () => [staff], players: [] }, view = { x0: 0, y0: 0, x1: 400, y1: 400 };
+  const before = JSON.stringify(staff), d = drawing();
+  renderer.drawMedicStaffs(d.ctx, world, view, 1, { team: 1 });
+  t.check(d.calls.some(c => c.op === 'fillText' && c.args[0] === 'Medic Staff'), 'placed staff visibly identifies its public waypoint even without the owner in view');
+  t.check(d.calls.some(c => c.op === 'arc' && c.args[2] === 300), 'placed healing area shows the full fire-grenade radius');
+  t.equal(d.stack.length, 0, 'staff world drawing restores canvas state');
+  t.equal(JSON.stringify(staff), before, 'staff drawing never changes healing progress');
+  const hidden = drawing();
+  renderer.drawMedicStaffs(hidden.ctx, { ...world, placedMedicStaffs: () => [{ ...staff, x: 10000 }] }, view, 1, null);
+  t.equal(hidden.calls.length, 0, 'distant placed staff world art is culled while the map waypoint remains available');
+}
+{
+  const bullet = { weapon: 'firegun', x: 120, y: 140, dx: .6, dy: .8, r: 9, traveled: 90, speed: 1400 };
+  const d = drawing(), before = JSON.stringify(bullet), view = { x0: 0, y0: 0, x1: 400, y1: 400 };
+  renderer.drawBullets(d.ctx, { bullets: [bullet] }, view);
+  t.check(d.calls.some(c => c.op === 'quadraticCurveTo') && d.calls.some(c => c.op === 'fill' && c.fill === '#fff0b6'), 'Firegun rounds visibly render as fireballs with bright cores');
+  t.equal(d.stack.length, 0, 'fireball bullet restores canvas state');
+  t.equal(JSON.stringify(bullet), before, 'fireball rendering never changes projectile physics');
+  const offscreen = drawing(); renderer.drawBullets(offscreen.ctx, { bullets: [{ ...bullet, x: 10000 }] }, view);
+  t.equal(offscreen.calls.length, 0, 'offscreen fireballs are culled');
+  const flameTarget = { ...player, pyroBurning: 3, team: 1 }, world = { time: 1 };
+  const burning = drawing(); renderer.drawSentryStatus(burning.ctx, world, flameTarget, flameTarget);
+  t.check(burning.calls.some(c => c.op === 'stroke' && c.stroke === '#ff964c'), 'replicated Pyromaniac burn draws a visible flame ring');
+  t.equal(burning.stack.length, 0, 'burn ring restores canvas state');
+  const quenched = drawing(); renderer.drawSentryStatus(quenched.ctx, world, { ...flameTarget, pyroBurning: 0 }, flameTarget);
+  t.equal(quenched.calls.length, 0, 'extinguished burn no longer draws its status ring');
+  const hidden = drawing(); renderer.drawSentryStatus(hidden.ctx, world, { ...flameTarget, team: 2, fx: { invisible: 1 } }, flameTarget);
+  t.equal(hidden.calls.length, 0, 'burn status cannot reveal an invisible enemy');
+  const oldVehicle = renderer.drawVehicle; renderer.drawVehicle = function () {};
+  for (const type of ['humvee', 'tank']) {
+    const car = { type, id: 1, x: 120, y: 140, angle: 0, pyroBurning: 4 }, vehicleDraw = drawing();
+    renderer.drawVehicles(vehicleDraw.ctx, { vehicles: [car] }, view, 1, null);
+    t.equal(vehicleDraw.calls.some(c => c.op === 'stroke' && c.stroke === '#ff964c'), type === 'humvee', type + ' reflects its burn eligibility in vehicle art');
+    t.equal(vehicleDraw.stack.length, 0, type + ' burn art restores canvas state');
+  }
+  renderer.drawVehicle = oldVehicle;
 }
 t.done();

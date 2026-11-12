@@ -45,7 +45,7 @@
       cosmetics: W.Locker.get(), isLocal: true, drop: true, angle: -Math.PI / 2
     });
     player.controller = localController;
-    match = { online: false, world: world, player: player, cam: { x: player.x, y: player.y, zoom: 0.45 }, drop: drop.label, seed: seed,
+    match = { online: false, practice: true, world: world, player: player, cam: { x: player.x, y: player.y, zoom: 0.45 }, drop: drop.label, seed: seed,
       setup: { mode: W.MODES[0] }, label: 'Practice · offline', deathShown: false, deathT: 0, cause: null, result: null, ended: false };
     beginMatchUi(world, player, match.label);
     W.Hud.banner('Dropping in', 'Practice · Drop Station ' + drop.label + ' · grab ' + W.Rules.nextUpgradeCost(player.classId) + ' tokens, then find an Upgrade Station', 2.2);
@@ -56,15 +56,18 @@
     W.Audio.unlock();
     closeOverlays(true);
     var info = st.info, mode = modeById(info.mode);
-    match = { online: true, id: info.id, world: st.world, player: st.me, cam: st.cam, drop: info.drop, seed: info.seed,
-      setup: { mode: mode, teamSize: info.teamSize }, label: mode.name, cause: null, spectating: false, placement: null, result: null, ended: false };
+    match = { online: true, practice: !!info.practice, id: info.id, world: st.world, player: st.me, cam: st.cam, drop: info.drop, seed: info.seed,
+      setup: { mode: mode, teamSize: info.teamSize }, label: info.practice ? 'Private practice' : mode.name, cause: null, spectating: false, placement: null, result: null, ended: false };
     acc = 0;
-    beginMatchUi(st.world, st.me, mode.name);
+    beginMatchUi(st.world, st.me, match.label);
     document.body.classList.add('online-match');
-    if (!info.rejoin) W.Hud.banner('Dropping in', 'Drop Station ' + info.drop + ' · ' + mode.name + ' · ' + info.players.length + ' players', 2.4);
+    if (!info.rejoin && info.practice) W.Hud.banner('Private practice', 'Your party only · Esc opens practice tools · automatic respawn', 3);
+    else if (!info.rejoin) W.Hud.banner('Dropping in', 'Drop Station ' + info.drop + ' · ' + mode.name + ' · ' + info.players.length + ' players', 2.4);
     else W.Hud.feed('Reconnected to your match.', 'info');
   }
   function beginMatchUi(world, player, label) {
+    document.body.classList.toggle('practice-match', !!match.practice);
+    document.body.classList.toggle('online-match', !!match.online);
     shake = 0;
     input.release();
     chargeTracker.reset();
@@ -80,6 +83,7 @@
     match = null;
     syncPracticeTools();
     document.body.classList.remove('online-match');
+    document.body.classList.remove('practice-match');
     W.Hud.show(false);
     W.MapScreen.hide();
     W.Inventory.hide();
@@ -211,7 +215,7 @@
       scope: Controls.down(input, 'scope'),
       reload: Controls.hit(input, 'reload'), slot: slot, cycle: input.wheel, swap: Controls.hit(input, 'swap'),
       utility: !mapOpen && (p.weapons.some(function (w) { return w.id === 'grenade'; }) ? projectileInput.gear.released : Controls.hit(input, 'gear')),
-      held: pending.held, interactPressed: pending.interact, dropPressed: !mapOpen && Controls.hit(input, 'drop')
+      held: pending.held, interactPressed: pending.interact, iv: !mapOpen && Controls.down(input, 'interact'), dropPressed: !mapOpen && Controls.hit(input, 'drop')
     };
     pending.held = null; pending.interact = false; pending.use = false;
     return intent;
@@ -270,7 +274,7 @@
     if (Controls.hit(input, 'interact') && p.alive && !p.downed && p.dropT <= 0) {
       if (p.mount || p.vehicle) sendInteract();
       else if (downedTeammateNear(p, match.world)) return; // holding the key revives; the server handles it
-      else if (match.world.nearestItemPickup(p) || match.world.nearestRecoverableRock(p) || match.world.nearestMountable(p) || match.world.nearestVehicleSeat(p)) sendInteract();
+      else if ((match.world.nearestMedicStaff && match.world.nearestMedicStaff(p)) || (match.world.nearestMedicPatient && match.world.nearestMedicPatient(p)) || match.world.nearestItemPickup(p) || match.world.nearestRecoverableRock(p) || match.world.nearestMountable(p) || match.world.nearestVehicleSeat(p)) sendInteract();
       else if (p.nearStation) {
         W.UpgradeTree.open({ world: match.world, player: p, station: p.nearStation });
         input.release();
@@ -295,6 +299,7 @@
     var text = {
       medkit: 'Medkit recharging · ' + Math.ceil(e.value || 0) + 's left',
       command: 'Command radar recharging · ' + Math.ceil(e.value || 0) + 's left',
+      tokens: 'Requires ' + Math.ceil(e.value || 0) + ' tokens.',
       fullhp: 'Already at full health.',
       nogrenades: 'Out of grenades.',
       nogear: 'Soldiers have no gear. Medics (medkit) and Grenadiers (grenades) use ' + Controls.primary('gear') + '.',
@@ -384,7 +389,8 @@
           }
           break;
         }
-        case 'flame': play('flamethrower', mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
+        case 'flame': play(e.weapon || 'flamethrower', mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
+        case 'pyro-upgrade': if (mine) { play('upgrade'); W.Hud.feed('Firegun unlocked: 50 tokens.', 'upgrade'); } break;
         case 'launch': play('launcher', mine ? 0.8 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y)); break;
         case 'rpg-shot': play('rpg', mine ? 0.8 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y)); break;
         case 'rpg-impact':
@@ -479,7 +485,8 @@
         case 'sentry-shot':
         case 'sentry-projectiles': play('sentry', spatial(e.x, e.y) * 0.6); break;
         case 'heal':
-          if (mine) { play('heal'); W.Hud.feed((e.by && e.by !== p ? e.by.name + ' healed you' : e.item && ITEMS[e.item] ? ITEMS[e.item].name : 'Medkit') + ': +' + Math.round(e.amount) + ' HP.', 'heal'); }
+          if (e.item === 'medicstaff') break; // Continuous healing already has a world effect; keep the feed and audio quiet.
+          if (mine) { play('heal'); W.Hud.feed((e.by && e.by !== p ? e.by.name + ' healed you' : e.item && (ITEMS[e.item] || WEAPONS[e.item]) ? (ITEMS[e.item] || WEAPONS[e.item]).name : 'Medkit') + ': +' + Math.round(e.amount) + ' HP.', 'heal'); }
           else if (e.by === p) W.Hud.feed('You healed ' + e.player.name + ' for ' + Math.round(e.amount) + ' HP.', 'heal');
           break;
         case 'deny': if (mine) denyMessage(e); break;
@@ -510,7 +517,7 @@
           else W.Hud.feed((e.by ? nameOf(e.by) + ' revived ' : 'Revived: ') + e.player.name, 'heal');
           break;
         case 'death':
-          if (e.victim === p) { play('death'); match.cause = e.cause; }
+          if (e.victim === p) { play('death'); match.cause = e.cause; if (match.online && match.practice) W.Hud.banner('Respawning', 'Back to practice in 2 seconds', 2, '#ffb95e'); }
           else if (e.cause === 'storm') W.Hud.feed(e.victim.name + ' got caught in the storm', 'kill');
           else if (e.cause === 'left') W.Hud.feed(e.victim.name + ' left the island', 'muted');
           else if (e.cause === 'bleedout' || e.cause === 'wiped') W.Hud.feed(e.victim.name + ' is out', 'kill');
@@ -533,7 +540,7 @@
     if (!match.online) return {};
     var st = Online.state(), focus = Online.focus();
     return {
-      online: true, alive: st ? st.alive : undefined, total: match.world.players.length, ping: W.MatchNet.latency(),
+      online: true, practice: !!match.practice, alive: st ? st.alive : undefined, total: match.world.players.length, ping: W.MatchNet.latency(),
       spectating: focus && focus !== match.player ? focus.name : null, placement: match.placement
     };
   }
@@ -600,6 +607,7 @@
         W.Inventory.draw(match.world, match.player);
         W.UpgradeTree.tick(dt);
       }
+      if (match && match.practice && (pauseOpen || W.Menu.anyOpen())) syncPracticeTools();
     } finally {
       input.endFrame();
       requestAnimationFrame(frame);
@@ -608,7 +616,7 @@
 
   // ---------------------------------------------------------------- Practice tools
   function syncPracticeTools() {
-    var practice = match && !match.online;
+    var practice = match && (!match.online || match.practice), settings = practice && match.online ? Online.state().practiceSettings : null;
     $('test-tools-section').hidden = !practice;
     $('settings-practice-tools').hidden = !practice;
     Array.prototype.forEach.call(document.querySelectorAll('[data-test="bot"]'), function (button) {
@@ -616,10 +624,29 @@
     });
     if (!practice) return;
     $('practice-storm').textContent = match.world.storm ? 'Disable storm' : 'Enable storm';
+    $('practice-storm').disabled = !!settings && settings.leader !== match.player.id;
+    $('practice-friendly-fire').hidden = !match.online;
+    $('practice-friendly-fire').disabled = !settings || settings.leader !== match.player.id;
+    $('practice-friendly-fire').textContent = 'Fight each other: ' + (settings && settings.friendlyFire ? 'on' : 'off');
     Array.prototype.forEach.call($('practice-item-slot').options, function (option, i) {
       var item = match.player.items[i];
       option.textContent = 'Item slot ' + (i + 1) + ' (' + Controls.primary(Controls.itemAction(match.player, i)) + ')' +
         (item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
+    });
+  }
+
+  var practiceRequestPending = false;
+  function practiceCommand(action, data) {
+    if (!match || !match.online || !match.practice || practiceRequestPending) return;
+    var current = match; practiceRequestPending = true;
+    $('test-status').textContent = 'Applying practice change…';
+    Online.practiceCommand(action, data).then(function (r) {
+      practiceRequestPending = false;
+      if (match !== current) return;
+      var text = r.message || (r.ok ? 'Practice updated.' : r.reason === 'leader' ? 'Only the party leader can change this setting.' : 'Could not apply that change: ' + (r.reason || 'try again') + '.');
+      $('test-status').textContent = text;
+      if (action === 'bot') $('settings-practice-status').textContent = text;
+      syncPracticeTools();
     });
   }
 
@@ -649,10 +676,11 @@
     describePracticeItem();
     $('practice-items').addEventListener('submit', function (event) {
       event.preventDefault();
-      if (!match || match.online || !match.player.alive) return;
+      if (!match || (match.online && !match.practice) || !match.player.alive) return;
       var item = ITEMS[select.value], slot = Number($('practice-item-slot').value);
       if (!item || !Number.isInteger(slot) || slot < 0 || slot >= C.hotbarSize) return;
       var n = Math.max(1, Math.min(item.stack, Math.floor(Number($('practice-item-quantity').value) || item.stack)));
+      if (match.online) { practiceCommand('item', { slot: slot, id: item.id, n: n }); return; }
       match.player.items[slot] = { id: item.id, n: n };
       match.player.shieldUp = false;
       syncPracticeTools();
@@ -715,8 +743,13 @@
     $('mute-btn').addEventListener('click', function () { setMuted(!Controls.muted()); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-test]'), function (btn) {
       btn.addEventListener('click', function () {
-        if (!match || match.online || !match.player.alive) return;
+        if (!match || (match.online && !match.practice) || !match.player.alive) return;
         var p = match.player, world = match.world, msg;
+        var action = btn.getAttribute('data-test');
+        if (match.online && action !== 'items') {
+          practiceCommand(action, action === 'friendly-fire' ? { enabled: !Online.state().practiceSettings.friendlyFire } : undefined);
+          return;
+        }
         switch (btn.getAttribute('data-test')) {
           case 'tokens': p.tokens += C.upgradeCost; msg = '+' + C.upgradeCost + ' tokens (you have ' + p.tokens + ').'; break;
           case 'key': p.keys += 1; msg = '+1 station key (you have ' + p.keys + ').'; break;
@@ -758,6 +791,7 @@
   function bindNetwork() {
     Online.init({
       onStart: startOnline,
+      onPracticeSettings: function () { if (match && match.online && match.practice) syncPracticeTools(); },
       onEliminated: function (m) { if (!match || !match.online) return; match.placement = m.placement; match.cause = m.cause; showResult('eliminated', m); },
       onSpectating: function () { if (!match || !match.online) return; match.spectating = true; W.Hud.banner('You are out', 'Spectating your team', 2.6, '#ff8a7a'); },
       onEnd: function (m) { if (!match || !match.online) return; match.ended = true; if (m.placement) match.placement = m.placement; showResult('end', m); },

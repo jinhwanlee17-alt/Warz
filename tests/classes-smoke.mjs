@@ -38,7 +38,7 @@ for (const first of ['sniper','shotgunner','medic','grenadier']) {
   w.setClass(p,'commander',false);
   t.equal(p.upgradeFrom,'medic','reapplying the same shared class preserves its actual ancestor');
 }
-t.check(CLASSES.armorcrew && !W.CLASS_PLANNED.armorcrew && W.CLASS_ORDER.length === 16, 'Armor Crew remains playable alongside the three released level-three classes');
+t.check(CLASSES.armorcrew && !W.CLASS_PLANNED.armorcrew && W.CLASS_ORDER.length === 19, 'Armor Crew remains playable alongside the six released level-three classes');
 t.check(CLASSES.armorcrew.hp === 150 && W.ARMOR_CREW.damageMul === 1.05 && W.ARMOR_CREW.damageTakenMul === 0.9 && W.ARMOR_CREW.repairSecondsPer100.humvee === 3.5 && W.ARMOR_CREW.repairSecondsPer100.tank === 2, 'released Armor Crew uses its current health, vehicle damage, personal protection and vehicle-specific repair tuning');
 t.equal(WEAPONS.deagle.damage, 45, 'all classes share the 45-damage Deagle');
 t.check(Rules.shotgunDamage(0, WEAPONS.shotgun2) === 200 && Rules.shotgunDamage(560, WEAPONS.shotgun2) === 10, 'advanced shotgun damage spans 200 down to 10');

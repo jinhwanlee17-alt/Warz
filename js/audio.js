@@ -102,8 +102,13 @@
   // Upgraded weapons emit their own IDs; keep their firing sounds in the same
   // weapon family instead of silently dropping those events.
   SOUNDS.shotgun2 = SOUNDS.shotgun;
+  SOUNDS.shotgun3 = SOUNDS.shotgun;
   SOUNDS.sniper2 = SOUNDS.sniper;
   SOUNDS.revolver = SOUNDS.deagle;
+  SOUNDS.dualrevolver = function (t, v) { SOUNDS.revolver(t, v * 0.75); SOUNDS.revolver(t + 0.012, v * 0.75); };
+  SOUNDS.pyrodualrevolver = SOUNDS.dualrevolver;
+  SOUNDS.pyroflamethrower = SOUNDS.flamethrower;
+  SOUNDS.firegun = function (t, v) { noise(t, 0.13, 'bandpass', 1500, 450, 0.7, 0.4 * v); tone(t, 'triangle', 300, 90, 0.09, 0.2 * v); };
   SOUNDS.minigun = SOUNDS.ar;
   SOUNDS.commandpistol = SOUNDS.pistol;
   SOUNDS.shieldpistol = SOUNDS.pistol;

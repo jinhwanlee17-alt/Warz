@@ -532,6 +532,7 @@
     if (cause === 'sentry-burn') return v.type === 'tank' ? 0 : 1;
     if (cause === 'sentry-snowballs') return v.type === 'tank' ? 0.25 : 0.5;
     var weapon = W.WEAPONS[cause];
+    if (v.type === 'tank' && weapon && weapon.kind === 'gun' && weapon.tankDefensePenetration) return 0.25 + weapon.tankDefensePenetration;
     return v.type === 'tank' && ((weapon && weapon.kind === 'gun') || cause === 'turret' || cause === 'tankmg' ||
       cause === 'sentry' || (typeof cause === 'string' && cause.indexOf('sentry-') === 0)) ? 0.25 : 1;
   };
@@ -585,7 +586,8 @@
     if (this.remote || !v || v.wreck || !(amount > 0)) return false;
     var src = sourceId ? this.playerById(sourceId) : null;
     if (src && src.vehicle !== v.id && this.vehicleTeam(v) === src.team && cause !== 'airstrike') return false;
-    if (src && src.vehicle !== v.id && cause !== 'airstrike' && cause !== 'lightning' && cause !== 'storm' && cause !== 'snow' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn') amount *= this.damageMul(src);
+    if (src && src.vehicle !== v.id && cause !== 'airstrike' && cause !== 'lightning' && cause !== 'storm' && cause !== 'snow' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn' && cause !== 'pyro-burn') amount *= this.damageMul(src);
+    amount *= this.outgoingClassDamageMul(src);
     amount = Math.round(amount * this.vehicleSentryDamageMul(v, cause) * 100) / 100;
     if (!(amount > 0)) return false;
     v.hp = Math.max(0, v.hp - amount); v.hitFlash = 1;

@@ -57,7 +57,7 @@ export function createApp(options = {}) {
     start(spec) {
       const id = String(nextMatch++);
       const match = new Match({
-        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, seed: (Math.random() * 2147483647) | 0, log, botSkill: config.botSkill,
+        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, practice: spec.practice === true, seed: (Math.random() * 2147483647) | 0, log, botSkill: config.botSkill,
         onEnd: () => { matches.delete(id); hub.matchEnded(id); }
       });
       matches.set(id, match);

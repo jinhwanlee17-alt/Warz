@@ -90,4 +90,21 @@ for (const count of [50, 25, 16, 12]) {
   W.MapArt.base(map, 190, { big: false, labelPx: 9, dpr: 1 });
   t.equal(canvasDraw.labels.filter(l => l.color === '#ffe9a8').length, 0, count + ' drops: minimap avoids tiny drop-label clutter');
 }
+{
+  const staff = { owner: 'enemy-medic', team: 'enemy-team', x: map.size - 2, y: 2, recharge: 0, rate: 25 };
+  let staffs = [staff];
+  world.placedMedicStaffs = () => staffs;
+  for (const big of [false, true]) {
+    const d = drawing(); W.MapArt.overlay(d.g, world, viewer, big ? 600 : 190, { big, dpr: 1 });
+    t.equal(d.rects.filter(r => r.color === '#b7ffe3').length, 2, 'public staff cross appears on ' + (big ? 'island map' : 'minimap') + ' without a visible owner');
+    t.equal(d.stack.length, 0, 'public staff marker restores canvas state');
+    if (big) {
+      const label = d.labels.find(l => l.text === 'Medic Staff');
+      t.check(label && label.x + label.width / 2 <= 600 && label.y - label.height / 2 >= 0, 'staff waypoint label stays inside the coastal map edge');
+    }
+  }
+  staffs = [];
+  const pickedUp = drawing(); W.MapArt.overlay(pickedUp.g, world, viewer, 600, { big: true });
+  t.equal(pickedUp.rects.filter(r => r.color === '#b7ffe3').length, 0, 'picking up a staff removes its next live waypoint without rebuilding terrain');
+}
 t.done();

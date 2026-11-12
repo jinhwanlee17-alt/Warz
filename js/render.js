@@ -186,6 +186,7 @@
     this.drawWalls(ctx, map, v);
     for (i = 0; i < map.stations.length; i++) if (visible(v, map.stations[i].x, map.stations[i].y, 80)) this.drawStationCore(ctx, map.stations[i], t);
     this.drawZones(ctx, world, v, t, false, viewer);
+    this.drawMedicStaffs(ctx, world, v, t, viewer);
     this.drawStructures(ctx, world, v, t, viewer);
     if (viewer && viewer.alive && !viewer.downed && !viewer.vehicle && viewer.sentryBuild) this.drawSentryBuild(ctx, viewer, t, true);
     this.drawVehicles(ctx, world, v, t, viewer);
@@ -667,13 +668,14 @@
 
   // ---------------------------------------------------------------- players
   function emblem(ctx, classId, r) {
-    classId = classId.replace(/2$/, '');
+    classId = classId.replace(/[23]$/, '');
     if (classId === 'soldier') return;
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.strokeStyle = 'rgba(255,255,255,0.9)';
     ctx.lineWidth = r * 0.13;
-    if (classId === 'pyromancer') {
+    if (classId === 'pyromancer' || classId === 'pyromaniac') {
       ctx.beginPath(); ctx.moveTo(0, -r * 0.6); ctx.quadraticCurveTo(r * 0.8, r * 0.35, 0, r * 0.5); ctx.quadraticCurveTo(-r * 0.65, r * 0.25, 0, -r * 0.6); ctx.fill();
+      if (classId === 'pyromaniac') { ctx.beginPath(); ctx.moveTo(-r * .6, -r * .4); ctx.lineTo(-r * .43, -r * .23); ctx.moveTo(r * .6, -r * .4); ctx.lineTo(r * .43, -r * .23); ctx.stroke(); }
     } else if (classId === 'juggernaut') {
       ctx.beginPath(); ctx.moveTo(-r * 0.45, -r * 0.45); ctx.lineTo(r * 0.45, -r * 0.45); ctx.lineTo(r * 0.38, r * 0.2); ctx.lineTo(0, r * 0.55); ctx.lineTo(-r * 0.38, r * 0.2); ctx.closePath(); ctx.stroke();
     } else if (classId === 'commander') {
@@ -695,6 +697,10 @@
       ctx.beginPath(); ctx.moveTo(-r * 0.6, -r * 0.17); ctx.lineTo(r * 0.25, -r * 0.17); ctx.lineTo(r * 0.65, 0); ctx.lineTo(r * 0.25, r * 0.17); ctx.lineTo(-r * 0.6, r * 0.17); ctx.lineTo(-r * 0.4, 0); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(-r * 0.32, -r * 0.17); ctx.lineTo(-r * 0.52, -r * 0.42); ctx.lineTo(-r * 0.12, -r * 0.42); ctx.lineTo(r * 0.05, -r * 0.17); ctx.fill();
       ctx.beginPath(); ctx.moveTo(-r * 0.32, r * 0.17); ctx.lineTo(-r * 0.52, r * 0.42); ctx.lineTo(-r * 0.12, r * 0.42); ctx.lineTo(r * 0.05, r * 0.17); ctx.fill(); ctx.restore();
+    } else if (classId === 'magicmedic') {
+      ctx.fillRect(-r * 0.14, -r * 0.48, r * 0.28, r * 0.96);
+      ctx.fillRect(-r * 0.48, -r * 0.14, r * 0.96, r * 0.28);
+      ctx.beginPath(); ctx.moveTo(r * 0.43, -r * 0.76); ctx.lineTo(r * 0.52, -r * 0.52); ctx.lineTo(r * 0.76, -r * 0.43); ctx.lineTo(r * 0.52, -r * 0.34); ctx.lineTo(r * 0.43, -r * 0.1); ctx.lineTo(r * 0.34, -r * 0.34); ctx.lineTo(r * 0.1, -r * 0.43); ctx.lineTo(r * 0.34, -r * 0.52); ctx.closePath(); ctx.fill();
     } else if (classId === 'medic') {
       var a = r * 0.16, b = r * 0.5;
       ctx.fillRect(-a, -b, a * 2, b * 2);
@@ -735,6 +741,15 @@
   };
 
   Renderer.prototype.drawWeapon = function (ctx, weaponId, r, recoil, spin, time, reloading) {
+    if (weaponId === 'dualrevolver' || weaponId === 'pyrodualrevolver') {
+      for (var side = -1; side <= 1; side += 2) {
+        ctx.save(); ctx.translate(r * 0.05, side * r * 0.58); this.drawWeapon(ctx, 'revolver', r * 0.85, recoil, 0, time, reloading); ctx.restore();
+      }
+      if (weaponId === 'pyrodualrevolver') { ctx.save(); ctx.fillStyle = '#f5a14d'; ctx.fillRect(r * .65, -r * .67, r * .18, r * .18); ctx.fillRect(r * .65, r * .49, r * .18, r * .18); ctx.restore(); }
+      return;
+    }
+    if (weaponId === 'pyroflamethrower' || weaponId === 'firegun') { this.drawPyroWeapon(ctx, weaponId, r, recoil, time); return; }
+    if (weaponId === 'medicstaff') { this.drawMedicStaff(ctx, r, time, false); return; }
     if (weaponId === 'hammer' || weaponId === 'engineerhammer') { this.drawHammer(ctx, r, recoil); return; }
     if (weaponId === 'wrench') { this.drawWrench(ctx, r, spin, time); return; }
     if (weaponId === 'rpg') {
@@ -789,6 +804,67 @@
       ctx.fillRect(mx + s * 0.4, my + s * 0.12, s * 0.2, s * 0.56);
       ctx.fillRect(mx + s * 0.2, my + s * 0.3, s * 0.6, s * 0.2);
     }
+  };
+
+  Renderer.prototype.drawPyroWeapon = function (ctx, id, r, recoil, time) {
+    ctx.save(); ctx.translate(-(recoil || 0) * r * .22, 0);
+    ctx.fillStyle = '#965237'; ctx.strokeStyle = '#4a3831'; ctx.lineWidth = 3;
+    var firegun = id === 'firegun';
+    roundRect(ctx, r * .25, -r * .3, r * (firegun ? 1.35 : 1.85), r * .6, 4); ctx.fill(); ctx.stroke();
+    if (!firegun) {
+      ctx.fillStyle = '#dca044';
+      roundRect(ctx, r * .25, -r * .55, r * .5, r * 1.1, 5); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#573b35'; ctx.fillRect(r * .39, -r * .5, r * .11, r);
+    }
+    ctx.strokeStyle = '#ffbf72'; ctx.lineWidth = 3;
+    for (var i = 0; i < 3; i++) { var x = r * (firegun ? .6 + i * .22 : 1 + i * .22); ctx.beginPath(); ctx.moveTo(x, -r * .27); ctx.lineTo(x, r * .27); ctx.stroke(); }
+    var muzzle = r * (firegun ? 1.62 : 2.12), pulse = .2 + Math.sin((time || 0) * 10) * .035;
+    ctx.fillStyle = '#ff7139'; ctx.strokeStyle = '#6b3c2c'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(muzzle, 0, r * pulse, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffefae'; ctx.beginPath(); ctx.arc(muzzle, 0, r * .09, 0, TAU); ctx.fill();
+    ctx.restore();
+  };
+
+  Renderer.prototype.drawMedicStaff = function (ctx, r, t, recharging) {
+    ctx.save(); ctx.rotate(-0.32);
+    ctx.lineWidth = 3; ctx.strokeStyle = '#584363'; ctx.fillStyle = '#d4b475';
+    roundRect(ctx, r * 0.3, -r * 0.12, r * 1.75, r * 0.24, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = recharging ? '#8f9d9d' : '#b7ffe3'; ctx.strokeStyle = '#527a79';
+    ctx.beginPath(); ctx.arc(r * 2.12, 0, r * 0.46, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = recharging ? '#677d77' : '#42ad88';
+    ctx.fillRect(r * 2.04, -r * 0.3, r * 0.16, r * 0.6); ctx.fillRect(r * 1.82, -r * 0.08, r * 0.6, r * 0.16);
+    if (!recharging) {
+      ctx.strokeStyle = 'rgba(201,255,228,0.55)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(r * 2.12, 0, r * (0.58 + Math.sin((t || 0) * 3) * 0.05), 0, TAU); ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  Renderer.prototype.drawMedicStaffs = function (ctx, world, v, t, viewer) {
+    var self = this, staffs = world.placedMedicStaffs ? world.placedMedicStaffs() : [];
+    staffs.forEach(function (staff) {
+      if (!visible(v, staff.x, staff.y, 310)) return;
+      ctx.save(); ctx.translate(staff.x, staff.y);
+      var charging = staff.recharge > 0, color = charging ? '#aabbb7' : '#b7ffe3';
+      ctx.fillStyle = charging ? 'rgba(165,185,180,0.04)' : 'rgba(120,247,184,0.07)';
+      ctx.strokeStyle = charging ? 'rgba(165,185,180,0.32)' : 'rgba(150,255,205,0.55)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, W.MedicStaff ? W.MedicStaff.placedRadius : 300, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#423b4d'; ctx.beginPath(); ctx.ellipse(0, 12, 24, 12, 0, 0, TAU); ctx.fill();
+      ctx.save(); ctx.translate(-8, 28); ctx.rotate(-Math.PI / 2 + 0.32); self.drawMedicStaff(ctx, 27, t, charging); ctx.restore();
+      ctx.font = '15px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.strokeStyle = '#263c36'; ctx.lineWidth = 4;
+      var label = 'Medic Staff' + (charging ? ' · ' + Math.ceil(staff.recharge) + 's' : '');
+      ctx.strokeText(label, 0, -60); ctx.fillStyle = color; ctx.fillText(label, 0, -60);
+      ctx.restore();
+    });
+    (world.players || []).forEach(function (p) {
+      var s = p.medicStaff;
+      if (!s || s.placed || !s.active || !p.alive || p.hidden || p.downed || !visible(v, p.x, p.y, 160) ||
+          (p.fx && p.fx.invisible > 0 && viewer && viewer.team !== p.team)) return;
+      var target = world.playerById(s.target);
+      if (!target || target.hidden || !target.alive || (target.fx && target.fx.invisible > 0 && viewer && viewer.team !== target.team)) return;
+      ctx.save(); ctx.strokeStyle = 'rgba(150,255,205,0.65)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(target.x, target.y); ctx.stroke(); ctx.restore();
+    });
   };
 
   Renderer.prototype.drawWrench = function (ctx, r, building, t) {
@@ -887,7 +963,7 @@
       ctx.rotate(hammerSwing && !p.repairVehicle ? p.meleeAngle : p.angle);
       if (p.repairVehicle) this.drawHammer(ctx, r, 0.5 + 0.5 * Math.sin(t * 13));
       else if (held) this.drawHeld(ctx, held, r, p.recoil, p.shieldUp);
-      else if (p.held < 0) this.drawWeapon(ctx, p.weapons[p.slot].id, r, W.WEAPONS[p.weapons[p.slot].id].kind === 'melee' ? hammerSwing : p.recoil, p.sentryBuild ? 1 : p.minigunSpin, t, p.weapons[p.slot].reloading);
+      else if (p.held < 0 && !(p.weapons[p.slot].id === 'medicstaff' && p.medicStaff && p.medicStaff.placed)) this.drawWeapon(ctx, p.weapons[p.slot].id, r, W.WEAPONS[p.weapons[p.slot].id].kind === 'melee' ? hammerSwing : p.recoil, p.sentryBuild ? 1 : p.minigunSpin, t, p.weapons[p.slot].reloading);
       ctx.restore();
     }
     ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
@@ -1339,7 +1415,15 @@
     var cars = world.vehicles || [], access = viewer && !viewer.vehicle && world.nearestVehicleSeat ? world.nearestVehicleSeat(viewer) : null;
     for (var i = 0; i < cars.length; i++) {
       var car = cars[i];
-      if (!car.hidden && visible(view, car.x + (car.ox || 0), car.y + (car.oy || 0), (car.r || 80) + 90)) this.drawVehicle(ctx, world, car, t, viewer, access);
+      if (!car.hidden && visible(view, car.x + (car.ox || 0), car.y + (car.oy || 0), (car.r || 80) + 90)) {
+        this.drawVehicle(ctx, world, car, t, viewer, access);
+        var burning = world.pyroBurnTime ? world.pyroBurnTime(car) > 0 : car.pyroBurning > 0;
+        if (burning && !car.wreck && car.type !== 'tank') {
+          ctx.save(); ctx.translate(car.x + (car.ox || 0), car.y + (car.oy || 0)); ctx.rotate(car.angle + (car.oa || 0));
+          ctx.strokeStyle = '#ff964c'; ctx.lineWidth = 4; ctx.setLineDash([7, 5]); ctx.lineDashOffset = -t * 20;
+          ctx.beginPath(); ctx.ellipse(0, 0, 77, 53, 0, 0, TAU); ctx.stroke(); ctx.restore();
+        }
+      }
     }
   };
 
@@ -1565,6 +1649,16 @@
     for (var i = 0; i < bs.length; i++) {
       var b = bs[i];
       if (!visible(v, b.x, b.y, 80)) continue;
+      if (b.weapon === 'firegun') {
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.dy, b.dx));
+        var flameTail = Math.min(Math.max(0, b.traveled || 0), 42);
+        ctx.strokeStyle = 'rgba(255,132,55,.45)'; ctx.lineWidth = b.r * 1.6;
+        ctx.beginPath(); ctx.moveTo(-flameTail, 0); ctx.lineTo(0, 0); ctx.stroke();
+        ctx.fillStyle = '#ff7839'; ctx.strokeStyle = '#cf4c28'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(-b.r * 2.4, 0); ctx.quadraticCurveTo(b.r, -b.r * 1.65, b.r, 0); ctx.quadraticCurveTo(b.r, b.r * 1.65, -b.r * 2.4, 0); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#fff0b6'; ctx.beginPath(); ctx.arc(0, 0, b.r * .56, 0, TAU); ctx.fill(); ctx.restore();
+        continue;
+      }
       var tail = Math.min(b.traveled - 20, b.speed * 0.03 + 8);
       if (tail > 0) {
         ctx.strokeStyle = rgba(b.color, 0.42);
@@ -1646,7 +1740,7 @@
   Renderer.prototype.drawSentryStatus = function (ctx, world, p, viewer) {
     if (!p.alive || p.hidden || p.vehicle || p.dropT > 0 || (p.fx.invisible > 0 && viewer && viewer !== p && viewer.team !== p.team)) return;
     var frozen = p.sentryFreezeUntil > world.time, slow = world.activeSentrySnow && world.activeSentrySnow(p);
-    var burning = p.sentryBurn && p.sentryBurn.until > world.time;
+    var burning = (p.sentryBurn && p.sentryBurn.until > world.time) || (world.pyroBurnTime ? world.pyroBurnTime(p) > 0 : p.pyroBurning > 0);
     if (!frozen && !slow && !burning) return;
     ctx.save(); ctx.translate(p.x + (p.ox || 0), p.y + (p.oy || 0));
     if (frozen || slow) {

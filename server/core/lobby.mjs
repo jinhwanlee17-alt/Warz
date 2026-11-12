@@ -29,10 +29,23 @@ export class Lobby {
       id: party.id, mode: party.mode, size: this.teamSize(party.mode), leader: party.leader.name, you: conn ? conn.name : null,
       members: party.members.map((m) => ({ name: m.name, leader: m === party.leader })),
       invited: [...party.invited.keys()].map((k) => party.invitedNames.get(k) || k),
-      fill: party.fill, queued: !!party.entry
+      fill: party.fill, queued: !!party.entry, starting: !!party.starting
     };
   }
   pushParty(party) { for (const m of party.members) this.send(m, { t: 'party', party: this.partyView(party, m) }); }
+
+  restorePracticeMember(conn, saved) {
+    if (!conn.user || conn.party) return false;
+    let party = this.parties.get(saved.id);
+    if (party && (party.starting || party.entry || party.members.length >= this.teamSize(party.mode) ||
+        party.members.some((m) => m.user === conn.user || (m.match && m.match.id !== saved.match)))) return false;
+    if (!party) {
+      party = { id: saved.id, mode: saved.mode, leader: conn, members: [], invited: new Map(), invitedNames: new Map(), fill: saved.fill, entry: null };
+      this.parties.set(party.id, party);
+    }
+    party.members.push(conn); conn.party = party; this.pushParty(party);
+    return true;
+  }
 
   createParty(conn, mode) {
     if (!this.teamSize(mode) || mode === 'solo') return { ok: false, reason: 'mode' };
@@ -67,6 +80,7 @@ export class Lobby {
     const party = this.parties.get(Number(partyId));
     if (!party) return { ok: false, reason: 'gone' };
     if (!conn.user || !party.invited.has(conn.user)) return { ok: false, reason: 'notinvited' };
+    if (party.starting || party.members.some((m) => m.match)) return { ok: false, reason: 'inmatch' };
     if (party.members.length >= this.teamSize(party.mode)) return { ok: false, reason: 'full' };
     if (conn.match) return { ok: false, reason: 'inmatch' };
     this.dequeue(conn);
@@ -136,12 +150,31 @@ export class Lobby {
   }
 
   // ---------------------------------------------------------------- queue
+  startPractice(conn) {
+    const party = conn.party;
+    if (!party || party.members.length < 2) return { ok: false, reason: 'party' };
+    if (party.leader !== conn) return { ok: false, reason: 'leader' };
+    if (party.starting || party.members.some((m) => m.match)) return { ok: false, reason: 'inmatch' };
+    if (party.members.some((m) => !m.open)) return { ok: false, reason: 'offline' };
+    const members = [conn, ...party.members.filter((m) => m !== conn)];
+    members.forEach((m) => this.dequeue(m));
+    party.starting = true; this.pushParty(party);
+    const spec = { mode: party.mode, teamSize: this.teamSize(party.mode), practice: true,
+      teams: [{ members: members.map((m) => ({ userKey: m.user, name: m.name, conn: m })) }] };
+    let started;
+    try { started = this.startMatch(spec); }
+    catch (err) { party.starting = false; this.pushParty(party); return { ok: false, reason: 'start-failed' }; }
+    Promise.resolve(started).catch(() => {}).finally(() => { party.starting = false; if (this.parties.has(party.id)) this.pushParty(party); });
+    return { ok: true };
+  }
+
   queue(conn, mode) {
     if (conn.match) return { ok: false, reason: 'inmatch' };
     if (conn.party && mode === 'solo') this.leaveParty(conn); // Solo means solo: step out of the team first
     const party = conn.party;
     let conns, fill = true;
     if (party) {
+      if (party.starting) return { ok: false, reason: 'inmatch' };
       if (party.leader !== conn) return { ok: false, reason: 'leader' };
       mode = party.mode;
       conns = party.members.slice();

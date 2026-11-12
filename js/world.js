@@ -479,12 +479,12 @@
     if (def.kind === 'gun' || def.kind === 'launcher') {
       if ((def.semiAuto || def.kind === 'launcher') && !intent.firePressed) return;
       if (w.reloading || w.cooldown > 0.00000001) return;
-      if (w.ammo <= 0) { this.startReload(p); return; }
+      if (w.ammo < (def.roundsPerShot || 1)) { this.startReload(p); return; }
       if (p.automaticWeapon !== w.id) w.cooldown = Math.max(0, w.cooldown);
       p.automaticWeapon = w.id;
       var fired = 0, interval = def.fireInterval / (this.fireRateMul ? this.fireRateMul(p) : 1);
       do {
-        w.ammo--; w.cooldown += interval; p.stats.shots++; fired++;
+        w.ammo -= def.roundsPerShot || 1; w.cooldown += interval; p.stats.shots++; fired++;
         if (def.kind === 'gun') this.fireGun(p, def); else this.fireLauncher(p, def, intent);
         if (w.ammo <= 0) { this.startReload(p); break; }
       } while (def.kind === 'gun' && !def.semiAuto && intent.fire && w.cooldown <= 0.00000001 && fired < 8);
@@ -506,7 +506,7 @@
   };
 
   World.prototype.fireGun = function (p, def) {
-    var n = def.pellets || 1, angles = [];
+    var n = def.pellets || def.roundsPerShot || 1, angles = [];
     for (var i = 0; i < n; i++) {
       var a = p.angle;
       if (n > 1) a += (i / (n - 1) - 0.5) * 2 * def.spread + (this.rng.next() - 0.5) * def.spread * 0.3;
@@ -519,7 +519,7 @@
 
   // Bullets for one trigger pull. Also used by the client to mirror shots the server reports.
   World.prototype.spawnShot = function (p, def, angles) {
-    var n = angles.length, shot = n > 1 ? { hit: {} } : null, muzzle = W.muzzleLength(def.id) * p.r;
+    var n = angles.length, shot = def.pellets && n > 1 ? { hit: {} } : null, muzzle = W.muzzleLength(def.id) * p.r;
     for (var i = 0; i < n; i++) {
       var a = angles[i];
       var b = {
@@ -938,6 +938,11 @@
   };
 
   // ---------------------------------------------------------------- damage
+  // Intrinsic class bonuses apply at the final recipient, including fixed-damage
+  // abilities and vehicle weapons; potion and command bonuses keep their own rules.
+  World.prototype.outgoingClassDamageMul = function (p) {
+    return 1 + (p && CLASSES[p.classId] ? CLASSES[p.classId].damageBonus || 0 : 0);
+  };
   // `from` is where the hit came from (a raised riot shield blocks damage arriving from the front). Lightning is true
   // damage: it ignores shields, armor, potions and overheal. The storm and snow ignore potions too.
   World.prototype.damagePlayer = function (p, amount, sourceId, cause, hx, hy, from) {
@@ -953,6 +958,7 @@
       }
     }
     var src = sourceId ? this.playerById(sourceId) : null, fx = p.fx;
+    amount *= this.outgoingClassDamageMul(src);
     var trueDamage = cause === 'lightning', raw = cause === 'storm' || cause === 'snow';
     if (!trueDamage && !raw) {
       if (fx && fx.immune > 0) { this.text(p.x, p.y - p.r - 14, 'IMMUNE', '#7fe9ff', 18); this.emit({ type: 'blocked', player: p, how: 'immune', source: src }); return; }
@@ -962,12 +968,13 @@
         this.emit({ type: 'blocked', player: p, how: 'shield', source: src });
         return;
       }
-      if (src && src !== p && cause !== 'airstrike' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn') amount *= this.damageMul(src);
+      if (src && src !== p && cause !== 'airstrike' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn' && cause !== 'pyro-burn') amount *= this.damageMul(src);
       amount = Math.round(amount * this.reduceMul(p) * 10) / 10;
       if (amount <= 0) return;
     }
     // The Armor Crew passive is permanent personal protection, including true damage and the storm.
     if (p.classId === 'armorcrew') amount = Math.round(amount * W.ARMOR_CREW.damageTakenMul * 10) / 10;
+    if (CLASSES[p.classId].damageTakenMul) amount = Math.round(amount * CLASSES[p.classId].damageTakenMul * 10) / 10;
     var absorbed = trueDamage ? 0 : Math.min(p.armor, amount);
     if (!this.isPracticeBot(p)) {
       p.armor -= absorbed;
@@ -1027,6 +1034,7 @@
   World.prototype.damageCrate = function (c, amount, sourceId, hx, hy) {
     if (!c.alive || amount <= 0) return;
     var src = sourceId ? this.playerById(sourceId) : null;
+    amount *= this.outgoingClassDamageMul(src);
     c.hp -= amount;
     c.shake = 1;
     if (src) src.stats.crateDamage += amount;

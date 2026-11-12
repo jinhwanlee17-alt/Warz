@@ -222,6 +222,24 @@
         g.restore();
       }
     }
+    // Placed Medic Staffs are public waypoints, including enemy staffs beyond the camera.
+    (world.placedMedicStaffs ? world.placedMedicStaffs() : []).forEach(function (staff) {
+      var radius = (big ? 8 : 5.5) * dpr, padding = radius + 3 * dpr;
+      var mx = U.clamp(staff.x * k, padding, px - padding), my = U.clamp(staff.y * k, padding, px - padding);
+      g.save(); g.globalAlpha = 1; g.fillStyle = '#49395c'; g.strokeStyle = '#e0baff'; g.lineWidth = 2 * dpr;
+      g.beginPath(); g.arc(mx, my, radius, 0, U.TAU); g.fill(); g.stroke();
+      g.fillStyle = staff.recharge > 0 ? '#c0ceca' : '#b7ffe3';
+      g.fillRect(mx - radius * 0.17, my - radius * 0.62, radius * 0.34, radius * 1.24);
+      g.fillRect(mx - radius * 0.62, my - radius * 0.17, radius * 1.24, radius * 0.34);
+      if (big) {
+        g.font = 'bold ' + Math.round(12 * dpr) + 'px Trebuchet MS, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        var label = 'Medic Staff', half = g.measureText(label).width / 2;
+        var lx = U.clamp(mx, half + 3 * dpr, px - half - 3 * dpr), ly = my + radius + 10 * dpr;
+        if (ly + 8 * dpr > px) ly = my - radius - 10 * dpr;
+        g.strokeStyle = '#332a40'; g.lineWidth = 3 * dpr; g.strokeText(label, lx, ly); g.fillStyle = '#edfff5'; g.fillText(label, lx, ly);
+      }
+      g.restore();
+    });
     // This belongs to the live overlay: damage and reconnect state remove it immediately, without rebuilding terrain.
     (world.map.crates || []).forEach(function (crate) {
       if (world.remote && p && p.hidden) return; // Rejoin sync precedes the first authoritative player snapshot.

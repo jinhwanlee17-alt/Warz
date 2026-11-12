@@ -176,6 +176,21 @@ Aim in a direction and release fire to throw a grenade or launcher shell. A quic
 
 Engineer and Shield Operator are available from **any level-two class for 40 tokens** and have 100 HP. Rocketeer requires **Grenadier II**, costs **40 tokens**, and has **65 HP**. All use the same station recharge and key rules.
 
+Shotgunner III requires **Shotgunner II** and Magic Medic requires **Medic II**, each for **40 tokens**. Shotgunner III has **175 HP**, permanent **25% damage resistance**, and **10% extra damage** with everything it uses. Shotgun III deals 50–500 base damage by distance; Dual Heavy Revolvers fire two 75-base-damage bullets together, consuming two of their ten rounds per click.
+
+Magic Medic has **300 HP**, a Heavy Revolver, Medic Staff, and Medic's Medkit in slots 1–3. As with Engineer, the old slot-3 item moves to slot 6. The medkit adds **300 HP**, including overheal, to one player and recharges for **30 seconds**. With it selected, click a teammate to heal them or click empty ground to heal yourself; press E beside a teammate to heal them. Holding E revives teammates to full health without an item or medkit charge.
+
+Equip the staff to heal the nearby teammate with the lowest health percentage, excluding yourself, within a grenade's radius. Click to place it; press E nearby to pick it up. A placed staff shares its total healing rate evenly among injured teammates within a fire grenade's radius, including its owner, and displays a waypoint to everyone. Healing stops at maximum HP without removing existing overheal. Its stages advance while healing; switching between held and placed restarts those stages. Completing a cycle starts a **25-second recharge**, which switching modes cannot bypass.
+
+| Staff mode | Healing rate and duration, in order |
+| --- | --- |
+| Held | 1 HP/s for 10s; 2 for 10s; 3 for 5s; 10 for 3s; 25 for 5s |
+| Placed | 1 HP/s for 5s; 2 for 5s; 3 for 2s; 10 for 5s; 25 for 5s; 50 for 30s |
+
+Pyromaniac requires **Pyromancer** and **40 tokens**. It has **150 HP** and permanent **50% damage reduction**. Its dual revolvers fire two 100-damage rounds at once, using two of ten rounds. Its upgraded flamethrower reaches 500 world units and never needs ammo or reloads. Holding fire ramps through 5, 10, 15, 45 and 70 damage, advancing every **2.5 seconds**. The first three stages fire every 0.25s, the 45-damage stage every 0.15s, and the final 70-damage stage every 0.1s. Releasing fire resets the ramp. After continuous exposure ends, the residual burn deals 10% of the direct damage taken per second for 40% of the exposure time.
+
+Press the gear binding (F or G by default) as Pyromaniac to spend **50 additional tokens** and replace the dual revolvers with one Firegun. It fires eight fireballs per second with unlimited ammo and no reload. A shared **50-point fire bar** starts full, spending one point per second of flamethrower use and seven points per Firegun shot. Each fireball's impact damage is `(remaining fire bar / 2 / 50) * 1800`, calculated before spending that shot's fire: the first shot from a full bar deals 900 damage, then 774, 648, and so on. The final shot can use the remaining amount below seven points. At zero the Firegun pauses; the flamethrower continues normally. The bar refills to 50 after 60 seconds from the first use, even while weapons are stowed. Each Firegun hit still adds three seconds to a 6-HP-per-second burn; duration stacks, damage rate does not. Snowbombs and snowball sentry hits extinguish burns. Tanks remain immune to residual burns; Humvees can burn.
+
 | Class | Equipment |
 | --- | --- |
 | Engineer | Sentry Wrench, Basic Pistol, and Engineer's Hammer in slots 1–3. Hold fire with the wrench for 10 seconds to construct an ordinary 50-HP sentry. The hammer deals 30 melee damage and repairs a friendly sentry at 12 HP/second. The previous slot-3 item moves to slot 6; slots 4–5 stay in place. |
@@ -197,7 +212,13 @@ Aim the Engineer's hammer at a friendly sentry and hold fire to repair it. At fu
 
 Tanks take 75% less damage from regular bullets, turrets and sentries, except rocket sentries and the cannon's explicit 510 damage. Rocket sentries bypass this resistance and deal their full 10–100 tank damage. Rocketeer's RPG is an anti-tank explosive and deals its full 10–1000 base tank damage. Snowballs deal 75% less damage to tanks and 50% less to Humvees. Each vehicle snow hit slows fire/reload clocks by 5%, up to 50%, with independently expiring 3-second stacks. Tanks cannot burn; Humvees can. Sentry IV variants are upgrade-only and do not change crate drops.
 
-Seven additional level-three branches are visible but **not playable yet**: Shotgunner III from Shotgunner II, Sniper III from Sniper II, Magic Medic from Medic II, President from Commander, Pyromaniac from Pyromancer, Tank Commander from Armor Crewmember, and Juggernaut II from Juggernaut.
+Four additional level-three branches are visible but **not playable yet**: Sniper III from Sniper II, President from Commander, Tank Commander from Armor Crewmember, and Juggernaut II from Juggernaut.
+
+## Private party practice
+
+Create a Duos, Trios or Squads party, invite a friend, and have the leader choose **Practice with party**. This starts immediately with only the party's current members. Multiplayer practice requires an internet connection; **Practice offline (solo)** remains available separately.
+
+Esc opens the same practice tools: tokens, keys, damage, class reset, armor, item picker, station teleport and passive unlimited-health targets. Each player's equipment changes are authoritative and affect only that player. The leader controls the shared storm and **Fight each other** switch. Practice starts with the storm disabled and party members on one team; enabling fights lets them attack each other. Eliminated players return after two seconds with their class, purchased Firegun and carried equipment. Normal match queues never accept practice commands or targets.
 
 ## Items
 

@@ -154,6 +154,22 @@
     explosion: { minDamage: 10, maxDamage: 200, radius: WEAPONS.grenade.explosion.radius * 0.9 },
     vehicleDamage: { humvee: { minDamage: 10, maxDamage: 500 }, tank: { minDamage: 10, maxDamage: 1000 } },
     blurb: 'A straight-flying rocket with unlimited range. 10–200 blast damage to players, 10–500 to Humvees and 10–1000 to tanks. One rocket per 3-second reload; unlimited reserve. Blast radius is 10% smaller than a grenade.' };
+  WEAPONS.shotgun3 = Object.assign({}, WEAPONS.shotgun2, { id: 'shotgun3', name: 'Shotgun III', damageNear: 500, damageFar: 50,
+    tankDefensePenetration: 0.10, blurb: '50–500 base damage by distance, with one hit per target per blast. Five shells per reload.' });
+  WEAPONS.dualrevolver = Object.assign({}, WEAPONS.revolver, { id: 'dualrevolver', name: 'Dual Heavy Revolvers', mag: 10, roundsPerShot: 2,
+    blurb: 'Fire two 75-base-damage rounds together with each click. Ten rounds, five volleys per reload.' });
+  WEAPONS.medicstaff = { id: 'medicstaff', name: 'Medic Staff', kind: 'ability', mag: 1, reload: 0, cooldown: 0, recoil: 0, range: 120,
+    blurb: 'Equip to heal your weakest nearby teammate. Click to place it for stronger shared healing, including yourself; interact to pick it up. Placed staffs are marked for everyone. Recharges in 25 seconds.' };
+  WEAPONS.magicmedkit = { id: 'magicmedkit', name: "Medic's Medkit", kind: 'medkit', heal: 300, cooldown: 30, reviveFraction: 1, range: 160,
+    blurb: 'Adds 300 HP to one player, including health beyond their normal maximum. Equip and click a nearby teammate or interact beside them; click open ground to heal yourself. Recharges in 30 seconds. Reviving uses no medkit.' };
+  WEAPONS.pyroflamethrower = Object.assign({}, WEAPONS.flamethrower, { id: 'pyroflamethrower', name: "Pyromaniac's Flamethrower", range: 500,
+    damage: 5, damageMax: 70, fireInterval: 0.25, mag: 1, reload: 0, infiniteAmmo: true,
+    blurb: 'Unlimited fuel and longer reach. Hold fire: 5, 10 and 15 damage every 0.25s, then 45 every 0.15s, then 70 every 0.1s. Heat advances every 2.5 seconds. Uses 1 fire per second but still works when the fire bar is empty. Releasing fire resets the heat.' });
+  WEAPONS.pyrodualrevolver = Object.assign({}, WEAPONS.dualrevolver, { id: 'pyrodualrevolver', name: "Pyro's Dual Revolvers", damage: 100,
+    blurb: 'Two simultaneous 100-damage bullets per click. Ten rounds, five volleys per reload. Use gear and 50 tokens to permanently transform them into a Firegun for this life.' });
+  WEAPONS.firegun = { id: 'firegun', name: 'Firegun', kind: 'firegun', damage: 0, mag: 1, reload: 0, infiniteAmmo: true,
+    fireInterval: 1 / 8, bulletSpeed: 1400, range: 980, spread: 0.025, bulletRadius: 9, recoil: 8, burnDps: 6, burnSeconds: 3,
+    blurb: 'Unlimited ammo, eight fireballs per second. Starts with 50 fire. Each shot deals (remaining fire / 2 / 50) × 1800 damage, then uses 7 fire. At 0 fire, firing pauses until the bar refills 60 seconds after first use. Each hit adds 3 seconds of burning at 6 HP/s; snow extinguishes burns.' };
 
   var CLASSES = W.CLASSES = {
     soldier: {
@@ -204,11 +220,21 @@
   CLASSES.rocketeer = { id: 'rocketeer', name: 'Rocketeer', tier: 3, parent: 'grenadier2', hp: 65, armor: 0,
     loadout: ['rpg', 'pistol'], color: '#d0a765', description: '65 HP with an RPG and Basic Pistol. Rockets cross the island and deal up to 200 damage to players, 500 to Humvees, or 1000 to tanks. Requires Grenadier II.' };
   W.CLASS_ORDER.push('rocketeer');
+  CLASSES.shotgunner3 = { id: 'shotgunner3', name: 'Shotgunner III', tier: 3, parent: 'shotgunner2', hp: 175, armor: 0,
+    damageBonus: 0.10, damageTakenMul: 0.75, loadout: ['shotgun3', 'dualrevolver'], color: '#ffc17e',
+    description: '175 HP, permanent 25% damage resistance and +10% damage with everything you use. Shotgun III and Dual Heavy Revolvers. Requires Shotgunner II.' };
+  CLASSES.magicmedic = { id: 'magicmedic', name: 'Magic Medic', tier: 3, parent: 'medic2', hp: 300, armor: 0,
+    loadout: ['revolver', 'medicstaff', 'magicmedkit'], color: '#ff9fcb', reviveSeconds: 2, reviveFraction: 1,
+    description: '300 HP, Heavy Revolver, Medic Staff and a 300-HP overhealing medkit. Heal allies with the staff or place it for stronger shared healing. Revive teammates at full health without items. Your old slot-3 item moves to slot 6.' };
+  W.CLASS_ORDER.push('shotgunner3', 'magicmedic');
+  CLASSES.pyromaniac = { id: 'pyromaniac', name: 'Pyromaniac', tier: 3, parent: 'pyromancer', hp: 150, armor: 0, damageTakenMul: 0.5,
+    loadout: ['pyroflamethrower', 'pyrodualrevolver'], color: '#ff783e',
+    description: '150 HP and permanent 50% damage resistance. A longer-range flamethrower with unlimited fuel and Pyro\'s Dual Revolvers. Spend 50 tokens with Use Gear to transform the revolvers into a Firegun.' };
+  W.CLASS_ORDER.push('pyromaniac');
   W.CLASS_PLANNED = {};
   [
-    ['shotgunner3', 'Shotgunner III', 'shotgunner2'], ['sniper3', 'Sniper III', 'sniper2'],
-    ['magicmedic', 'Magic Medic', 'medic2'],
-    ['president', 'President', 'commander'], ['pyromaniac', 'Pyromaniac', 'pyromancer'],
+    ['sniper3', 'Sniper III', 'sniper2'],
+    ['president', 'President', 'commander'],
     ['tankcommander', 'Tank Commander', 'armorcrew'], ['juggernaut2', 'Juggernaut II', 'juggernaut']
   ].forEach(function (entry) {
     W.CLASS_PLANNED[entry[0]] = { id: entry[0], name: entry[1], parent: entry[2], tier: 3,
@@ -322,7 +348,8 @@
     sniper: { x: 140, y: 305 }, shotgunner: { x: 380, y: 305 }, medic: { x: 620, y: 305 }, grenadier: { x: 860, y: 305 },
     sniper2: { x: 80, y: 78 }, commander: { x: 200, y: 78 }, shotgunner2: { x: 320, y: 78 }, juggernaut: { x: 440, y: 78 },
     medic2: { x: 560, y: 78 }, armorcrew: { x: 680, y: 78 }, grenadier2: { x: 800, y: 78 }, pyromancer: { x: 920, y: 78 },
-    engineer: { x: 500, y: 110 }, shieldoperator: { x: 790, y: 110 }, rocketeer: { x: 210, y: 110 }
+    engineer: { x: 500, y: 110 }, shieldoperator: { x: 790, y: 110 }, rocketeer: { x: 210, y: 110 },
+    shotgunner3: { x: 210, y: 110 }, magicmedic: { x: 210, y: 110 }, pyromaniac: { x: 210, y: 110 }
   };
   W.TREE_SOON = Object.keys(W.CLASS_PLANNED).map(function (id) { return Object.assign({ x: 210, y: 110 }, W.CLASS_PLANNED[id]); });
 
@@ -359,11 +386,18 @@
   };
   W.BARRELS.medkit2 = { held: 'medkit' };
   W.BARRELS.shotgun2 = { trap: { x: 0.2, len: 1.75, h0: 0.6, h1: 1.05 } };
+  W.BARRELS.shotgun3 = { trap: { x: 0.2, len: 1.9, h0: 0.65, h1: 1.15 } };
+  W.BARRELS.magicmedkit = { held: 'medkit' };
+  W.BARRELS.medicstaff = { held: 'medicstaff' };
   W.BARRELS.sniper2 = { parts: [{ x: 0.2, len: 2.65, h: 0.36 }, { x: 0.7, len: 0.8, h: 0.72 }] };
   W.BARRELS.launcher2 = { parts: [{ x: 0.2, len: 1.75, h: 0.92 }, { x: 1.55, len: 0.3, h: 1.1 }] };
   W.BARRELS.rpg = { parts: [{ x: 0.1, len: 2.05, h: 0.52 }, { x: 1.65, len: 0.6, h: 0.86 }] };
   W.BARRELS.flamethrower = { parts: [{ x: 0.2, len: 1.6, h: 0.65 }, { x: 1.3, len: 0.5, h: 0.9 }] };
   W.BARRELS.revolver = { parts: [{ x: 0.2, len: 1.6, h: 0.5 }, { x: 0.5, len: 0.5, h: 0.75 }] };
+  W.BARRELS.dualrevolver = W.BARRELS.revolver;
+  W.BARRELS.pyroflamethrower = W.BARRELS.flamethrower;
+  W.BARRELS.pyrodualrevolver = W.BARRELS.revolver;
+  W.BARRELS.firegun = W.BARRELS.flamethrower;
   W.BARRELS.minigun = { parts: [{ x: 0.2, len: 2.0, h: 0.85 }, { x: 1.7, len: 0.4, h: 1.05 }] };
   W.BARRELS.commandpistol = { parts: [{ x: 0.2, len: 1.4, h: 0.5 }] };
   W.BARRELS.commandradar = { parts: [{ x: 0.25, len: 0.85, h: 0.9 }] };
@@ -486,6 +520,11 @@
     weaponLine: function (id) {
       var w = WEAPONS[id];
       if (id === 'wrench') return w.buildSeconds + ' s to build a normal sentry · hold fire';
+      if (id === 'medicstaff') return 'Equip to heal · click to place · interact to retrieve · 25 s recharge';
+      if (id === 'magicmedkit') return '+' + w.heal + ' HP with overheal · ' + w.cooldown + ' s cooldown';
+      if (id === 'dualrevolver' || id === 'pyrodualrevolver') return '2 × ' + w.damage + ' base dmg per click · ' + w.mag + ' rounds';
+      if (id === 'pyroflamethrower') return '5 → 10 → 15 → 45 → 70 damage · heat rises every 2.5s · unlimited fuel';
+      if (id === 'firegun') return 'Up to 900 impact damage · 8 fireballs/s · 50 fire capacity · unlimited ammo';
       if (id === 'explosiveshield') return 'Frontal bullet, grenade and flash protection · tank weapons bypass';
       if (w.kind === 'gun') {
         if (w.pellets) return w.damageFar + '–' + w.damageNear + ' dmg by distance · ' + w.mag + ' rounds';

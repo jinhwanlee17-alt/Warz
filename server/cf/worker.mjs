@@ -105,7 +105,7 @@ export class MatchObject {
       if (this.match) return new Response('already started', { status: 409 });
       const spec = await request.json(), id = this.state.id.toString(), env = this.env;
       this.match = new Match({
-        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, seed: (Math.random() * 2147483647) | 0, log: console, botSkill: configFrom(env).botSkill,
+        W: Warz, id, mode: spec.mode, teamSize: spec.teamSize, teams: spec.teams, practice: spec.practice === true, seed: (Math.random() * 2147483647) | 0, log: console, botSkill: configFrom(env).botSkill,
         onEnd() {
           env.HUB.get(env.HUB.idFromName('hub')).fetch('https://hub/internal/match-ended', { method: 'POST', body: JSON.stringify({ id }) }).catch(() => {});
         }

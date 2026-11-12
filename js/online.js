@@ -34,6 +34,7 @@
       case 'snap': applySnapshot(m); break;
       case 'sync': applySync(m); break;
       case 'storm': applyStorm(m); break;
+      case 'practice-player': if (state && state.info.practice) applyPracticeRoster([m.player]); break;
       case 'eliminated': if (state) { state.placement = m.placement; state.result = m; } if (cbs.onEliminated) cbs.onEliminated(m); break;
       case 'spectating': if (cbs.onSpectating) cbs.onSpectating(m); break;
       case 'match-end': if (state) { state.ended = true; state.result = m; if (m.placement) state.placement = m.placement; } if (cbs.onEnd) cbs.onEnd(m); break;
@@ -45,10 +46,12 @@
 
   function start(info) {
     var map = W.MapGen.generate(info.seed, info.teamSize), world = new W.World({ map: map, remote: true, teams: info.teamSize > 1 });
+    world.practice = !!info.practice;
     (world.vehicles || []).forEach(function (v) { v.hidden = true; v.snaps = []; v.ox = v.oy = v.oa = 0; });
     info.players.forEach(function (o) {
       var p = world.addPlayer({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline, face: o.face, x: map.size / 2, y: map.size / 2, drop: !info.rejoin, angle: -Math.PI / 2 });
       setEmote(p, o.emote, world);
+      p.practiceBot = !!o.practiceBot;
       p.snaps = [];
       p.seenAt = -1;
       // The roster contains identities, not positions. Keep every body out of the
@@ -62,9 +65,38 @@
     state = {
       info: info, world: world, me: me, cam: { x: me.x, y: me.y, zoom: info.rejoin ? 1 : 0.45 }, seq: 0, pending: [], latch: freshLatch(),
       corr: { x: 0, y: 0 }, vehicleCorr: { x: 0, y: 0, a: 0 }, serverTime: info.time || 0, recvAt: performance.now() / 1000, spec: 0,
-      alive: info.players.length, teamsAlive: info.teams || 0, placement: null, ended: false, result: null, snapCount: 0
+      alive: info.players.length, teamsAlive: info.teams || 0, placement: null, ended: false, result: null, snapCount: 0,
+      practiceSettings: null
     };
+    applyPracticeSettings(info.ps);
     return state;
+  }
+
+  function applyPracticeRoster(rows) {
+    if (!state || !state.info.practice || !Array.isArray(rows)) return;
+    rows.forEach(function (o) {
+      if (!o || !Number.isInteger(o.id)) return;
+      var p = byId(o.id);
+      if (!p) {
+        p = state.world.addPlayer({ id: o.id, name: o.name, team: o.team, color: o.color, outline: o.outline, face: o.face,
+          x: state.world.map.size / 2, y: state.world.map.size / 2 });
+        p.snaps = []; p.seenAt = -1; p.hidden = true;
+        if (!state.info.players.some(function (row) { return row.id === o.id; })) state.info.players.push(o);
+      }
+      p.name = o.name; p.team = o.team; p.practiceBot = !!o.practiceBot;
+    });
+  }
+  function applyPracticeSettings(value) {
+    if (!state || !state.info.practice || !value) return;
+    var changed = JSON.stringify(state.practiceSettings) !== JSON.stringify(value);
+    state.practiceSettings = Object.assign({}, value);
+    state.world.teams = state.info.teamSize > 1 && !value.friendlyFire;
+    if (!value.storm) {
+      if (state.world.storm) state.practiceStorm = state.world.storm;
+      state.world.storm = null;
+      state.world.players.forEach(function (p) { p.inStorm = false; });
+    } else if (!state.world.storm) state.world.storm = state.practiceStorm || new W.Storm(state.world);
+    if (changed && cbs.onPracticeSettings) cbs.onPracticeSettings(value);
   }
 
   // ---------------------------------------------------------------- snapshots
@@ -119,6 +151,7 @@
       v.r = v.type === 'tank' && W.TANK ? W.TANK.radius : W.VEHICLE.radius;
       v.hp = row.hp; v.maxHp = row.mhp; v.wreck = !!row.wreck; v.armed = !!row.armed;
       setSentryStatus(v, row.ss);
+      v.pyroBurning = row.py && row.py.burn || 0;
       if (v.type === 'tank') {
         v.cannonCooldown = row.cc || 0; v.cooldown = row.cd || 0;
         v.cannonAmmo = row.cn === undefined ? 1 : row.cn;
@@ -165,6 +198,8 @@
   function applySnapshot(s) {
     if (!state) return;
     var world = state.world, me = state.me, now = performance.now() / 1000;
+    applyPracticeRoster(s.pr);
+    applyPracticeSettings(s.ps);
     applyLooks(s.looks);
     var oldVehicle = me.vehicle || 0, oldSeat = me.vehicleSeat || null, oldRide = vehicleFor(me), oldMount = me.mount || 0;
     // Reconciliation preserves its own correction, not the render interpolation
@@ -176,6 +211,7 @@
     state.snapCount++;
     applySentryProjectiles(s.sp);
     applyRpgRockets(s.rp);
+    applyMedicStaffMarkers(s.ms);
     // The packet's terrain state must be current before replay: an input sent
     // before a crate broke must not collide with its obsolete client hitbox.
     for (var ci = 0; ci < s.e.length; ci++) if (terrainEvent(s.e[ci])) applyEvent(s.e[ci]);
@@ -203,6 +239,8 @@
       me.upgradeFrom = y.from || null;
       me.upgradePath = Array.isArray(y.path) ? y.path.filter(function (id) { return !!W.CLASSES[id]; }) : [];
       setSentryBuild(me, y.sb);
+      setMedicStaff(me, y.ms);
+      setPyroState(me, y.py);
       me.sentryWork = y.sw || null; me.sentryChoice = y.sch || null;
       setSentryStatus(me, y.ss);
       me.slot = y.slot;
@@ -270,6 +308,10 @@
     // bodies before applying those events, not only on the next render frame.
     world.players.forEach(updatePresence);
     for (var k = 0; k < s.e.length; k++) if (!terrainEvent(s.e[k])) applyEvent(s.e[k]);
+    // Events can contain a knock, revive and heal from the same tick. Their
+    // feedback must not replace the final health already sent by the authority.
+    if (y) me.hp = y.hp;
+    s.p.forEach(function (row) { var other = byId(row[0]); if (other && other !== me) other.hp = row[4]; });
   }
 
   function updatePresence(p) {
@@ -290,9 +332,13 @@
     p.seenAt = time;
     p.hidden = false;
     setEmote(p, a[20]);
-    p.hp = a[4]; p.maxHp = a[5];
     setClassIfChanged(p, a[6]);
+    p.hp = a[4]; p.maxHp = a[5];
     setSentryBuild(p, a[21]);
+    setMedicStaff(p, a[22] && a[22].staff);
+    setPyroState(p, a[22] && a[22].py);
+    if (a[22] && a[22].team !== undefined) p.team = a[22].team;
+    if (a[22] && a[22].practiceBot !== undefined) p.practiceBot = !!a[22].practiceBot;
     p.sentryWork = a[22] && a[22].work || null;
     setSentryStatus(p, a[22] && a[22].status);
     p.slot = a[7];
@@ -322,6 +368,20 @@
   function setSentryBuild(p, row) {
     p.sentryBuild = Array.isArray(row) && row.length === 3 && row.every(Number.isFinite)
       ? { elapsed: U.clamp(row[0], 0, W.WEAPONS.wrench.buildSeconds), x: row[1], y: row[2] } : null;
+  }
+  function setMedicStaff(p, value) {
+    p.medicStaff = p.classId === 'magicmedic' && value ? Object.assign({}, value) : null;
+  }
+  function setPyroState(p, value) {
+    if (state.world.applyPyroFiregun) state.world.applyPyroFiregun(p, !!(value && value.up));
+    p.pyroHeat = value && value.heat || 0;
+    p.pyroBurning = value && value.burn || 0;
+    p.pyroFireBar = value && Number.isFinite(value.fire) ? U.clamp(value.fire, 0, W.Pyro ? W.Pyro.fireBarMax : 50) : p.classId === 'pyromaniac' ? (W.Pyro ? W.Pyro.fireBarMax : 50) : 0;
+    p.pyroFireResetT = value && Number.isFinite(value.reset) ? U.clamp(value.reset, 0, W.Pyro ? W.Pyro.fireWindow : 60) : 0;
+  }
+  function applyMedicStaffMarkers(rows) {
+    if (!Array.isArray(rows)) return;
+    state.world.medicStaffMarkers = rows.map(function (s) { return Object.assign({}, s); });
   }
   function setSentryStatus(p, row) {
     var now = state.world.time;
@@ -428,6 +488,9 @@
   function applyEvent(e) {
     var world = state.world, me = state.me, p, def, station, crate, s, pr;
     switch (e.t) {
+      case 'pyro-upgrade':
+        p = byId(e.id); if (p) { if (!p.hidden && world.pyroUpgradeFx) world.pyroUpgradeFx(p); world.emit({ type: 'pyro-upgrade', player: p }); }
+        return;
       case 'rpg-shot':
         p = byId(e.id);
         if (p) { var muzzle = W.muzzleLength('rpg') * p.r; p.recoil = 1; world.flash(e.x + Math.cos(e.a) * muzzle, e.y + Math.sin(e.a) * muzzle, e.a, 'rpg'); world.emit({ type: 'rpg-shot', player: p, x: e.x, y: e.y }); }
@@ -516,7 +579,7 @@
         p = byId(e.id); if (!p) return;
         world.flameFx(e.x, e.y, e.a, e.r);
         p.recoil = 0.4;
-        world.emit({ type: 'flame', player: p, x: e.x, y: e.y, angle: e.a, range: e.r });
+        world.emit({ type: 'flame', player: p, weapon: e.w || 'flamethrower', x: e.x, y: e.y, angle: e.a, range: e.r });
         return;
       case 'command':
         p = byId(e.id); if (!p) return;
@@ -663,6 +726,8 @@
   function applySync(m) {
     if (!state) return;
     var world = state.world, map = world.map;
+    applyPracticeRoster(m.roster);
+    applyPracticeSettings(m.ps);
     applyLooks(m.looks);
     if (typeof m.time === 'number') { state.serverTime = m.time; state.recvAt = performance.now() / 1000; }
     applyVehicles(m.vehicles, state.serverTime, 0, true);
@@ -674,6 +739,7 @@
     if (m.tankShells) { world.tankShells = []; m.tankShells.forEach(function (shell) { world.spawnTankShell(shell); }); }
     applySentryProjectiles(m.sentryProjectiles);
     applyRpgRockets(m.rpgRockets);
+    applyMedicStaffMarkers(m.medicStaffs);
     m.added.forEach(function (pk) { world.spawnPickupAt({ id: pk.id, type: pk.type, item: pk.it, x: pk.x, y: pk.y, amount: pk.n, lockT: pk.lk || 0 }); });
     (m.structs || []).forEach(function (s) { if (!world.structById(s.id)) world.structFromServer(Object.assign({ op: 'add' }, s)); });
     (m.zones || []).forEach(function (z) { if (!world.zoneById(z.id)) world.addZone({ id: z.id, kind: z.k, x: z.x, y: z.y, r: z.r, dur: z.dur, t: z.tl, age: z.dur - z.tl, owner: z.o, team: z.tm, dps: z.dps }); });
@@ -687,6 +753,8 @@
       p.vehicleWeapon = row[8] || 0;
       p.repairVehicle = row[9] || 0;
       setSentryBuild(p, row[10]);
+      setMedicStaff(p, row[11]);
+      setPyroState(p, row[12]);
       if (p.vehicle && !vehicleFor(p)) { p.vehicle = 0; p.vehicleSeat = null; }
       // Sync restores the entire roster, including distant or invisible enemies.
       // Only interest-filtered snapshots may reveal their bodies again.
@@ -707,7 +775,8 @@
 
   function applyStorm(m) {
     if (!state) return;
-    var s = state.world.storm;
+    if (m.disabled || (state.info.practice && state.practiceSettings && !state.practiceSettings.storm)) { state.world.storm = null; return; }
+    var s = state.world.storm || (state.world.storm = new W.Storm(state.world));
     s.x = m.x; s.y = m.y; s.r = m.r; s.state = m.st; s.timeLeft = m.tl; s.dps = m.dps; s.phase = m.ph;
     s.next = m.nx === null || m.nx === undefined ? null : { x: m.nx, y: m.ny, r: m.nr };
     if (m.alive !== undefined) state.alive = m.alive;
@@ -773,6 +842,10 @@
   }
 
   function requestUpgrade(classId) { return MatchNet.request({ t: 'upgrade', cls: classId }, 'upgrade-result', 6000); }
+  function practiceCommand(action, data) {
+    if (!state || !state.info.practice) return Promise.resolve({ ok: false, reason: 'practice-only' });
+    return MatchNet.request(Object.assign({}, data || {}, { t: 'practice', action: action }), 'practice-result', 6000);
+  }
   function chooseSentryUpgrade(variant) {
     if (!state) return false;
     MatchNet.send({ t: 'sentry-choice', variant: variant });
@@ -806,7 +879,7 @@
   W.Online = {
     init: init, join: join, leave: leave, stop: stop, start: start,
     applySnapshot: applySnapshot, applyEvent: applyEvent, applySync: applySync, applyStorm: applyStorm,
-    latch: latch, step: step, interpolate: interpolate, frame: frame, requestUpgrade: requestUpgrade, focus: focus,
+    latch: latch, step: step, interpolate: interpolate, frame: frame, requestUpgrade: requestUpgrade, practiceCommand: practiceCommand, focus: focus,
     selectItem: selectItem, useItem: useItem, pressInteract: pressInteract,
     updateCosmetics: updateCosmetics, emote: emote, clearActions: clearActions, chooseSentryUpgrade: chooseSentryUpgrade,
     state: function () { return state; }, joining: function () { return !!pendingJoin; }, STEP: STEP
