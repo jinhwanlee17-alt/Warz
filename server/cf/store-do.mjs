@@ -1,5 +1,5 @@
 // Durable Object storage adapter with the same shape as the file store: an in-memory `data` object and a
-// debounced `save()` that writes only the entries that changed (one storage key per user / friend list / session).
+// debounced `save()` that writes only the entries that changed (one storage key per user / friend list / session)
 export function blank() {
   return { users: {}, friends: {}, requests: [], sessions: {}, providers: { google: {}, apple: {} } };
 }
