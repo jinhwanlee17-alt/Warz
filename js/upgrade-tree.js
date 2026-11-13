@@ -284,7 +284,8 @@
     if (cls.id === 'magicmedic') rows += '<li><strong>Revive</strong><span>Revive teammates to full health without consuming a medkit.</span></li><li><strong>Hotbar</strong><span>Three class tools. Your old slot-3 item moves to slot 6.</span></li>';
     if (cls.id === 'pyromaniac') rows += '<li><strong>Protection</strong><span><b>50%</b> less incoming damage</span></li><li><strong>Firegun</strong><span>Use gear to spend <b>50 tokens</b> and transform the dual revolvers into one fireball gun.</span></li>';
     if (cls.id === 'armorcrew') rows += '<li><strong>Protection</strong><span><b>10%</b> less incoming damage</span></li>' +
-      '<li><strong>Repair</strong><span><b>100 HP</b> · Humvee: ' + W.ARMOR_CREW.repairSecondsPer100.humvee + 's · Tank: ' + W.ARMOR_CREW.repairSecondsPer100.tank + 's. Toggle ' + W.Controls.bindings('gear').map(function (code) { return W.Controls.label(code); }).join(' / ') + ' near a damaged vehicle. Repairing reveals you to nearby enemies.</span></li>';
+      '<li><strong>Artillery</strong><span><b>' + (W.ARTILLERY.fireInterval - W.ARMOR_CREW.artilleryIntervalReduction) + 's</b> between shells, <b>25%</b> faster shell travel and <b>10%</b> faster SP artillery driving.</span></li>' +
+      '<li><strong>Repair</strong><span><b>100 HP</b> · Humvee: ' + W.ARMOR_CREW.repairSecondsPer100.humvee + 's · Tank: ' + W.ARMOR_CREW.repairSecondsPer100.tank + 's · Artillery: ' + W.ARMOR_CREW.repairSecondsPer100.artillery + 's. Toggle ' + W.Controls.bindings('gear').map(function (code) { return W.Controls.label(code); }).join(' / ') + ' near a damaged vehicle. Repairing reveals you to nearby enemies.</span></li>';
     cls.loadout.forEach(function (id, i) {
       var kind = WEAPONS[id].kind;
       rows += weaponRow(i === 0 ? 'Main' : (kind === 'gun' ? 'Side' : 'Gear'), id);

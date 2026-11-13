@@ -28,6 +28,7 @@ export function loadWarz(files = ['config', 'util', 'map', 'world', 'items', 'cl
   if (files.includes('engineer') && !files.includes('rpg')) { files = files.slice(); files.splice(files.indexOf('engineer') + 1, 0, 'rpg'); }
   if (files.includes('rpg') && !files.includes('magic-medic')) { files = files.slice(); files.splice(files.indexOf('rpg') + 1, 0, 'magic-medic'); }
   if (files.includes('magic-medic') && !files.includes('pyromaniac')) { files = files.slice(); files.splice(files.indexOf('magic-medic') + 1, 0, 'pyromaniac'); }
+  if (files.includes('pyromaniac') && !files.includes('artillery')) { files = files.slice(); files.splice(files.indexOf('pyromaniac') + 1, 0, 'artillery'); }
   const storage = options.storage || new MemoryStorage();
   const sandbox = { console, localStorage: storage, crypto: globalThis.crypto, TextEncoder, setTimeout, clearTimeout, performance };
   sandbox.window = sandbox;

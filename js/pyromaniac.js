@@ -147,7 +147,7 @@
     }
   };
   World.prototype.applyPyroBurn = function (target, ownerId, kind, damage, interval) {
-    if (this.remote || !target || (target.seats ? target.wreck || target.type === 'tank' : !target.alive || target.vehicle)) return;
+    if (this.remote || !target || (target.seats ? target.wreck || W.vehicleHasTankArmor(target) : !target.alive || target.vehicle)) return;
     if (this.inPyroSnow(target)) { this.extinguishPyro(target); return; }
     var now = this.time, all = target.pyroBurn || (target.pyroBurn = {}), old = all[kind];
     if (kind === 'firegun') {
@@ -174,7 +174,7 @@
     return result;
   };
   World.prototype.damageVehicle = function (v, amount, source, cause) {
-    if (v && v.type === 'tank' && cause === 'pyro-burn') return false;
+    if (W.vehicleHasTankArmor(v) && cause === 'pyro-burn') return false;
     var before = v && v.hp, result = baseVehicleDamage.apply(this, arguments);
     if (result && v && !v.wreck && (cause === 'pyroflamethrower' || cause === 'firegun')) {
       var owner = this.playerById(source);
@@ -190,7 +190,7 @@
   };
   World.prototype.tickPyroBurn = function (target) {
     if (!target.pyroBurn) return;
-    if ((target.seats ? target.wreck || target.type === 'tank' : !target.alive) || this.inPyroSnow(target)) { this.extinguishPyro(target); return; }
+    if ((target.seats ? target.wreck || W.vehicleHasTankArmor(target) : !target.alive) || this.inPyroSnow(target)) { this.extinguishPyro(target); return; }
     var self = this, now = this.time, all = target.pyroBurn;
     ['flame', 'firegun'].forEach(function (key) {
       var b = all[key]; if (!b) return;

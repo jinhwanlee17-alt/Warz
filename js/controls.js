@@ -12,7 +12,7 @@
     { id: 'right', name: 'Move right', group: 'Movement' },
     { id: 'sprint', name: 'Sprint (hold)', group: 'Movement' },
     { id: 'fire', name: 'Shoot', group: 'Combat' },
-    { id: 'scope', name: 'Scope (Sniper: hold to zoom out)', group: 'Combat' },
+    { id: 'scope', name: 'Scope (Sniper / Rocketeer: hold to zoom out)', group: 'Combat' },
     { id: 'gear', name: 'Use gear (heal / grenade / radar / repair)', group: 'Combat' },
     { id: 'reload', name: 'Reload', group: 'Combat' },
     { id: 'weapon1', name: 'Hotbar slot 1 (weapon)', group: 'Hotbar' },

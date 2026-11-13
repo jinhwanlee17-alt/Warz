@@ -129,6 +129,45 @@
     return { x: x, y: y };
   }
 
+  // The annotated vehicle lanes follow nested rounded squares, rather than circles.
+  var VEHICLE_RINGS = {
+    humvee: { inset: 0.055, corner: 0.075 },
+    artillery: { inset: 0.15, corner: 0.055 },
+    tank: { inset: 0.28, corner: 0.035 }
+  };
+  function ringPoint(fraction, inset, corner) {
+    var S = C.worldSize, flat = S - inset * 2 - corner * 2, side = flat + Math.PI * corner / 2;
+    var distance = ((fraction % 1) + 1) % 1 * side * 4;
+    var edge = Math.min(3, Math.floor(distance / side)), offset = distance - edge * side, x, y;
+    if (offset < flat) { x = inset + corner + offset; y = inset; }
+    else {
+      var angle = -Math.PI / 2 + (offset - flat) / corner;
+      x = S - inset - corner + Math.cos(angle) * corner;
+      y = inset + corner + Math.sin(angle) * corner;
+    }
+    for (var turn = 0; turn < edge; turn++) { var oldX = x; x = S - y; y = oldX; }
+    return { x: x, y: y };
+  }
+  function vehicleRingPoint(type, fraction) {
+    var lane = VEHICLE_RINGS[type];
+    return ringPoint(fraction, lane.inset * C.worldSize, lane.corner * C.worldSize);
+  }
+
+  function groundArtilleryRingPoint(ring, fraction) {
+    var lane = W.GROUND_ARTILLERY.rings[ring], S = C.worldSize, r = lane.corner * S;
+    var left = lane.left * S, right = lane.right * S, top = lane.top * S, bottom = lane.bottom * S;
+    var w = right - left - r * 2, h = bottom - top - r * 2, arc = Math.PI * r / 2;
+    var lengths = [w, arc, h, arc, w, arc, h, arc], d = ((fraction % 1) + 1) % 1 * (2 * w + 2 * h + U.TAU * r), part = 0;
+    while (part < 7 && d > lengths[part]) { d -= lengths[part]; part++; }
+    if (part === 0) return { x: left + r + d, y: top };
+    if (part === 2) return { x: right, y: top + r + d };
+    if (part === 4) return { x: right - r - d, y: bottom };
+    if (part === 6) return { x: left, y: bottom - r - d };
+    var angle = (part - 3) * Math.PI / 4 + d / r;
+    return { x: (part === 1 || part === 3 ? right - r : left + r) + Math.cos(angle) * r,
+      y: (part === 1 || part === 7 ? top + r : bottom - r) + Math.sin(angle) * r };
+  }
+
   function generate(seed, teamSize) {
     seed = (seed >>> 0) || 1;
     teamSize = teamSize === 2 || teamSize === 3 || teamSize === 4 ? teamSize : 1;
@@ -137,7 +176,7 @@
     function scaledCount(count) { return Math.round(count * area); }
     var map = {
       seed: seed, teamSize: teamSize, size: S, coast: null, ponds: [], patches: [], tufts: [], towns: [], buildings: [],
-      rocks: [], trees: [], bushes: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], pickups: [], nextPickupId: 1
+      rocks: [], trees: [], bushes: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], artillery: [], groundArtillery: [], pickups: [], nextPickupId: 1
     };
     map.coast = coastline(rng, C.beach, 34);
     // Reserve the centre before any terrain, building, station or spawn is placed.
@@ -175,25 +214,45 @@
       occ.addCircle(point.x, point.y, clearRadius);
     }
 
-    // Eight modestly varied sectors on an inner ring, with space to board every side.
-    // A separate seed keeps the choice of armed vehicles independent of terrain/loot randomness.
-    var vrng = U.rng((seed ^ 0x6e624eb7) >>> 0), parking = W.VEHICLE.radius + C.playerRadius * 2 + 32;
-    var vehiclePhase = vrng.range(-0.06, 0.06);
-    for (var vi = 0; vi < W.VEHICLE.count; vi++) {
-      var va = vi * U.TAU / W.VEHICLE.count + vehiclePhase + vrng.range(-0.05, 0.05), radius = S * vrng.range(0.32, 0.34);
-      var vx = S / 2 + Math.cos(va) * radius, vy = S / 2 + Math.sin(va) * radius;
-      map.vehicles.push({ x: vx, y: vy, angle: vrng.range(0, U.TAU) });
-      occ.addCircle(vx, vy, parking);
+    // Humvees use the outer red lane, artillery the middle yellow lane, and tanks
+    // the inner blue lane. Reserve boarding space before generating any terrain.
+    function spawnVehicles(type, count, salt, def, idOffset) {
+      var lane = VEHICLE_RINGS[type], laneRng = U.rng((seed ^ salt) >>> 0), list = [];
+      var phase = laneRng.range(-0.035, 0.035), parking = def.radius + C.playerRadius * 2 + 32;
+      for (var i = 0; i < count; i++) {
+        var fraction = (i + phase + laneRng.range(-0.02, 0.02)) / count;
+        var point = ringPoint(fraction, S * (lane.inset + laneRng.range(-0.004, 0.004)), S * lane.corner);
+        list.push({ id: idOffset + i + 1, type: type, x: point.x, y: point.y, angle: laneRng.range(0, U.TAU) });
+        occ.addCircle(point.x, point.y, parking);
+      }
+      return { list: list, rng: laneRng };
     }
+    var humvees = spawnVehicles('humvee', W.VEHICLE.count, 0x6e624eb7, W.VEHICLE, 0);
+    var vrng = humvees.rng;
+    map.vehicles = humvees.list;
     map.vehicles = vrng.shuffle(map.vehicles);
     map.vehicles.forEach(function (v, i) { v.id = i + 1; });
-    var trng = U.rng((seed ^ 0x3f98c671) >>> 0), tankParking = W.TANK.radius + C.playerRadius * 2 + 32;
-    for (var ti = 0; ti < W.TANK.count; ti++) {
-      var ta = (ti + 0.25) * U.TAU / W.TANK.count + trng.range(-0.04, 0.04), tr = S * trng.range(0.32, 0.34);
-      var tx = S / 2 + Math.cos(ta) * tr, ty = S / 2 + Math.sin(ta) * tr;
-      map.tanks.push({ id: W.VEHICLE.count + ti + 1, type: 'tank', x: tx, y: ty, angle: trng.range(0, U.TAU) });
-      occ.addCircle(tx, ty, tankParking);
-    }
+    map.tanks = spawnVehicles('tank', W.TANK.count, 0x3f98c671, W.TANK, W.VEHICLE.count).list;
+    map.artillery = spawnVehicles('artillery', Math.min(4, W.ARTILLERY.count), 0x71ac438f, W.ARTILLERY, W.VEHICLE.count + W.TANK.count).list;
+
+    // Two anchored cannons on opposite sides of each hand-drawn ring. Their own
+    // seeded stream preserves crate rarity rolls and keeps every approach clear.
+    var grng = U.rng((seed ^ 0x4c158ab3) >>> 0), groundDef = W.GROUND_ARTILLERY;
+    var parking = groundDef.radius + C.playerRadius * 2 + 32;
+    var groundId = W.VEHICLE.count + W.TANK.count + map.artillery.length;
+    groundDef.rings.forEach(function (lane, ring) {
+      var phase = grng.next(), points;
+      for (var attempt = 0; attempt < 1024; attempt++) {
+        var f = phase + attempt * .61803398875;
+        points = [groundArtilleryRingPoint(ring, f), groundArtilleryRingPoint(ring, f + .5)];
+        if (points.every(function (p) { return inside(p.x, p.y, parking) && occ.circleFree(p.x, p.y, parking); })) break;
+      }
+      if (attempt === 1024) throw new Error('No clear ground artillery position on ring ' + ring);
+      points.forEach(function (p) {
+        map.groundArtillery.push({ id: ++groundId, type: 'artillery', fixed: true, ring: ring, x: p.x, y: p.y, angle: grng.range(0, U.TAU) });
+        occ.addCircle(p.x, p.y, parking);
+      });
+    });
 
     // Ponds slow players down.
     var pondTarget = scaledCount(rng.int(4, 6));
@@ -367,5 +426,6 @@
     return map;
   }
 
-  W.MapGen = { generate: generate, inside: inside, edgePoint: edgePoint, edgeLength: edgeLength, WALL: WALL, DOOR: DOOR };
+  W.MapGen = { generate: generate, inside: inside, edgePoint: edgePoint, edgeLength: edgeLength,
+    vehicleRings: VEHICLE_RINGS, vehicleRingPoint: vehicleRingPoint, groundArtilleryRingPoint: groundArtilleryRingPoint, WALL: WALL, DOOR: DOOR };
 }());

@@ -35,15 +35,15 @@
   World.prototype.initVehicles = function () {
     var self = this;
     this.tankShells = []; this.nextTankShellId = 1;
-    this.vehicles = this.demo ? [] : (this.map.vehicles || []).concat(this.map.tanks || []).map(function (s, i) {
-      var tank = s.type === 'tank', def = tank ? T : V;
+    this.vehicles = this.demo ? [] : (this.map.vehicles || []).concat(this.map.tanks || [], this.map.artillery || [], this.map.groundArtillery || []).map(function (s, i) {
+      var tank = s.type === 'tank', artillery = s.type === 'artillery', def = W.vehicleDef(s);
       return { id: s.id || i + 1, x: s.x, y: s.y, vx: 0, vy: 0, angle: s.angle || 0,
-        type: tank ? 'tank' : 'humvee', r: def.radius, hp: def.hp, maxHp: def.hp, wreck: false, armed: tank || (self.teams && i < 2),
+        type: artillery ? 'artillery' : tank ? 'tank' : 'humvee', fixed: artillery && !!s.fixed, r: def.radius, hp: def.hp, maxHp: def.hp, wreck: false, armed: tank || (!artillery && self.teams && i < 2),
         seats: { driver: 0, gunner: 0, rearLeft: 0, rearRight: 0 }, gunAngle: s.angle || 0,
         cannonAngle: s.angle || 0, cannonCooldown: 0, cannonAmmo: 1, cannonMaxAmmo: 1, cannonReload: 0, cannonUpgraded: false,
         cannonFlash: 0, mgAmmo: tank ? T.mgMagazine : 0, mgReload: 0,
         cooldown: 0, flash: 0, hitFlash: 0, contacts: {}, ramUntil: {}, snowT: 0, snowTick: 0,
-        sentrySnow: [], sentryBurn: null };
+        sentrySnow: [], sentryBurn: null, stationaryT: 0, artilleryCooldown: 0 };
     });
   };
   World.prototype.vehicleById = function (id) {
@@ -59,8 +59,9 @@
     return null;
   };
   World.prototype.vehicleSeatPoint = function (v, seat, access) {
-    var offsets = v.type === 'tank' ? (access ? TANK_ACCESS : TANK_OFFSETS) : (access ? ACCESS : OFFSETS);
+    var offsets = v.type === 'tank' || v.type === 'artillery' ? (access ? TANK_ACCESS : TANK_OFFSETS) : (access ? ACCESS : OFFSETS);
     var o = offsets[seat] || [0, 0], ca = Math.cos(v.angle), sa = Math.sin(v.angle);
+    if (access && v.type === 'artillery') o = [o[0] * 1.1, o[1] * 1.1];
     return { x: v.x + o[0] * ca - o[1] * sa, y: v.y + o[0] * sa + o[1] * ca };
   };
   World.prototype.vehicleSeatAvailable = function (v, seat, p) {
@@ -71,20 +72,26 @@
   };
   World.prototype.vehicleTeamSize = function () { return this.teams ? Math.max(2, Math.min(4, this.map.teamSize > 1 ? this.map.teamSize : 4)) : 1; };
   World.prototype.vehicleSeatOrder = function (v) {
+    if (v.type === 'artillery') return ['driver'];
     var n = this.vehicleTeamSize();
     var order = v.type === 'tank' ? ['driver', 'rearLeft', 'gunner', 'rearRight']
       : v.armed ? ['driver', 'gunner', 'rearLeft', 'rearRight'] : ['driver', 'rearLeft', 'rearRight'];
     return order.slice(0, n);
   };
   World.prototype.vehicleSeatRole = function (v, seat) {
+    if (v.fixed && v.type === 'artillery') return 'Artillery operator';
     if (seat === 'driver') return 'Driver';
     if (v.type === 'tank' && seat === 'rearLeft') return this.vehicleTeamSize() === 2 ? 'Cannon & machine gun' : 'Cannon operator';
     return seat === 'gunner' ? 'Machine gunner' : 'Passenger';
   };
   World.prototype.vehicleBoardingDistance = function (p, v) { return Math.hypot(p.x - v.x, p.y - v.y) - v.r - p.r; };
   World.prototype.vehicleMaxSpeed = function (v) {
-    var driver = this.playerById(v.seats.driver);
-    return W.vehicleDef(v).maxSpeed * (v.type === 'humvee' && driver && driver.classId === 'armorcrew' ? W.ARMOR_CREW.humveeSpeedMul : 1);
+    var driver = this.playerById(v.seats.driver), mul = 1;
+    if (driver && driver.classId === 'armorcrew') {
+      if (v.type === 'humvee') mul = W.ARMOR_CREW.humveeSpeedMul;
+      else if (v.type === 'artillery' && !v.fixed) mul = W.ARMOR_CREW.artillerySpeedMul;
+    }
+    return W.vehicleDef(v).maxSpeed * mul;
   };
   World.prototype.nearestVehicleSeat = function (p) {
     if (!p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle) return null;
@@ -103,7 +110,7 @@
     if (this.vehicleBoardingDistance(p, v) > V.interactRange || !this.lineClear(p.x, p.y, v.x, v.y, v)) return false;
     if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     v.seats[seat] = p.id; p.vehicle = v.id; p.vehicleSeat = seat;
-    p.vehicleWeapon = seat === 'gunner' ? 1 : 0;
+    p.vehicleWeapon = seat === 'gunner' || (v.type === 'artillery' && v.fixed) ? 1 : 0;
     p.vx = p.vy = 0; p.scoping = false; p.sprinting = false; p.shieldUp = false; p.held = -1; p.nearStation = null; p.wantsRevive = false; p.repairVehicle = 0;
     p.vehicleIntent = IDLE;
     var w = p.weapons[p.slot];
@@ -265,7 +272,7 @@
       if (speed >= maxSpeed * def.crushSpeedRatio) {
         this.crushVehicleCrates(v, body, tx, ty);
         if (v.wreck) { body.vx = body.vy = 0; break; }
-        var rockImpact = v.type === 'tank' && this.ramTankRock(v, body, tx, ty);
+        var rockImpact = (v.type === 'tank' || v.type === 'artillery') && this.ramTankRock(v, body, tx, ty);
         if (rockImpact) {
           if (v.wreck || rockImpact === 'stop') { body.vx = body.vy = 0; break; }
           continue;
@@ -309,7 +316,7 @@
     body.x += (tx - body.x) * nearest.t; body.y += (ty - body.y) * nearest.t;
     var mul = placed ? 0 : 0.5;
     body.vx *= mul; body.vy *= mul;
-    // A player rock stops the tank, including the hit that destroys it.
+    // A player rock stops a tracked vehicle, including the hit that destroys it.
     if (placed) {
       var dx = body.x - rock.x, dy = body.y - rock.y, d = Math.hypot(dx, dy) || 1;
       body.x = rock.x + dx / d * (rock.r + v.r + 0.001);
@@ -506,6 +513,7 @@
       }
       if (v.wreck) continue;
       if (v.type === 'tank') { this.updateTankWeapons(v, dt); this.pruneVehicleSentrySnow(v); continue; }
+      if (v.type === 'artillery') { if (this.updateArtilleryWeapons) this.updateArtilleryWeapons(v, dt); this.pruneVehicleSentrySnow(v); continue; }
       var weaponDt = this.vehicleSentryWeaponTime(v, dt);
       v.cooldown = Math.max(-weaponDt, v.cooldown - weaponDt);
       var gunner = v.armed && this.playerById(v.seats.gunner), input = gunner && gunner.vehicleIntent;
@@ -528,12 +536,13 @@
   // Hull armor applies once, regardless of whether the hit came from a physical
   // projectile or a basic sentry's direct shot. Tier-IV rockets and cannons bypass it.
   World.prototype.vehicleSentryDamageMul = function (v, cause) {
+    var armored = W.vehicleHasTankArmor(v);
     if (cause === 'sentry-cannons' || cause === 'sentry-rockets') return 1;
-    if (cause === 'sentry-burn') return v.type === 'tank' ? 0 : 1;
-    if (cause === 'sentry-snowballs') return v.type === 'tank' ? 0.25 : 0.5;
+    if (cause === 'sentry-burn') return armored ? 0 : 1;
+    if (cause === 'sentry-snowballs') return armored ? 0.25 : 0.5;
     var weapon = W.WEAPONS[cause];
-    if (v.type === 'tank' && weapon && weapon.kind === 'gun' && weapon.tankDefensePenetration) return 0.25 + weapon.tankDefensePenetration;
-    return v.type === 'tank' && ((weapon && weapon.kind === 'gun') || cause === 'turret' || cause === 'tankmg' ||
+    if (armored && weapon && weapon.kind === 'gun' && weapon.tankDefensePenetration) return 0.25 + weapon.tankDefensePenetration;
+    return armored && ((weapon && weapon.kind === 'gun') || cause === 'turret' || cause === 'tankmg' ||
       cause === 'sentry' || (typeof cause === 'string' && cause.indexOf('sentry-') === 0)) ? 0.25 : 1;
   };
   World.prototype.pruneVehicleSentrySnow = function (v) {
@@ -561,7 +570,7 @@
     return Math.max(dt * 0.5, dt - lost);
   };
   World.prototype.applyVehicleSentryBurn = function (v, ownerId) {
-    if (this.remote || !v || v.wreck || v.type === 'tank') return false;
+    if (this.remote || !v || v.wreck || W.vehicleHasTankArmor(v)) return false;
     var burn = v.sentryBurn;
     if (!burn || burn.until < this.time - 0.00000001) burn = { until: this.time + 3, next: this.time + 0.1, owner: ownerId || 0 };
     else { burn.until = this.time + 3; burn.owner = ownerId || 0; }
@@ -571,7 +580,7 @@
   World.prototype.updateVehicleSentryBurn = function (v) {
     var burn = v.sentryBurn;
     if (!burn) return;
-    if (v.wreck || v.type === 'tank') { v.sentryBurn = null; return; }
+    if (v.wreck || W.vehicleHasTankArmor(v)) { v.sentryBurn = null; return; }
     if (!this.remote) {
       var end = Math.min(this.time, burn.until);
       while (!v.wreck && burn.next <= end + 0.00000001) {

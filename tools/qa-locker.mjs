@@ -10,7 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const deployed = process.argv.includes('--deployed');
 const outDir = path.join(root, 'output', deployed ? 'qa-live-locker' : 'qa-locker');
 const app = deployed ? null : createApp({ dataDir: null, botFill: 0, log: { info() {}, warn: console.warn, error: console.error } });
-const report = { deployed, cache: '20261112d', checks: [], screenshots: [], errors: [] };
+const report = { deployed, cache: '20261112l', checks: [], screenshots: [], errors: [] };
 let browser;
 const check = (ok, text) => { assert.ok(ok, text); report.checks.push(text); console.log('ok  ' + text); };
 try {
@@ -34,7 +34,7 @@ try {
   const shot = async name => { report.screenshots.push(await browser.shot(name)); };
   await browser.cmd('Page.navigate', { url: report.url });
   await browser.waitFor('window.Warz && Warz.App && Warz.App.ready');
-  if (deployed) check(await evaluate(() => [...document.scripts].filter(s => s.src.includes('/js/')).every(s => new URL(s.src).searchParams.get('v') === '20261112d') && Warz.Locker && Warz.Cosmetics && Warz.EmotePicker), 'Published20261112d includes Locker and the compact emote picker');
+  if (deployed) check(await evaluate(() => [...document.scripts].filter(s => s.src.includes('/js/')).every(s => new URL(s.src).searchParams.get('v') === '20261112l') && Warz.Locker && Warz.Cosmetics && Warz.EmotePicker), 'Published20261112l includes Locker and the compact emote picker');
   check(await evaluate(() => !!document.getElementById('locker-btn')), 'Main menu has a Locker button');
   await click('#locker-btn');
   check(await evaluate(() => Warz.Locker.isOpen() && document.activeElement.id === 'locker-tab-colours'), 'Locker opens and focuses the selected category');

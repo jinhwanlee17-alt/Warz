@@ -569,6 +569,18 @@ function escape(items, k, o = {}) {
   }
   const b = a.bot(x, y, { skill: 0.55, caution: 0.6, aggression: 0.5 }, { items });
   const h = a.human(hx, hy, null, { hp: o.humanHp || 300 });
+  // Record the choice at the moment it is made. Generated terrain may leave no
+  // room for a boulder, or already block the bullets; snow-first is valid then.
+  let firstEscape = null;
+  const useItem = b.useItem.bind(b);
+  b.useItem = (idx, opts) => {
+    const id = b.p.items[idx]?.id;
+    if (!firstEscape && (id === 'rock' || id === 'snowbomb')) {
+      const e = b.target;
+      firstEscape = { id, canBlock: !!e && e.visible && a.world.lineClear(b.p.x, b.p.y, e.ref.x, e.ref.y) && !!b.rockSpot(e) };
+    }
+    return useItem(idx, opts);
+  };
   let err = 0;
   const trail = [];
   h.controller = (p) => {          // chases, aims where the bot was a moment ago with a wobble, cannot see through leaves or potions
@@ -581,10 +593,10 @@ function escape(items, k, o = {}) {
   };
   const t0 = a.world.time;
   while (a.world.time - t0 < 25 && b.p.alive && h.alive) a.tick();
-  return { a, b, h, used: (id) => a.used(id, b.p) };
+  return { a, b, h, firstEscape, used: (id) => a.used(id, b.p) };
 }
 {
-  const N = 16, tally = { rock: 0, snowbomb: 0, combo: 0, rockFirst: 0, smoke: 0, invisibility: 0, alive: 0, bandage: 0 };
+  const N = 16, tally = { rock: 0, snowbomb: 0, combo: 0, rockFirst: 0, eligible: 0, rockPriority: 0, smoke: 0, invisibility: 0, alive: 0, bandage: 0 };
   for (let k = 0; k < N; k++) {
     const r = escape([['snowbomb', 1], ['rock', 1], ['bandage', 3]], k);
     if (r.used('rock')) tally.rock++;
@@ -594,10 +606,11 @@ function escape(items, k, o = {}) {
       const order = r.a.events.filter((e) => e.type === 'item-used' && e.player === r.b.p && (e.item === 'rock' || e.item === 'snowbomb')).map((e) => e.item);
       if (order[0] === 'rock') tally.rockFirst++;
     }
+    if (r.firstEscape?.canBlock) { tally.eligible++; if (r.firstEscape.id === 'rock') tally.rockPriority++; }
     if (r.used('bandage')) tally.bandage++;
   }
   t.check(tally.snowbomb >= N * 0.35 && tally.rock >= N * 0.35, 'losing a fight with a Snowbomb and a Rock in the hotbar, a bot uses them to get away (' + tally.snowbomb + ' and ' + tally.rock + ' of ' + N + ' fights; it wins some outright)');
-  t.check(tally.combo >= 3 && tally.rockFirst >= tally.combo * 0.6, 'usually as a pair, boulder first because that is what stops the bullets (' + tally.combo + ' pairs, ' + tally.rockFirst + ' rock-first)');
+  t.check(tally.combo >= 3 && tally.eligible >= 3 && tally.rockPriority === tally.eligible, 'uses the pair and prioritises the boulder whenever exposed with room to place it (' + tally.combo + ' pairs, ' + tally.rockFirst + ' rock-first, ' + tally.rockPriority + '/' + tally.eligible + ' eligible choices)');
   t.check(tally.bandage >= 2, 'and patches itself up behind the boulder when it gets the chance (' + tally.bandage + ' fights)');
   let never = 0;
   for (let k = 0; k < 8; k++) { const r = escape([['snowbomb', 1], ['rock', 1]], k, { humanHp: 30 }); if (!r.used('rock') && !r.used('snowbomb')) never++; }

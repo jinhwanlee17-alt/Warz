@@ -77,12 +77,12 @@ for (const cause of ['ar', 'grenade', 'tank-cannon', 'tankmg', 'ram', 'lightning
   p.hp = 150; p.armor = 0; p.fx.shield = 5; world.damagePlayer(p, 20, source.id, 'ar');
   t.near(150 - p.hp, 20 * (1 - W.ITEMS.shield.reduce) * 0.9, 0.1, 'permanent protection stacks once with a shield potion');
 }
-for (const type of ['humvee', 'tank']) for (const dt of [1 / 20, 1 / 60]) {
-  const { world, p, v } = arena({ vehicles: [{ id: 1, type, x: 5000, y: 5000, angle: 0 }] });
+for (const [type, fixed] of [['humvee', false], ['tank', false], ['artillery', false], ['artillery', true]]) for (const dt of [1 / 20, 1 / 60]) {
+  const { world, p, v } = arena({ vehicles: [{ id: 1, type, fixed, x: 5000, y: 5000, angle: 0 }] });
   p.x = v.x - v.r - 120;
   t.equal(world.nearestRepairVehicle(p), v, 'repair selects a damaged hull at exactly120 units from its surface');
   t.check(world.useUtility(p, {}), 'class utility toggles repair on');
-  const seconds = type === 'tank' ? 2 : 3.5;
+  const seconds = type === 'humvee' ? 3.5 : 2;
   run(world, seconds, dt);
   t.near(v.hp, v.maxHp - 100, 1e-7, type + ' at ' + Math.round(1 / dt) + ' Hz: repairs100HP in' + seconds + 'seconds');
   const events = world.events.filter(e => e.type === 'vehicle' && e.op === 'repair');

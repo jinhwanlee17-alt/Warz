@@ -861,13 +861,13 @@
     this.grenades = out;
   };
 
-  // Natural map rocks are intact or broken by a tank. They have no health or partial damage state.
+  // Heavy vehicle impacts break natural rocks outright, without a health state.
   World.prototype.damageMapRock = function (rock, cause, sourceId, hx, hy) {
-    if (this.remote || !rock || rock.alive === false || this.map.rocks.indexOf(rock) < 0 || (cause !== 'tankram' && cause !== 'tank-cannon')) return false;
+    if (this.remote || !rock || rock.alive === false || this.map.rocks.indexOf(rock) < 0 || (cause !== 'tankram' && cause !== 'tank-cannon' && cause !== 'artillery')) return false;
     return this.destroyRock(rock, sourceId);
   };
   World.prototype.damageMapRocksInArea = function (x, y, radius, cause, sourceId, throughCover) {
-    if (this.remote || (cause !== 'tankram' && cause !== 'tank-cannon')) return 0;
+    if (this.remote || (cause !== 'tankram' && cause !== 'tank-cannon' && cause !== 'artillery')) return 0;
     var candidates = [], self = this;
     this.solids.query(x - radius, y - radius, x + radius, y + radius, function (s) {
       if (s.type !== 'rock' || !s.rock || !s.rock.alive || Math.hypot(s.x - x, s.y - y) - s.r > radius) return;
@@ -889,7 +889,7 @@
   };
 
   // Explosions hurt their owner; other teammates stay protected. Launcher II demolishes crates,
-  // while only a tank cannon breaks natural rocks and portable boulders stay solid.
+  // while heavy cannons break natural rocks and portable boulders stay solid.
   World.prototype.explode = function (x, y, ex, ownerId, cause) {
     var R = ex.radius, self = this, crates = [], hitMounts = {}, i;
     var owner = ownerId ? this.playerById(ownerId) : null, ownerTeam = owner ? owner.team : null;

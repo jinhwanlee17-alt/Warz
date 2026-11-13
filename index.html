@@ -8,11 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261112d">
-  <link rel="stylesheet" href="css/upgrade-tree.css?v=20261112d">
-  <link rel="stylesheet" href="css/locker.css?v=20261112d">
-  <link rel="stylesheet" href="css/emotes.css?v=20261112d">
-  <link rel="stylesheet" href="css/sentry-upgrade.css?v=20261112d">
+  <link rel="stylesheet" href="css/style.css?v=20261112l">
+  <link rel="stylesheet" href="css/upgrade-tree.css?v=20261112l">
+  <link rel="stylesheet" href="css/locker.css?v=20261112l">
+  <link rel="stylesheet" href="css/emotes.css?v=20261112l">
+  <link rel="stylesheet" href="css/sentry-upgrade.css?v=20261112l">
+  <link rel="stylesheet" href="css/artillery.css?v=20261112l">
+  <link rel="stylesheet" href="css/sound-cues.css?v=20261112l">
 </head>
 <body data-screen="menu">
   <canvas id="game" tabindex="-1" aria-label="warz.io battlefield"></canvas>
@@ -93,7 +95,7 @@
       <div class="slots" id="hud-slots" aria-label="Five-slot hotbar"></div>
     </div>
 
-    <div class="hud-br"><button type="button" id="emotes-btn" aria-label="Open emote picker">Emotes</button><div id="hud-keys"></div></div>
+    <div class="hud-br"><button type="button" id="emotes-btn" aria-label="Open emote picker">Emotes</button><aside id="sound-cues" class="sound-cues" aria-label="Nearby sounds"><div class="sound-cues-title">NEARBY SOUNDS</div><div id="sound-cues-list"></div></aside></div>
 
     <div id="hud-banner" class="banner" hidden></div>
     <div id="vignette"></div>
@@ -307,7 +309,7 @@
         <div><dt><kbd>L Shift</kbd></dt><dd>Sprint while moving. Empty stamina must refill completely.</dd></div>
         <div><dt>Mouse</dt><dd>Aim (your barrel points at the cursor)</dd></div>
         <div><dt>Left click</dt><dd>Shoot (hold for auto)</dd></div>
-        <div><dt>Right click</dt><dd>Scope (Sniper: hold to zoom out)</dd></div>
+        <div><dt>Right click</dt><dd>Scope (Sniper / Rocketeer: hold to zoom out)</dd></div>
         <div><dt><kbd>1</kbd> <kbd>2</kbd> / wheel</dt><dd>Switch weapon</dd></div>
         <div><dt><kbd>R</kbd></dt><dd>Reload</dd></div>
         <div><dt><kbd>F</kbd> / <kbd>G</kbd></dt><dd>Use gear (medkit or grenade)</dd></div>
@@ -360,39 +362,42 @@
     </div>
   </section>
 
-  <script src="js/config.js?v=20261112d"></script>
-  <script src="js/cosmetics.js?v=20261112d"></script>
-  <script src="js/util.js?v=20261112d"></script>
-  <script src="js/map.js?v=20261112d"></script>
-  <script src="js/world.js?v=20261112d"></script>
-  <script src="js/items.js?v=20261112d"></script>
-  <script src="js/class-combat.js?v=20261112d"></script>
-  <script src="js/vehicles.js?v=20261112d"></script>
-  <script src="js/sentry-combat.js?v=20261112d"></script>
-  <script src="js/level3-combat.js?v=20261112d"></script>
-  <script src="js/engineer.js?v=20261112d"></script>
-  <script src="js/rpg.js?v=20261112d"></script>
-  <script src="js/magic-medic.js?v=20261112d"></script>
-  <script src="js/pyromaniac.js?v=20261112d"></script>
-  <script src="js/cosmetic-art.js?v=20261112d"></script>
-  <script src="js/render.js?v=20261112d"></script>
-  <script src="js/audio.js?v=20261112d"></script>
-  <script src="js/input.js?v=20261112d"></script>
-  <script src="js/controls.js?v=20261112d"></script>
-  <script src="js/icons.js?v=20261112d"></script>
-  <script src="js/map-art.js?v=20261112d"></script>
-  <script src="js/hud.js?v=20261112d"></script>
-  <script src="js/inventory.js?v=20261112d"></script>
-  <script src="js/map-screen.js?v=20261112d"></script>
-  <script src="js/upgrade-tree.js?v=20261112d"></script>
-  <script src="js/net.js?v=20261112d"></script>
-  <script src="js/online.js?v=20261112d"></script>
-  <script src="js/account.js?v=20261112d"></script>
-  <script src="js/menu.js?v=20261112d"></script>
-  <script src="js/demo.js?v=20261112d"></script>
-  <script src="js/locker.js?v=20261112d"></script>
-  <script src="js/emote-picker.js?v=20261112d"></script>
-  <script src="js/sentry-upgrade-ui.js?v=20261112d"></script>
-  <script src="js/main.js?v=20261112d"></script>
+  <script src="js/config.js?v=20261112l"></script>
+  <script src="js/cosmetics.js?v=20261112l"></script>
+  <script src="js/util.js?v=20261112l"></script>
+  <script src="js/map.js?v=20261112l"></script>
+  <script src="js/world.js?v=20261112l"></script>
+  <script src="js/items.js?v=20261112l"></script>
+  <script src="js/class-combat.js?v=20261112l"></script>
+  <script src="js/vehicles.js?v=20261112l"></script>
+  <script src="js/sentry-combat.js?v=20261112l"></script>
+  <script src="js/level3-combat.js?v=20261112l"></script>
+  <script src="js/engineer.js?v=20261112l"></script>
+  <script src="js/rpg.js?v=20261112l"></script>
+  <script src="js/magic-medic.js?v=20261112l"></script>
+  <script src="js/pyromaniac.js?v=20261112l"></script>
+  <script src="js/artillery.js?v=20261112l"></script>
+  <script src="js/cosmetic-art.js?v=20261112l"></script>
+  <script src="js/render.js?v=20261112l"></script>
+  <script src="js/audio.js?v=20261112l"></script>
+  <script src="js/input.js?v=20261112l"></script>
+  <script src="js/controls.js?v=20261112l"></script>
+  <script src="js/icons.js?v=20261112l"></script>
+  <script src="js/map-art.js?v=20261112l"></script>
+  <script src="js/hud.js?v=20261112l"></script>
+  <script src="js/inventory.js?v=20261112l"></script>
+  <script src="js/map-screen.js?v=20261112l"></script>
+  <script src="js/upgrade-tree.js?v=20261112l"></script>
+  <script src="js/net.js?v=20261112l"></script>
+  <script src="js/online.js?v=20261112l"></script>
+  <script src="js/account.js?v=20261112l"></script>
+  <script src="js/menu.js?v=20261112l"></script>
+  <script src="js/demo.js?v=20261112l"></script>
+  <script src="js/locker.js?v=20261112l"></script>
+  <script src="js/emote-picker.js?v=20261112l"></script>
+  <script src="js/sentry-upgrade-ui.js?v=20261112l"></script>
+  <script src="js/artillery-ui.js?v=20261112l"></script>
+  <script src="js/sound-cues.js?v=20261112l"></script>
+  <script src="js/main.js?v=20261112l"></script>
 </body>
 </html>

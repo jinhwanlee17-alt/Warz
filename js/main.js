@@ -66,6 +66,8 @@
     else W.Hud.feed('Reconnected to your match.', 'info');
   }
   function beginMatchUi(world, player, label) {
+    if (W.ArtilleryUI) W.ArtilleryUI.clear();
+    if (W.SoundCues) W.SoundCues.clear();
     document.body.classList.toggle('practice-match', !!match.practice);
     document.body.classList.toggle('online-match', !!match.online);
     shake = 0;
@@ -80,6 +82,8 @@
     blurActive();
   }
   function endMatchUi() {
+    if (W.ArtilleryUI) W.ArtilleryUI.clear();
+    if (W.SoundCues) W.SoundCues.clear();
     match = null;
     syncPracticeTools();
     document.body.classList.remove('online-match');
@@ -98,6 +102,7 @@
     endMatchUi();
   }
   function closeOverlays(silent) {
+    if (W.ArtilleryUI) W.ArtilleryUI.close();
     W.Locker.close();
     W.EmotePicker.close();
     W.UpgradeTree.close();
@@ -202,6 +207,10 @@
   function localController(p) {
     var aim = renderer.screenToWorld(match.cam, input.mouse.x, input.mouse.y);
     if (blockedNow()) return { mx: 0, my: 0, aimX: aim.x, aimY: aim.y };
+    var artillery = W.ArtilleryUI && W.ArtilleryUI.intent(p);
+    if (artillery && (artillery.mode === 1 || W.ArtilleryUI.isOpen())) {
+      return { mx: 0, my: 0, slot: artillery.mode, aimX: artillery.target ? artillery.target.x : p.x, aimY: artillery.target ? artillery.target.y : p.y, artilleryFire: artillery.fire };
+    }
     var mapOpen = W.MapScreen.isOpen() || W.Inventory.isOpen();
     var projectile = match.world.aimedProjectile(p);
     var mx = (Controls.down(input, 'right') ? 1 : 0) - (Controls.down(input, 'left') ? 1 : 0);
@@ -213,7 +222,7 @@
       charge: pending.use ? 0 : projectileInput.fire.seconds || 0,
       utilityCharge: projectileInput.gear.seconds || 0,
       scope: Controls.down(input, 'scope'),
-      reload: Controls.hit(input, 'reload'), slot: slot, cycle: input.wheel, swap: Controls.hit(input, 'swap'),
+      reload: Controls.hit(input, 'reload'), slot: artillery ? artillery.mode : slot, cycle: input.wheel, swap: Controls.hit(input, 'swap'),
       utility: !mapOpen && (p.weapons.some(function (w) { return w.id === 'grenade'; }) ? projectileInput.gear.released : Controls.hit(input, 'gear')),
       held: pending.held, interactPressed: pending.interact, iv: !mapOpen && Controls.down(input, 'interact'), dropPressed: !mapOpen && Controls.hit(input, 'drop')
     };
@@ -256,6 +265,7 @@
       if (match) W.Hud.feed(Controls.muted() ? 'Sound off' : 'Sound on', 'muted');
     }
     if (state !== 'play') return;
+    if (W.ArtilleryUI && W.ArtilleryUI.isOpen()) return;
     if (input.hit('Escape')) {
       if (W.MapScreen.isOpen()) W.MapScreen.hide();
       else if (W.Inventory.isOpen()) W.Inventory.hide();
@@ -313,8 +323,8 @@
     if (text) W.Hud.feed(text, 'muted');
   }
   function spatial(x, y) {
-    var p = match.player, d = Math.hypot(x - p.x, y - p.y);
-    return U.clamp(1 - d / 1500, 0, 1);
+    var p = match.player;
+    return W.SoundCues ? W.SoundCues.volume(p, x, y) : U.clamp(1 - Math.hypot(x - p.x, y - p.y) / 5250, 0, 1);
   }
   function nameOf(p) { return p ? (p.isLocal ? 'You' : p.name) : null; }
   function itemSound(id) {
@@ -346,6 +356,7 @@
 
   function handleEvents(events) {
     var p = match.player;
+    if (W.SoundCues) W.SoundCues.process(match.world, p, events);
     for (var i = 0; i < events.length; i++) {
       var e = events[i], mine = e.player === p;
       switch (e.type) {
@@ -370,8 +381,8 @@
             projectileInput.fire = {}; projectileInput.gear = {};
             play(e.op === 'enter' ? 'mount' : 'switch', 0.7);
             if (e.op === 'enter') {
-              var tank = vehicle.type === 'tank', name = tank ? 'Tank' : 'Humvee';
-              var role = e.seat === 'driver' ? 'Drive with your movement keys.' + (tank ? ' 1: cannon · 2: machine gun (when its crew seat is free).' : '')
+              var tank = vehicle.type === 'tank', artillery = vehicle.type === 'artillery', name = artillery ? (vehicle.fixed ? 'Artillery Cannon' : 'SP Artillery') : tank ? 'Tank' : 'Humvee';
+              var role = artillery ? (vehicle.fixed ? '2: targeting map · E: leave cannon.' : '1: drive · 2: targeting map. Stay stationary for 10 seconds before firing.') : e.seat === 'driver' ? 'Drive with your movement keys.' + (tank ? ' 1: cannon · 2: machine gun (when its crew seat is free).' : '')
                 : e.seat === 'gunner' ? 'Aim and hold fire to use the machine gun.'
                 : tank && e.seat === 'rearLeft' ? (match.world.vehicleTeamSize() === 2 ? '1: cannon · 2: machine gun. Aim and hold fire.' : 'Aim and hold fire to use the cannon.') : 'Your driver controls the ' + name + '.';
               W.Hud.feed(role + ' ' + Controls.primary('interact') + ' to get out. The ' + name + ' protects you while seated.', 'info');
@@ -463,7 +474,7 @@
           break;
         case 'strike': {
           var sd = Math.hypot(e.strike.x - p.x, e.strike.y - p.y);
-          play('strike', Math.max(0.3, spatial(e.strike.x, e.strike.y)));
+          play('strike', spatial(e.strike.x, e.strike.y));
           if (sd < (e.strike.radius || 150) + 120 && (e.strike.kind === 'airstrike' || e.strike.owner !== p.id)) W.Hud.feed(e.strike.kind === 'airstrike' ? 'Airstrike incoming! Five seconds to move!' : e.strike.kind === 'meteor' ? 'Meteor incoming! Move!' : 'Lightning is about to strike you!', 'kill');
           break;
         }
@@ -527,10 +538,10 @@
     }
   }
 
-  // Scoping (hold right click with the Sniper Rifle) widens the view; nothing else changes the zoom.
+  // Equipped scopes widen the view; vehicle driving keeps the normal camera.
   function updateCamera(dt) {
     var cam = match.cam, focus = match.online ? Online.focus() : match.player, p = match.player;
-    var def = WEAPONS[p.weapons[p.slot].id], target = focus === p && p.scoping && def.zoom ? 1 / def.zoom : 1;
+    var def = WEAPONS[p.weapons[p.slot].id], target = focus === p && !p.vehicle && p.scoping && def.zoom ? 1 / def.zoom : 1;
     if (focus === p && p.dropT > 0) cam.zoom = 0.45 + (1 - 0.45) * U.easeInOut(1 - p.dropT / C.dropDuration);
     else cam.zoom += (target - cam.zoom) * Math.min(1, dt * 6);
     if (focus && (focus.alive || focus === p)) { cam.x = focus.x + (focus.ox || 0); cam.y = focus.y + (focus.oy || 0); }
@@ -560,6 +571,8 @@
     last = now;
     try {
       W.SentryUpgradeUI.tick(match);
+      if (match && W.ArtilleryUI) W.ArtilleryUI.tick(match.world, match.player, input, dt, blockedNow());
+      if (match && W.SoundCues) W.SoundCues.update(match.world, match.player, dt);
       if (state === 'menu' || !match) {
         W.Demo.update(demo, dt);
         renderer.render(demo.world, demo.cam, { names: true });

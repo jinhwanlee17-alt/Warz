@@ -13,10 +13,10 @@ function arena(extra = {}, remote = false) {
 }
 const noHealth = rock => !('hp' in rock) && !('maxHp' in rock);
 
-for (const cause of ['tankram', 'tank-cannon']) {
+for (const cause of ['tankram', 'tank-cannon', 'artillery']) {
   const { world, p, rock } = arena();
   t.check(noHealth(rock) && rock.alive, cause + ': natural rock begins intact without health');
-  t.check(world.damageMapRock(rock, cause, p.id), cause + ': tank hit immediately breaks the rock');
+  t.check(world.damageMapRock(rock, cause, p.id), cause + ': heavy-vehicle hit immediately breaks the rock');
   t.check(!rock.alive && noHealth(rock), cause + ': broken rock still has no health fields');
   t.equal(world.events.filter(e => e.type === 'rock-gone').length, 1, cause + ': breaking emits one removal event');
   t.check(!world.events.some(e => e.type === 'rock-hp') && world.texts.length === 0, cause + ': no health event or damage number is created');

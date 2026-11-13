@@ -54,7 +54,7 @@ try {
     Warz.UpgradeTree.open({ world: m.world, player: p, station });
   });
   await click('#ut-node-armorcrew');
-  check(await evaluate(() => !document.getElementById('ut-action').disabled && document.getElementById('ut-detail-title').textContent === 'Armor Crewmember' && document.getElementById('ut-stats').textContent.includes('Humvee: 3.5s') && document.getElementById('ut-stats').textContent.includes('Tank: 2s')),
+  check(await evaluate(() => !document.getElementById('ut-action').disabled && document.getElementById('ut-detail-title').textContent === 'Armor Crewmember' && document.getElementById('ut-stats').textContent.includes('Humvee: 3.5s') && document.getElementById('ut-stats').textContent.includes('Tank: 2s') && document.getElementById('ut-stats').textContent.includes('Artillery: 2s') && /7\.5s.*25%.*10%.*SP artillery/.test(document.getElementById('ut-stats').textContent)),
     'Released Armor Crewmember tree card explains repair and is purchasable');
   await b.shot('armorcrew-upgrade.png'); await click('#ut-action');
   await b.waitFor('Warz.debug.player().classId==="armorcrew"');

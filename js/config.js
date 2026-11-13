@@ -60,7 +60,8 @@
   };
   W.PLAYER_ROCK = { hp: 1000 };
   W.ARMOR_CREW = { damageMul: 1.05, damageTakenMul: 0.9, humveeSpeedMul: 1.15, tankFireRateMul: 1.15,
-    cannonMagazine: 2, cannonBurstInterval: 0.35, repairSecondsPer100: { humvee: 3.5, tank: 2 }, repairReach: 120, repairRevealMul: 2.5 };
+    artillerySpeedMul: 1.1, artilleryIntervalReduction: 2.5, artilleryShellSpeedMul: 1.25,
+    cannonMagazine: 2, cannonBurstInterval: 0.35, repairSecondsPer100: { humvee: 3.5, tank: 2, artillery: 2 }, repairReach: 120, repairRevealMul: 2.5 };
   W.TANK = {
     count: 4, hp: 5000, maxSpeed: CONFIG.playerSpeed * CONFIG.sprintSpeedMul * 1.35 * 0.7,
     radius: 105, length: 180, width: 132, accel: 5, turnRate: 2.8,
@@ -69,7 +70,15 @@
     cannonMaxDamage: 500, cannonMinDamage: 75, mgInterval: 0.09, mgMagazine: 1000, mgReload: 4,
     rockRamHullCost: 50, playerRockRamDamage: 100, playerRockRamHullCost: 75, collisionHullCost: 10
   };
-  W.vehicleDef = function (v) { return v && v.type === 'tank' ? W.TANK : W.VEHICLE; };
+  W.ARTILLERY = Object.assign({}, W.TANK, { count: 4, hp: 1200, radius: 110, length: 204, width: 138,
+    stationarySeconds: 10, fireInterval: 10, blastRadius: 225, minDamage: 75, maxDamage: 1050 });
+  W.GROUND_ARTILLERY = Object.assign({}, W.ARTILLERY, { count: 6, maxSpeed: 0, rings: [
+    { left: .175, top: .095, right: .825, bottom: .825, corner: .085 },
+    { left: .305, top: .23, right: .745, bottom: .715, corner: .055 },
+    { left: .38, top: .30, right: .665, bottom: .60, corner: .065 }
+  ] });
+  W.vehicleDef = function (v) { return v && v.type === 'artillery' ? (v.fixed ? W.GROUND_ARTILLERY : W.ARTILLERY) : v && v.type === 'tank' ? W.TANK : W.VEHICLE; };
+  W.vehicleHasTankArmor = function (v) { return !!v && (v.type === 'tank' || (v.type === 'artillery' && !v.fixed)); };
 
   // Every gun has a magazine and reloads forever: ammo is infinite, magazines are not.
   var WEAPONS = W.WEAPONS = {
@@ -122,7 +131,7 @@
     },
     medkit2: { id: 'medkit2', name: 'Advanced Medkit', kind: 'medkit', heal: 50, cooldown: 50, reviveFraction: 0.5, blurb: 'Heals you and nearby teammates for 50 HP; revives nearby downed teammates at half maximum HP.' },
     shotgun2: { id: 'shotgun2', name: 'Shotgun II', kind: 'gun', damageNear: 200, damageFar: 10, pointBlank: 70, mag: 5, fireInterval: 0.75, reload: 2.3, bulletSpeed: 1750, range: 560, spread: 0.2, pellets: 8, bulletRadius: 4.2, recoil: 160, blurb: '10–200 damage by distance, with one hit per target per blast.' },
-    sniper2: { id: 'sniper2', name: 'Sniper Rifle II', kind: 'gun', damage: 95, damageMax: 300, damageRampRange: 2100, mag: 3, fireInterval: 0.25, reload: 2.2, bulletSpeed: 3800, range: 1000000, unlimitedRange: true, spread: 0, bulletRadius: 5, recoil: 150, zoom: 1.65, blurb: 'Three shots and wider scope. Damage rises from 95 to 300 over 2100 units; shots cross the entire island.' },
+    sniper2: { id: 'sniper2', name: 'Sniper Rifle II', kind: 'gun', damage: 95, damageMax: 300, damageRampRange: 2100, mag: 3, fireInterval: 0.25, reload: 2.2, bulletSpeed: 3800, range: 1000000, unlimitedRange: true, spread: 0, bulletRadius: 5, recoil: 150, zoom: 2.1, blurb: 'Three shots and wider scope. Damage rises from 95 to 300 over 2100 units; shots cross the entire island.' },
     launcher2: { id: 'launcher2', name: 'Grenade Launcher II', kind: 'launcher', mag: 10, fireInterval: 0.6, reload: 2.5, projectileSpeed: 1100, range: 700, minRange: 140, explosion: { maxDamage: 70, radius: 150, demolition: true }, landFuse: 0.2, demolition: true, recoil: 80, blurb: 'Release to launch; hold 0.75 seconds for maximum range. 70 maximum blast damage, a 0.2-second landing fuse and one-hit crate demolition.' },
     flamethrower: { id: 'flamethrower', name: 'Flamethrower', kind: 'flame', damage: 10, damageMax: 50, damageStep: 5, fireInterval: 0.15, range: 375, halfAngle: 0.45, mag: 100, reload: 2.5, recoil: 0, blurb: 'A flame cone hits every enemy inside. Each 0.15-second tick grows from 10 to 50 damage; releasing fire resets the heat.' },
     revolver: { id: 'revolver', name: 'Heavy Revolver', kind: 'gun', damage: 75, mag: 5, fireInterval: 0.9, reload: 2.3, semiAuto: true, bulletSpeed: 2300, range: 980, spread: 0.015, bulletRadius: 7, recoil: 80, blurb: 'Five rounds, 75 damage. Slow, deliberate shots: click once per shot.' },
@@ -139,7 +148,7 @@
 
   WEAPONS.tankmg = Object.assign({}, WEAPONS.turret, { id: 'tankmg', name: 'Tank Machine Gun', damage: 8, mag: 1000, reload: 4, fireInterval: 0.09, blurb: '1000 rounds; four-second reload. 8 damage per shot.' });
   WEAPONS.hammer = { id: 'hammer', name: 'Repair Hammer', kind: 'melee', damage: 30, range: 90, halfAngle: 0.75,
-    fireInterval: 0.6, mag: 1, reload: 0, recoil: 0, blurb: '30 base melee damage. Use gear to repair 100 HP every 3.5 seconds on a Humvee or every 2 seconds on a tank. Nearby enemies can see you on their map while repairing.' };
+    fireInterval: 0.6, mag: 1, reload: 0, recoil: 0, blurb: '30 base melee damage. Use gear to repair 100 HP every 3.5 seconds on a Humvee or every 2 seconds on a tank or artillery. Nearby enemies can see you on their map while repairing.' };
   WEAPONS.engineerhammer = Object.assign({}, WEAPONS.hammer, { id: 'engineerhammer', name: "Engineer's Hammer",
     blurb: '30 melee damage. Hold fire toward a friendly sentry to repair 12 HP/s or upgrade it when fully repaired. Sentry II/III: 8 tokens and 8 seconds each. Sentry IV: choose a type, then 30 tokens and 30 seconds.' });
   W.ENGINEER = { repairRate: 12, reach: 150, upgradeCost: 8, upgradeSeconds: 8, finalCost: 30, finalSeconds: 30 };
@@ -149,7 +158,7 @@
     blurb: 'Fire a Basic Pistol while keeping your riot shield raised. Ten rounds, 8 damage per shot; protection covers your front.' });
   WEAPONS.explosiveshield = { id: 'explosiveshield', name: 'Explosive Shield', kind: 'shield', shield: 'explosive',
     mag: 1, cooldown: 0, reload: 0, recoil: 0, blurb: 'Red riot shield. Blocks frontal bullets, grenades, launcher blasts and flashbangs. Does not block fire, snow, gravity, smoke, poison, lightning, meteors, airstrikes or tanks.' };
-  WEAPONS.rpg = { id: 'rpg', name: 'RPG', kind: 'rocket', mag: 1, fireInterval: 0.25, reload: 3,
+  WEAPONS.rpg = { id: 'rpg', name: 'RPG', kind: 'rocket', zoom: 1.65, mag: 1, fireInterval: 0.25, reload: 3,
     projectileSpeed: 1100, projectileRadius: 12, range: CONFIG.worldSize * 2, unlimitedRange: true, recoil: 90,
     explosion: { minDamage: 10, maxDamage: 200, radius: WEAPONS.grenade.explosion.radius * 0.9 },
     vehicleDamage: { humvee: { minDamage: 10, maxDamage: 500 }, tank: { minDamage: 10, maxDamage: 1000 } },
@@ -208,7 +217,7 @@
     commander: { id: 'commander', name: 'Commander', tier: 2, parent: 'sniper', hp: 100, armor: 0, loadout: ['commandpistol', 'commandradar'], color: '#a78bfa', description: 'A 15-damage pistol and command radar. Rally your team and call a delayed airstrike at the cursor. Airstrikes hit allies too.' }
   });
   CLASSES.armorcrew = { id: 'armorcrew', name: 'Armor Crewmember', tier: 2, parent: 'medic', hp: 150, armor: 0,
-    loadout: ['hammer', 'pistol'], color: '#c5c98a', description: '150 HP and permanent 10% damage reduction. Hammer and pistol; +5% vehicle weapon damage, +15% Humvee speed, faster tank fire and two cannon rounds before a 3-second reload. Use gear to repair vehicles; nearby enemies see your location while repairing.' };
+    loadout: ['hammer', 'pistol'], color: '#c5c98a', description: '150 HP and permanent 10% damage reduction. Hammer and pistol; +5% Humvee/tank weapon damage, +15% Humvee speed, faster tank fire and two cannon rounds before a 3-second reload. Artillery fires every 7.5 seconds with 25% faster shells; SP artillery drives 10% faster. Use gear to repair Humvees, tanks or artillery; nearby enemies see your location while repairing.' };
   W.CLASS_ORDER = ['soldier', 'sniper', 'shotgunner', 'medic', 'grenadier', 'sniper2', 'commander', 'shotgunner2', 'juggernaut', 'medic2', 'grenadier2', 'pyromancer', 'armorcrew'];
   ['pyromancer', 'juggernaut', 'commander', 'armorcrew'].forEach(function (id) { CLASSES[id].parents = ['sniper', 'shotgunner', 'medic', 'grenadier']; });
   var levelTwoParents = W.CLASS_ORDER.filter(function (id) { return CLASSES[id].tier === 2; });
@@ -307,8 +316,8 @@
       blurb: 'An automatic gun that never misses: 5 damage at pistol speed, no reloads. 50 HP.' },
     blackhole: { id: 'blackhole', name: 'Black Hole Grenade', tier: 'epic', kind: 'throw', fuse: 0, radius: G * 3, stack: 2, found: 1,
       blurb: 'Bursts on landing and sucks every enemy (and everything loose) within three grenade radii into its middle.' },
-    snowbomb: { id: 'snowbomb', name: 'Snowbomb', tier: 'epic', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G * 5, duration: 10, slow: 0.5, graceTime: 4, stack: 2, found: 1,
-      blurb: 'A blizzard five grenades wide for 10 s. Everyone inside moves at half speed, and after 4 s takes storm damage.' },
+    snowbomb: { id: 'snowbomb', name: 'Snowbomb', tier: 'epic', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G * 5, duration: 20, slow: 0.5, graceTime: 4, stack: 2, found: 1,
+      blurb: 'A blizzard five grenades wide for 20 s. Everyone inside moves at half speed, and after 4 s takes storm damage.' },
     overheal: { id: 'overheal', name: 'Overheal Potion', tier: 'epic', kind: 'consume', heal: 30, overheal: 30, stack: 3, found: 1,
       blurb: '+30 HP, even past your maximum (up to 130).' },
 

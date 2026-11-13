@@ -6,7 +6,7 @@ import { newToken } from './auth.mjs';
 import { BotDirector, makeNames } from './bots/index.mjs';
 
 export const TICK = 1 / 20;
-const VIEW = 3600;          // includes the wider level-two sniper scope
+const VIEW = 3600;          // ordinary play keeps the existing interest range
 const AFK_KILL = 25;        // seconds a disconnected body stays before it is removed
 const END_LINGER = 12;      // seconds the result screen stays before teardown
 const EMPTY_TIMEOUT = 10;   // seconds without any connected player before an early end (see checkEnd for who is still waited for)
@@ -27,6 +27,8 @@ function idleInput() { return { seq: 0, mx: 0, my: 0, sp: false, a: 0, d: 400, f
 
 // Held controls use the newest packet; button presses must survive when older packets are superseded.
 function carryPresses(older, newer) {
+  if (older.af && !newer.af) { newer.ax = older.ax; newer.ay = older.ay; }
+  newer.af = newer.af || older.af;
   if (older.fp && !newer.fp) newer.ch = older.ch;
   if (older.u && !newer.u) newer.uch = older.uch;
   newer.fp = newer.fp || older.fp; newer.r = newer.r || older.r; newer.sw = newer.sw || older.sw; newer.u = newer.u || older.u; newer.ip = newer.ip || older.ip; newer.dp = newer.dp || older.dp;
@@ -408,6 +410,7 @@ export class Match {
       emotes: this.players.map((o) => [o.id, this.encodeEmote(o)]),
       vehicles: (this.world.vehicles || []).map((v) => this.encodeVehicle(v)),
       tankShells: (this.world.tankShells || []).map((shell) => this.encodeTankShell(shell)),
+      artilleryShells: (this.world.artilleryShells || []).map((shell) => Object.assign({}, shell)),
       sentryProjectiles: (this.world.sentryProjectiles || []).map((shell) => this.encodeSentryProjectile(shell)),
       rpgRockets: (this.world.rpgRockets || []).map((rocket) => this.encodeRpgRocket(rocket)),
       structs: this.world.structures.filter((s) => s.alive).map((s) => this.encodeStruct(s)),
@@ -452,6 +455,7 @@ export class Match {
     if (v.type === 'tank') Object.assign(row, { ca: r3(v.cannonAngle || 0), cc: r3(v.cannonCooldown || 0),
       cn: v.cannonAmmo, cm: v.cannonMaxAmmo, cr: r3(v.cannonReload || 0),
       cd: r3(v.cooldown || 0), ma: v.mgAmmo, mr: r3(v.mgReload || 0) });
+    if (v.type === 'artillery') Object.assign(row, { fixed: !!v.fixed, ca: r3(v.cannonAngle || 0), still: r3(v.stationaryT || 0), ac: r3(v.artilleryCooldown || 0), tx: v.targetX, ty: v.targetY });
     return row;
   }
   encodeTankShell(shell) {
@@ -467,6 +471,8 @@ export class Match {
       seq: num(m.s, 0, 1e9, 0) | 0, mx: num(m.mx, -1, 1, 0), my: num(m.my, -1, 1, 0), a: num(m.a, -10, 10, 0), d: num(m.d, 40, 3000, 400),
       sp: m.sp === true,
       f: !!m.f, fp: !!m.fp, sc: !!m.sc, r: !!m.r, sl: (m.sl === 0 || m.sl === 1 || m.sl === 2) ? m.sl : null,
+      af: m.af === true, ax: Number.isFinite(m.ax) ? num(m.ax, 0, this.W.CONFIG.worldSize, 0) : null,
+      ay: Number.isFinite(m.ay) ? num(m.ay, 0, this.W.CONFIG.worldSize, 0) : null,
       ch: num(m.ch, 0, this.W.CONFIG.projectileChargeTime, 0), uch: num(m.uch, 0, this.W.CONFIG.projectileChargeTime, 0),
       cy: num(m.cy, -3, 3, 0) | 0, sw: !!m.sw, u: !!m.u, iv: !!m.iv,
       ht: Number.isInteger(m.ht) && m.ht >= -1 && m.ht < this.W.CONFIG.hotbarSize ? m.ht : null, ip: !!m.ip, dp: !!m.dp
@@ -489,11 +495,14 @@ export class Match {
       while (q.length > 1) carryPresses(q.shift(), q[0]);
       input = q.shift();
       p.net.ack = input.seq;
-      p.net.held = Object.assign({}, input, { fp: false, ch: 0, r: false, sw: false, u: false, uch: 0, sl: null, cy: 0, ht: null, ip: false, dp: false });
+      p.net.held = Object.assign({}, input, { fp: false, af: false, ch: 0, r: false, sw: false, u: false, uch: 0, sl: null, cy: 0, ht: null, ip: false, dp: false });
     } else input = p.net.held;
-    const ca = Math.cos(input.a), sa = Math.sin(input.a);
+    const ca = Math.cos(input.a), sa = Math.sin(input.a), hull = this.world.vehicleById(p.vehicle);
+    const artilleryAim = hull && hull.type === 'artillery' && hull.seats.driver === p.id && Number.isFinite(input.ax) && Number.isFinite(input.ay);
     return {
-      mx: input.mx, my: input.my, sprint: input.sp, aimX: p.x + ca * input.d, aimY: p.y + sa * input.d,
+      mx: input.mx, my: input.my, sprint: input.sp,
+      aimX: artilleryAim ? input.ax : p.x + ca * input.d,
+      aimY: artilleryAim ? input.ay : p.y + sa * input.d, artilleryFire: !!(artilleryAim && input.af),
       fire: input.f, firePressed: input.fp, charge: input.ch, utilityCharge: input.uch, scope: input.sc, reload: input.r, slot: input.sl,
       cycle: input.cy % p.weapons.length || (input.cy ? p.weapons.length : 0),
       swap: input.sw, utility: input.u, iv: input.iv, held: input.ht, interactPressed: input.ip, dropPressed: input.dp
@@ -684,6 +693,8 @@ export class Match {
       case 'vehicle-shot': return { msg: { t: 'vshot', id: e.player.id, v: e.vehicle.id, w: e.weapon || 'turret', x: r1(e.x), y: r1(e.y), a: r3(e.angle), angles: e.angles.map(r3) }, x: e.x, y: e.y };
       case 'tank-shell': return { msg: e.op === 'spawn' ? { t: 'tank-shell', op: 'spawn', shell: this.encodeTankShell(e.shell) }
         : { t: 'tank-shell', op: 'impact', id: e.shell.id, x: r1(e.x), y: r1(e.y) }, global: true };
+      case 'artillery-shell': return { msg: e.op === 'spawn' ? { t: 'artillery-shell', op: 'spawn', shell: Object.assign({}, e.shell) }
+        : { t: 'artillery-shell', op: 'impact', id: e.shell.id, x: r1(e.x), y: r1(e.y), owner: e.shell.owner }, global: true };
       case 'vehicle': return { msg: { t: 'vehicle', op: e.op, id: e.vehicle.id, by: e.player ? e.player.id : 0,
         seat: e.seat || null, n: r1(e.amount || 0), x: r1(e.x === undefined ? e.vehicle.x : e.x), y: r1(e.y === undefined ? e.vehicle.y : e.y),
         src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, global: true };
@@ -693,7 +704,7 @@ export class Match {
       case 'command': return { msg: { t: 'command', id: e.player.id, d: e.duration, rd: e.radarDuration, cd: e.cooldown, tm: e.team }, global: true };
       case 'flame': return { msg: { t: 'flame', id: e.player.id, x: e.x, y: e.y, a: e.angle, r: e.range, ha: e.halfAngle, dm: e.damage, w: e.weapon || undefined }, x: e.x, y: e.y };
       case 'pyro-upgrade': return { msg: { t: 'pyro-upgrade', id: e.player.id, n: 50 }, x: e.player.x, y: e.player.y, to: [e.player.id] };
-      case 'explosion': return e.cause === 'tank-cannon' ? null : { msg: { t: 'boom', x: r1(e.x), y: r1(e.y), pw: e.power, c: e.cause, o: e.owner || 0 }, x: e.x, y: e.y, far: true };
+      case 'explosion': return e.cause === 'tank-cannon' || e.cause === 'artillery' ? null : { msg: { t: 'boom', x: r1(e.x), y: r1(e.y), pw: e.power, c: e.cause, o: e.owner || 0 }, x: e.x, y: e.y, far: true };
       case 'burst': return { msg: { t: 'burst', it: e.item, x: r1(e.x), y: r1(e.y), o: e.owner || 0 }, x: e.x, y: e.y, far: true };
       case 'zone': return { msg: Object.assign({ t: 'zone' }, this.encodeZone(e.zone)), global: true };
       case 'struct': return { msg: Object.assign({ t: 'struct', op: e.op, reason: e.reason, n: e.amount ? r1(e.amount) : undefined, src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, this.encodeStruct(e.struct)), global: true };
@@ -726,9 +737,20 @@ export class Match {
     }
   }
 
+  soundEvent(e) {
+    if (e.type === 'explosion' && (e.cause === 'tank-cannon' || e.cause === 'artillery')) return null;
+    const types = { shot: ['shot', e.weapon], flame: ['flame', e.weapon || 'flamethrower'], explosion: ['explosion', 'explosion'], heal: ['heal', 'heal'],
+      throw: ['throw', 'throw'], launch: ['launch', 'launcher'], 'rpg-shot': ['launch', 'rpg'], 'sentry-shot': ['sentry', 'turret'],
+      'sentry-projectiles': ['sentry', 'turret'], reload: ['reload', 'reload'], melee: ['repair', 'hammer'], 'item-used': ['consume', 'heal'] };
+    const type = types[e.type]; if (!type) return null;
+    const x = Number.isFinite(e.x) ? e.x : e.player && e.player.x, y = Number.isFinite(e.y) ? e.y : e.player && e.player.y;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { t: 'sound', k: type[0], sound: type[1], x: r1(x), y: r1(y), source: e.player ? e.player.id : e.owner || 0 };
+  }
+
   sendSnapshots(events) {
     const encoded = [];
-    for (const e of events) { const enc = this.encodeEvent(e); if (enc) encoded.push(enc); }
+    for (const e of events) { const enc = this.encodeEvent(e), sound = this.soundEvent(e); if (enc || sound) encoded.push(Object.assign({ sound }, enc || {})); }
     const time = r3(this.world.time);
     // Repair the global legendary marker after a slow connection skips a break event.
     const legendary = this.map.crates[this.map.legendaryCrateId];
@@ -742,12 +764,23 @@ export class Match {
       const conn = p.net.conn;
       if (!conn || !conn.open) continue;
       if (conn.bufferedAmount > 96 * 1024) continue; // slow link: skip this tick rather than pile up
-      const c = this.viewCenter(p);
+      const c = this.viewCenter(p), hull = this.world.vehicleById(c.vehicle);
+      const artilleryView = hull && hull.type === 'artillery' && c.vehicleWeapon === 1 && hull.seats.driver === c.id;
+      const viewRange = c.scoping ? 4400 : VIEW;
       const list = [];
       for (const enc of encoded) {
-        if (enc.only !== undefined) { if (enc.only === p.id) list.push(enc.msg); continue; }
-        if (enc.global || (enc.to && enc.to.includes(p.id))) { list.push(enc.msg); continue; }
-        if (Math.hypot(enc.x - c.x, enc.y - c.y) < VIEW + (enc.far ? 900 : 300)) list.push(enc.msg);
+        const distance = Math.hypot(enc.x - c.x, enc.y - c.y);
+        const delivered = enc.msg && (enc.only !== undefined ? enc.only === p.id : enc.global || (enc.to && enc.to.includes(p.id)) || distance < viewRange + (enc.far ? 900 : 300));
+        const soundOnly = enc.sound && !enc.global && enc.sound.source !== p.id && Math.hypot(enc.sound.x - c.x, enc.sound.y - c.y) >= viewRange;
+        if (delivered && !soundOnly) list.push(enc.msg);
+        if (enc.sound && (!delivered || soundOnly) && Math.hypot(enc.sound.x - c.x, enc.sound.y - c.y) <= this.W.ITEMS.snowbomb.radius * 7)
+          list.push(enc.sound);
+      }
+      if (this.tickCount % 10 === 0) for (const source of this.players) {
+        if (!source.alive || source === c || (!source.sentryBuild && !source.sentryWork && !source.repairVehicle)) continue;
+        const distance = Math.hypot(source.x - c.x, source.y - c.y);
+        if (distance < viewRange || distance > this.W.ITEMS.snowbomb.radius * 7) continue;
+        list.push({ t: 'sound', k: source.repairVehicle ? 'repair' : 'build', sound: 'repair', x: r1(source.x), y: r1(source.y), source: source.id });
       }
       // Teammates always; enemies within view, or everyone while a drone flies for this team. Invisible enemies are never sent.
       const players = [], drone = (this.world.reveal[p.team] || 0) > 0, revealed = new Set(this.world.revealedEnemies(p).map((o) => o.id));
@@ -755,12 +788,12 @@ export class Match {
         if (!o.alive && o.deadT > 1.5) continue;
         const mate = o === p || o.team === p.team;
         if (!mate && !drone && !revealed.has(o.id) && o.fx.invisible > 0) continue;
-        if (mate || drone || revealed.has(o.id) || Math.hypot(o.x - c.x, o.y - c.y) < VIEW) players.push(this.encodePlayer(o));
+        if (mate || drone || revealed.has(o.id) || artilleryView || Math.hypot(o.x - c.x, o.y - c.y) < viewRange) players.push(this.encodePlayer(o));
       }
       // Identity changes are small and rare. Retry the current roster after any skipped slow-link frame.
       const looks = p.net.lookVersion !== this.cosmeticsVersion ? this.players.map(o => [o.id, o.color, o.face]) : undefined;
-      const projectiles = (this.world.sentryProjectiles || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < VIEW + 400).map(o => this.encodeSentryProjectile(o));
-      const rockets = (this.world.rpgRockets || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < VIEW + 400).map(o => this.encodeRpgRocket(o));
+      const projectiles = (this.world.sentryProjectiles || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < viewRange + 400).map(o => this.encodeSentryProjectile(o));
+      const rockets = (this.world.rpgRockets || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < viewRange + 400).map(o => this.encodeRpgRocket(o));
       conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), looks, spec: p.alive ? 0 : p.net.specId, p: players, vehicles,
         ps: this.practice ? this.practiceSettings() : undefined, pr: this.practice && p.net.practiceRosterVersion !== this.practiceRosterVersion ? this.roster() : undefined,
         ms: p.net.staffKey !== staffKey ? ms : undefined, sp: projectiles, rp: rockets, structs: p.net.structKey !== structKey ? structs : undefined, lc, e: list, alive: this.aliveCount, teams: this.teamsAlive }));

@@ -1,4 +1,4 @@
-// Mode-specific coastal drops, inner vehicle ring and authoritative live Legendary markers.
+// Coastal drops, nested vehicle spawn contours and authoritative Legendary markers.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -89,17 +89,23 @@ try {
     owner.dropT = 0;
     const state = await evaluate(() => {
       const w = Warz.debug.match().world, m = w.map, S = m.size;
+      const extent = v => Math.max(Math.abs(v.x - S / 2), Math.abs(v.y - S / 2)) / S;
       return { teamSize: m.teamSize, dropCount: m.drops.length, crates: m.crates.length,
         drops: m.drops.map(d => [d.x, d.y]), vehicles: m.vehicles.map(v => [v.x, v.y]),
-        ring: m.vehicles.every(v => Math.hypot(v.x - S / 2, v.y - S / 2) >= S * 0.32 - 1 && Math.hypot(v.x - S / 2, v.y - S / 2) <= S * 0.34 + 1) };
+        tanks: m.tanks.map(v => [v.x, v.y]), artillery: m.artillery.map(v => [v.x, v.y]),
+        ring: m.vehicles.length === 8 && m.tanks.length === 4 && m.artillery.length === 4 &&
+          m.vehicles.every(v => extent(v) >= .40 && extent(v) <= .46) &&
+          m.artillery.every(v => extent(v) >= .30 && extent(v) <= .38) &&
+          m.tanks.every(v => extent(v) >= .18 && extent(v) <= .25) };
     });
     // Chrome and Node trigonometry can differ at ~1e-12; this tolerance is far below one map pixel.
     const samePoints = (points, server) => points.length === server.length && points.every((p, i) => Math.hypot(p[0] - server[i].x, p[1] - server[i].y) < 1e-8);
     const agreement = { teamSize: state.teamSize, dropCount: state.dropCount, crates: state.crates, ring: state.ring,
-      drops: samePoints(state.drops, live.world.map.drops), vehicles: samePoints(state.vehicles, live.world.map.vehicles) };
+      drops: samePoints(state.drops, live.world.map.drops), vehicles: samePoints(state.vehicles, live.world.map.vehicles),
+      tanks: samePoints(state.tanks, live.world.map.tanks), artillery: samePoints(state.artillery, live.world.map.artillery) };
     layouts.push({ mode, state, agreement });
-    check(state.teamSize === teamSize && state.dropCount === count && state.crates === 211 && state.ring && agreement.drops && agreement.vehicles,
-      mode + ': client and authoritative server agree on coastal drops, eight inner-ring Humvees and 211 crates');
+    check(state.teamSize === teamSize && state.dropCount === count && state.crates === 211 && state.ring && agreement.drops && agreement.vehicles && agreement.tanks && agreement.artillery,
+      mode + ': client and server agree on outer Humvees, middle artillery, inner tanks, coastal drops and crates');
     await pressMap(); await browser.waitFor('Warz.MapScreen.isOpen()');
     await layout(mode, count, 1440, 900); await layout(mode, count, 390, 844);
     finalLive = live; finalOwner = owner;

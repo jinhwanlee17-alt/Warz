@@ -102,7 +102,7 @@ try {
   observer.x = engineer.x + revealRadius + 200; match.sendSnapshots([]);
   t.check(!state.world.revealedEnemies(state.me).includes(state.world.playerById(engineer.id)),
     'leaving repair reveal range clears the old map marker on the next snapshot');
-  observer.x = engineer.x + 4000; match.sendSnapshots([]);
+  observer.x = engineer.x + 5000; match.sendSnapshots([]);
   t.check(!last.p.some(row => row[0] === engineer.id) && !state.world.playerById(engineer.id).repairVehicle,
     'leaving player interest also clears stale repair state');
   observer.x = engineer.x + revealDistance; match.sendSnapshots([]);

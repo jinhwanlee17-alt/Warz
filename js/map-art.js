@@ -27,12 +27,114 @@
     return labels;
   }
 
+  // Small lobed canopies keep foliage recognizable without adding cover to the
+  // simulation. The variant comes from the existing map, never a new RNG call.
+  function foliage(g, x, y, r, variant, bush) {
+    var phase = (variant || 0) * 0.71, lobes = bush ? 4 : 5;
+    g.fillStyle = bush ? '#367e38' : '#327a32';
+    g.beginPath();
+    for (var i = 0; i < lobes; i++) {
+      var a = phase + i * U.TAU / lobes, rr = r * (bush ? .62 : .58);
+      var xx = x + Math.cos(a) * r * .34, yy = y + Math.sin(a) * r * .34;
+      g.moveTo(xx + rr, yy); g.arc(xx, yy, rr, 0, U.TAU);
+    }
+    g.fill();
+    g.fillStyle = bush ? '#5a9c48' : '#4c9940';
+    g.beginPath();
+    g.arc(x - r * .2, y - r * .23, r * .44, 0, U.TAU);
+    g.moveTo(x + r * .54, y + r * .02); g.arc(x + r * .24, y + r * .02, r * .3, 0, U.TAU);
+    g.fill();
+  }
+
+  function polygon(g, points, fill, edge, width) {
+    g.beginPath(); g.moveTo(points[0][0], points[0][1]);
+    for (var i = 1; i < points.length; i++) g.lineTo(points[i][0], points[i][1]);
+    g.closePath(); g.fillStyle = fill; g.fill();
+    if (edge) { g.strokeStyle = edge; g.lineWidth = width; g.stroke(); }
+  }
+
+  // Shared miniature top-down vehicle art for M, the minimap and fire control.
+  // These are map symbols: no health bars, rider names or large screen sprites.
+  function vehicleGlyph(g, v, x, y, r, occupied) {
+    var tracked = v.type === 'tank' || v.type === 'artillery', artillery = v.type === 'artillery';
+    var angle = Number.isFinite(v.angle) ? v.angle : 0, edge = '#25382b';
+    var body = occupied ? '#86b5a3' : artillery ? '#aa9661' : tracked ? '#7d9054' : '#8c9a60';
+    g.save(); g.globalAlpha = 1; g.translate(x, y); g.rotate(angle);
+    g.lineWidth = r * .12; g.strokeStyle = edge;
+    if (artillery && v.fixed) {
+      // Anchored base and four feet, with no tracks or engine deck.
+      g.fillStyle = '#b5b19a'; g.beginPath(); g.arc(0,0,r*.74,0,U.TAU); g.fill(); g.stroke();
+      for (var foot = 0; foot < 4; foot++) {
+        g.save(); g.rotate(Math.PI/4+foot*Math.PI/2);
+        polygon(g,[[r*.35,-r*.12],[r*1.05,-r*.12],[r*1.05,r*.12],[r*.35,r*.12]],'#6e7a53',edge,r*.1);
+        g.fillStyle='#3e4c36'; g.fillRect(r*.87,-r*.19,r*.23,r*.38); g.restore();
+      }
+      g.save(); g.rotate((Number.isFinite(v.cannonAngle) ? v.cannonAngle : angle)-angle);
+      polygon(g,[[0,-r*.16],[r*1.85,-r*.16],[r*1.85,r*.16],[0,r*.16]],'#d2c590',edge,r*.12);
+      g.fillStyle='#3c5036'; g.fillRect(r*1.68,-r*.22,r*.23,r*.44);
+      polygon(g,[[-r*.4,-r*.34],[r*.34,-r*.34],[r*.34,r*.34],[-r*.4,r*.34]],body,edge,r*.12);
+      g.strokeStyle='#d3c793'; g.lineWidth=r*.08; g.strokeRect(-r*.26,-r*.2,r*.4,r*.4); g.restore();
+    } else if (tracked) {
+      // Separate dark track belts, with light transverse tread blocks.
+      g.fillStyle = '#293b31';
+      g.fillRect(-r, -r * .71, r * 2, r * .31);
+      g.fillRect(-r, r * .4, r * 2, r * .31);
+      g.strokeStyle = '#68785a'; g.lineWidth = r * .1;
+      for (var t = 0; t < 6; t++) {
+        var tx = -r * .85 + t * r * .33;
+        g.beginPath(); g.moveTo(tx, -r * .66); g.lineTo(tx, -r * .46);
+        g.moveTo(tx, r * .46); g.lineTo(tx, r * .66); g.stroke();
+      }
+      polygon(g, [[-r*.91,-r*.43],[r*.65,-r*.43],[r*.94,-r*.25],[r*.94,r*.25],[r*.65,r*.43],[-r*.91,r*.43]], body, edge, r*.12);
+      // Engine grilles are behind the turret; artillery has a longer rear deck.
+      g.strokeStyle = '#52613d'; g.lineWidth = r * .1;
+      for (var vent = 0; vent < (artillery ? 5 : 3); vent++) {
+        var vx = -r * .77 + vent * r * .13;
+        g.beginPath(); g.moveTo(vx, -r * .29); g.lineTo(vx, r * .29); g.stroke();
+      }
+      g.fillStyle = '#b8bb85'; g.fillRect(r * .6, -r * .29, r * .21, r * .58);
+      g.save(); g.rotate((Number.isFinite(v.cannonAngle) ? v.cannonAngle : angle) - angle);
+      var barrel = r * (artillery ? 1.95 : 1.58), barrelWidth = r * (artillery ? .17 : .14);
+      polygon(g, [[r*.08,-barrelWidth],[barrel,-barrelWidth],[barrel,barrelWidth],[r*.08,barrelWidth]], artillery ? '#d2c590' : '#b6bd8b', edge, r*.12);
+      g.fillStyle = '#3c5036'; g.fillRect(barrel-r*.18, -barrelWidth-r*.06, r*.23, barrelWidth*2+r*.12);
+      polygon(g, [[-r*.43,-r*.32],[r*.32,-r*.32],[r*.48,-r*.12],[r*.38,r*.3],[-r*.43,r*.3]], artillery ? '#a99c67' : '#8e9f65', edge, r*.12);
+      g.fillStyle = '#455b3a'; g.beginPath(); g.arc(-r*.1, -r*.03, r*.18, 0, U.TAU); g.fill();
+      g.strokeStyle = '#cad09c'; g.lineWidth = r*.08; g.beginPath(); g.arc(-r*.1, -r*.03, r*.11, Math.PI, U.TAU); g.stroke();
+      g.restore();
+      if (!artillery) {
+        g.save(); g.translate(-r*.04,r*.2); g.rotate((Number.isFinite(v.gunAngle) ? v.gunAngle : angle)-angle);
+        g.strokeStyle = '#25382b'; g.lineWidth = r*.13; g.beginPath(); g.moveTo(0,0); g.lineTo(r*.54,0); g.stroke(); g.restore();
+      }
+    } else {
+      // Four wheels are separate from the hood, cabin and open rear bed.
+      g.fillStyle = '#29372f';
+      for (var side = -1; side <= 1; side += 2) {
+        g.fillRect(-r*.74,side*r*.51-r*.12,r*.42,r*.25);
+        g.fillRect(r*.38,side*r*.51-r*.12,r*.42,r*.25);
+      }
+      polygon(g, [[-r,-r*.42],[r*.75,-r*.42],[r,-r*.26],[r,r*.26],[r*.75,r*.42],[-r,r*.42]],body,edge,r*.13);
+      g.fillStyle = '#626f43'; g.fillRect(-r*.85,-r*.3,r*.55,r*.6);
+      g.strokeStyle = '#afbd7e'; g.lineWidth = r*.08; g.strokeRect(-r*.78,-r*.23,r*.38,r*.46);
+      polygon(g,[[-r*.2,-r*.38],[r*.48,-r*.38],[r*.64,-r*.22],[r*.64,r*.22],[r*.48,r*.38],[-r*.2,r*.38]],'#b5bc84',edge,r*.1);
+      polygon(g,[[r*.29,-r*.29],[r*.48,-r*.28],[r*.54,-r*.15],[r*.54,r*.15],[r*.48,r*.28],[r*.29,r*.29]],'#5b8f8e');
+      g.strokeStyle = '#3b5344'; g.lineWidth = r*.07; g.beginPath(); g.moveTo(r*.29,0); g.lineTo(r*.56,0); g.stroke();
+      g.fillStyle = '#d8d59b'; g.fillRect(r*.79,-r*.28,r*.12,r*.1); g.fillRect(r*.79,r*.18,r*.12,r*.1);
+      g.fillStyle = '#2b3c30'; g.beginPath(); g.arc(-r*.96,0,r*.21,0,U.TAU); g.fill();
+      g.fillStyle = '#81905b'; g.beginPath(); g.arc(-r*.96,0,r*.11,0,U.TAU); g.fill();
+      if (v.armed) {
+        g.save(); g.rotate((Number.isFinite(v.gunAngle) ? v.gunAngle : angle)-angle);
+        g.fillStyle = '#3d5143'; g.beginPath(); g.arc(0,0,r*.24,0,U.TAU); g.fill();
+        g.strokeStyle = '#283a31'; g.lineWidth = r*.16; g.beginPath(); g.moveTo(0,0); g.lineTo(r*1.3,0); g.stroke(); g.restore();
+      }
+    }
+    g.restore();
+  }
+
   // Static terrain at `px` pixels square: ocean, sand, grass, trees, ponds, buildings, drop stations, town names.
-  function base(map, px, opts) {
+  function paintBase(g, map, px, opts) {
     opts = opts || {};
-    var canvas = document.createElement('canvas');
-    canvas.width = canvas.height = px;
-    var g = canvas.getContext('2d'), S = map.size || C.worldSize, k = px / S, R = C.cornerRadius, big = !!opts.big;
+    var S = map.size || C.worldSize, k = px / S, R = C.cornerRadius, big = !!opts.big, view = opts.view;
+    function visible(x, y, r) { return !view || x + r >= view.x0 && x - r <= view.x1 && y + r >= view.y0 && y - r <= view.y1; }
     g.fillStyle = '#2f7fc2';
     g.fillRect(0, 0, px, px);
     g.save();
@@ -53,11 +155,18 @@
       for (var gx = 0; gx <= S; gx += 800) { g.moveTo(gx, 0); g.lineTo(gx, S); g.moveTo(0, gx); g.lineTo(S, gx); }
       g.stroke();
     }
-    g.fillStyle = '#3f8f3b';
-    map.trees.forEach(function (t) { g.beginPath(); g.arc(t.x, t.y, t.r * 0.8, 0, U.TAU); g.fill(); });
+    map.trees.forEach(function (t) { if (visible(t.x, t.y, t.r)) foliage(g,t.x,t.y,t.r*.8,t.variant,false); });
+    (map.bushes || []).forEach(function (b) { if (visible(b.x,b.y,b.r)) foliage(g,b.x,b.y,b.r,b.variant,true); });
+    // A small sample of the existing grass decoration becomes low shrub detail.
+    // It is only cartography, so hiding/collision and map generation stay intact.
+    (map.tufts || []).forEach(function (t,i) {
+      if (i % 9 || !visible(t.x,t.y,40)) return;
+      foliage(g,t.x,t.y,24+(t.s||1)*9,i%8,true);
+    });
     g.fillStyle = '#4aa3dc';
-    map.ponds.forEach(function (p) { g.beginPath(); g.arc(p.x, p.y, p.r, 0, U.TAU); g.fill(); });
+    map.ponds.forEach(function (p) { if (!visible(p.x, p.y, p.r)) return; g.beginPath(); g.arc(p.x, p.y, p.r, 0, U.TAU); g.fill(); });
     map.buildings.forEach(function (b) {
+      if (!visible(b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, b.h))) return;
       g.fillStyle = b.roof;
       g.fillRect(b.x, b.y, b.w, b.h);
       if (big) { g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 8; g.strokeRect(b.x, b.y, b.w, b.h); }
@@ -69,6 +178,7 @@
     var labelPx = opts.labelPx || 9, dpr = opts.dpr || 1;
     g.font = 'bold ' + Math.round(labelPx) + 'px Trebuchet MS, sans-serif';
     g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
     g.lineWidth = 3 * dpr;
     g.strokeStyle = 'rgba(20,30,20,0.7)';
     g.fillStyle = '#ffffff';
@@ -86,6 +196,12 @@
         g.fillText(label.text, label.x, label.y);
       });
     }
+  }
+
+  function base(map, px, opts) {
+    var canvas = document.createElement('canvas');
+    canvas.width = canvas.height = px;
+    paintBase(canvas.getContext('2d'), map, px, opts);
     return canvas;
   }
 
@@ -124,13 +240,14 @@
   // Live layer: upgrade stations, storm circles, team structures and directional player markers.
   function overlay(g, world, p, px, opts) {
     opts = opts || {};
-    var S = world.map.size || C.worldSize, k = px / S, dpr = opts.dpr || 1, big = !!opts.big, st = world.map.stations, i;
+    var S = world.map.size || C.worldSize, k = px / S, dpr = opts.dpr || 1, big = !!opts.big, st = world.map.stations, i, view = opts.view;
+    function visible(x, y, r) { return !view || x + r >= view.x0 && x - r <= view.x1 && y + r >= view.y0 && y - r <= view.y1; }
     // Demolition changes rock terrain during a match, so rocks belong to the
     // live map layer rather than the cached terrain image.
     if (big) {
       g.fillStyle = '#8f969e';
       world.map.rocks.forEach(function (r) {
-        if (r.alive === false) return;
+        if (r.alive === false || !visible(r.x, r.y, r.r)) return;
         g.beginPath(); g.arc(r.x * k, r.y * k, r.r * k, 0, U.TAU); g.fill();
       });
     }
@@ -166,19 +283,12 @@
       var md = (big ? 5 : 3.5) * dpr, arrowSize = (big ? 8 : 5.5) * dpr;
       // Empty vehicles can be found on the map. Occupied enemies do not become free radar contacts.
       (world.vehicles || []).forEach(function (v) {
-        if (v.hidden || v.wreck) return;
+        if (v.hidden || v.wreck || !visible(v.x, v.y, v.r)) return;
         var ids = Object.keys(v.seats || {}).map(function (seat) { return v.seats[seat]; }).filter(Boolean);
-        if (ids.length && !ids.some(function (id) { var rider = world.playerById(id); return rider && rider.team === p.team; })) return;
-        var tank = v.type === 'tank', carSize = (big ? (tank ? 7.5 : 6) : (tank ? 3.5 : 2.5)) * dpr;
-        g.save(); g.translate(v.x * k, v.y * k); g.rotate(v.angle);
-        g.fillStyle = ids.length ? '#8fe6ed' : tank ? '#a9bd78' : v.armed ? '#ffd477' : '#d8e9af'; g.strokeStyle = '#263329'; g.lineWidth = 1.5 * dpr;
-        g.fillRect(-carSize, -carSize * 0.65, carSize * 2, carSize * 1.3); g.strokeRect(-carSize, -carSize * 0.65, carSize * 2, carSize * 1.3);
-        if (tank) {
-          g.strokeStyle = '#263329'; g.lineWidth = 2 * dpr; g.beginPath();
-          g.moveTo(-carSize, -carSize * 0.65); g.lineTo(carSize, -carSize * 0.65); g.moveTo(-carSize, carSize * 0.65); g.lineTo(carSize, carSize * 0.65); g.stroke();
-        }
-        if (tank || v.armed) { g.strokeStyle = '#263329'; g.beginPath(); g.moveTo(0, 0); g.lineTo(carSize * (tank ? 1.9 : 1.5), 0); g.stroke(); }
-        g.restore();
+        if (!opts.allVehicles && ids.length && !ids.some(function (id) { var rider = world.playerById(id); return rider && rider.team === p.team; })) return;
+        var tracked = v.type === 'tank' || v.type === 'artillery';
+        var carSize = (big ? (tracked ? 7.5 : 6) : (tracked ? 3.5 : 2.5)) * dpr;
+        vehicleGlyph(g,v,v.x*k,v.y*k,carSize,ids.length>0);
       });
       world.structures.forEach(function (st) {
         if (!st.alive || st.team !== p.team || st.kind === 'rock') return;
@@ -187,12 +297,18 @@
       });
       // Reveals stay visible for the entire active effect; no pulse or camera
       // bounds can make these full-island map markers blink away.
-      world.revealedEnemies(p).forEach(function (o) {
+      if (opts.tinyPlayers) {
+        world.players.forEach(function (o) {
+          if (o === p || !o.alive || o.hidden || o.vehicle || o.dropT > 0 || !visible(o.x, o.y, o.r)) return;
+          g.fillStyle = o.team === p.team ? '#4fa3ff' : '#253124';
+          g.beginPath(); g.arc(o.x * k, o.y * k, 1.3 * dpr, 0, U.TAU); g.fill();
+        });
+      } else world.revealedEnemies(p).forEach(function (o) {
         playerArrow(g, o, k, px, arrowSize, '#ff454f', dpr);
       });
       // Team coordinates are replicated across the whole island, including
       // allies outside the camera and downed allies. Their arrows stay blue.
-      world.teammates(p).forEach(function (o) {
+      if (!opts.tinyPlayers) world.teammates(p).forEach(function (o) {
         if (o.alive) playerArrow(g, o, k, px, arrowSize, '#4fa3ff', dpr);
       });
     }
@@ -247,5 +363,5 @@
     });
   }
 
-  W.MapArt = { base: base, overlay: overlay };
+  W.MapArt = { base: base, paintBase: paintBase, overlay: overlay, vehicleGlyph: vehicleGlyph };
 }());

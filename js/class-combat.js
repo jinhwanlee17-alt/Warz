@@ -72,7 +72,7 @@
     return nearest;
   };
   World.prototype.vehicleRepairRate = function (v) {
-    return 100 / CREW.repairSecondsPer100[v && v.type === 'tank' ? 'tank' : 'humvee'];
+    return 100 / (CREW.repairSecondsPer100[v && v.type] || CREW.repairSecondsPer100.humvee);
   };
   World.prototype.flushVehicleRepair = function (p) {
     var v = p.repairVehicle && this.vehicleById(p.repairVehicle);

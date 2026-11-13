@@ -413,14 +413,22 @@ for (const seed of [1, 42, 9001]) {
   use(world, p, 'snowbomb', 3500, 3200);
   steps(world, 2.2);
   const snow = world.zones.find((z) => z.kind === 'snow');
-  t.check(!!snow && snow.r === 750, 'snowbomb: a blizzard 750 wide');
+  t.check(!!snow && snow.r === 750 && snow.dur === 20, 'snowbomb: a twenty-second blizzard 750 wide');
   t.check(e.inSnow && world.speedMul(e) === 0.5, 'everyone inside moves at half speed');
   steps(world, 3);
   t.equal(e.hp, 100, 'no damage during the first 4 s inside');
   steps(world, 2.5);
   t.check(e.hp < 100 && e.hp >= 94, 'then storm-like damage ticks in (' + (100 - e.hp) + ')');
   steps(world, 4);
-  t.check(!world.zones.some((z) => z.kind === 'snow') && !e.inSnow, 'the snow melts after 10 s');
+  t.check(world.zones.includes(snow) && e.inSnow && world.speedMul(e) === 0.5, 'snow and its slow remain active beyond the old ten-second lifetime');
+  e.x = 4400; e.y = 4400;
+  steps(world, DT);
+  t.check(!e.inSnow && world.speedMul(e) === 1, 'leaving the blizzard immediately removes its slow');
+  e.x = 3500; e.y = 3200; e.hp = 1000;
+  steps(world, snow.t - 0.1);
+  t.check(world.zones.includes(snow) && e.inSnow, 'snow remains active until the end of its twenty seconds');
+  steps(world, 0.2);
+  t.check(!world.zones.some((z) => z.kind === 'snow') && !e.inSnow, 'the snow and its slow end after twenty seconds');
 }
 
 // ---------------------------------------------------------------- structures: rock, turret, sentry, teleporter

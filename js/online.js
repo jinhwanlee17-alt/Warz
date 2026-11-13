@@ -148,7 +148,8 @@
       v.predictedStructRocks = {};
       v.predictedStructRockDamage = {};
       v.type = row.type || 'humvee';
-      v.r = v.type === 'tank' && W.TANK ? W.TANK.radius : W.VEHICLE.radius;
+      v.fixed = v.type === 'artillery' && !!row.fixed;
+      v.r = W.vehicleDef(v).radius;
       v.hp = row.hp; v.maxHp = row.mhp; v.wreck = !!row.wreck; v.armed = !!row.armed;
       setSentryStatus(v, row.ss);
       v.pyroBurning = row.py && row.py.burn || 0;
@@ -158,6 +159,7 @@
         v.cannonMaxAmmo = row.cm === undefined ? 1 : row.cm; v.cannonReload = row.cr || 0;
         v.mgAmmo = row.ma === undefined ? 1000 : row.ma; v.mgReload = row.mr || 0;
       }
+      if (v.type === 'artillery') { v.stationaryT = row.still || 0; v.artilleryCooldown = row.ac || 0; v.targetX = row.tx; v.targetY = row.ty; }
       v.vx = row.vx; v.vy = row.vy;
       v.seats = {};
       VEHICLE_SEATS.forEach(function (seat, index) {
@@ -527,6 +529,17 @@
         if (s) { s.flash = 1; s.gunAngle = e.a; }
         world.emit({ type: 'shot', player: p, weapon: e.w || 'turret', vehicle: s, x: e.x, y: e.y });
         return;
+      case 'sound':
+        world.emit({ type: 'sound', kind: e.k, x: e.x, y: e.y, source: e.source || 0, sound: e.sound }); return;
+      case 'artillery-shell':
+        if (e.op === 'spawn') {
+          world.spawnArtilleryShell(e.shell); s = world.vehicleById(e.shell.vehicle); if (s) s.cannonFlash = 1;
+          world.emit({ type: 'artillery-shell', op: 'spawn', shell: e.shell, x: e.shell.startX, y: e.shell.startY });
+        } else {
+          world.artilleryShells = (world.artilleryShells || []).filter(function (it) { return it.id !== e.id; });
+          world.artilleryImpact({ id: e.id, owner: e.owner || 0, targetX: e.x, targetY: e.y });
+        }
+        return;
       case 'tank-shell':
         if (e.op === 'spawn') {
           pr = world.spawnTankShell(e.shell);
@@ -737,6 +750,7 @@
     (m.rocks || []).forEach(function (id) { if (map.rocks[id]) map.rocks[id].alive = false; });
     (m.strikes || []).forEach(function (s) { applyEvent(Object.assign({ t: 'strike' }, s)); });
     if (m.tankShells) { world.tankShells = []; m.tankShells.forEach(function (shell) { world.spawnTankShell(shell); }); }
+    if (m.artilleryShells) { world.artilleryShells = []; m.artilleryShells.forEach(function (shell) { world.spawnArtilleryShell(shell); }); }
     applySentryProjectiles(m.sentryProjectiles);
     applyRpgRockets(m.rpgRockets);
     applyMedicStaffMarkers(m.medicStaffs);
@@ -813,6 +827,8 @@
   function step(input, renderer, blocked, mapOpen) {
     if (!state) return;
     var me = state.me, L = state.latch, ride = vehicleFor(me), seated = !!me.vehicle;
+    var artillery = ride && ride.type === 'artillery' && me.vehicleSeat === 'driver';
+    var art = artillery && W.ArtilleryUI && W.ArtilleryUI.intent ? W.ArtilleryUI.intent(me) : null;
     var tankOperator = !!ride && ride.type === 'tank' && (me.vehicleSeat === 'driver' || me.vehicleSeat === 'gunner' || me.vehicleSeat === 'rearLeft');
     var aim = renderer.screenToWorld(state.cam, input.mouse.x, input.mouse.y);
     var a = Math.atan2(aim.y - (me.y + me.oy), aim.x - (me.x + me.ox)), d = U.clamp(Math.hypot(aim.x - me.x, aim.y - me.y), 40, 3000);
@@ -821,6 +837,7 @@
       my: (Controls.down(input, 'down') ? 1 : 0) - (Controls.down(input, 'up') ? 1 : 0),
       sprint: !seated && Controls.down(input, 'sprint')
     };
+    if (art && art.mode === 1) intent.mx = intent.my = 0;
     var act = !blocked && !mapOpen;
     var msg = {
       t: 'in', s: ++state.seq, mx: intent.mx, my: intent.my, sp: !!intent.sprint, a: Math.round(a * 1000) / 1000, d: Math.round(d),
@@ -830,6 +847,12 @@
       r: (!seated || tankOperator) && L.r, sl: !seated || (tankOperator && (me.vehicleSeat === 'driver' || (state.world.map.teamSize === 2 && me.vehicleSeat === 'rearLeft'))) ? L.sl : null, cy: seated ? 0 : L.cy, sw: !seated && L.sw, u: !seated && act && L.u, iv: !seated && !blocked && Controls.down(input, 'interact'),
       ht: seated ? null : L.ht, ip: L.ip, dp: !seated && act && L.dp
     };
+    if (artillery) {
+      msg.f = msg.fp = msg.r = msg.u = false; msg.sl = art ? art.mode : L.sl;
+      msg.af = !!(art && art.fire && !blocked && art.target);
+      if (art && art.target) { msg.ax = art.target.x; msg.ay = art.target.y; }
+      if (msg.sl === null || msg.sl === undefined) msg.sl = Controls.hit(input, 'weapon1') ? 0 : Controls.hit(input, 'weapon2') ? 1 : null;
+    }
     if (me.alive) me.angle = a;
     state.vehicleAim = ride ? { vehicle: ride.id, x: aim.x, y: aim.y } : null;
     var entry = { seq: msg.s, intent: intent, vehicle: me.vehicle || 0, seat: me.vehicleSeat || null };

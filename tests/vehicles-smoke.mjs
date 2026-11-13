@@ -25,11 +25,11 @@ for (const seed of [1, 42, 57, 9001, 123456]) {
   t.equal(humvees.length, 8, 'seed ' + seed + ': exactly eight Humvees spawn');
   t.equal(w.vehicles.filter(v => v.type === 'tank').length, 4, 'seed ' + seed + ': four tanks share the map with the Humvees');
   t.equal(map.crates.length, 211, 'seed ' + seed + ': extra crates retain the single legendary');
-  t.equal(new Set(w.vehicles.map(v => v.id)).size, 12, 'all Humvees and tanks have unique vehicle identifiers');
+  t.equal(new Set(w.vehicles.map(v => v.id)).size, W.VEHICLE.count + W.TANK.count + W.ARTILLERY.count + W.GROUND_ARTILLERY.count, 'Humvees, tanks and artillery have unique vehicle identifiers');
   t.equal(new Set(humvees.map(v => Math.floor(((Math.atan2(v.y-map.size/2,v.x-map.size/2)+Math.PI/8+Math.PI*2)%(Math.PI*2))/(Math.PI/4)))).size, 8,
-    'each of eight inner-ring sectors has one Humvee');
-  t.check(humvees.every(v => { const radius=Math.hypot(v.x-map.size/2,v.y-map.size/2)/map.size; return radius>=0.32 && radius<=0.34; }),
-    'all eight Humvees stay near the requested inner ring');
+    'each of eight outer-lane sectors has one Humvee');
+  t.check(humvees.every(v => { const extent=Math.max(Math.abs(v.x-map.size/2),Math.abs(v.y-map.size/2))/map.size; return extent>=.40 && extent<=.46; }),
+    'all eight Humvees stay near the requested red perimeter lane');
   for (const v of humvees) {
     t.check(v.hp === 1000 && !v.armed && !v.wreck, 'Solo Humvee begins intact, unarmed and at 1,000 HP');
     t.check(W.U.insideIsland(v.x, v.y, v.r + 70, C.worldSize, C.cornerRadius) &&

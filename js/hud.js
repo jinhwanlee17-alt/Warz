@@ -5,8 +5,8 @@
   var el = {}, cache = {}, mini = null, bannerTimer = 0, lastClass = null, lastWeaponsKey = '', modeLabel = 'Solo', teamKey = '', buffKey = '';
   var ITEMS = W.ITEMS, baseHints = '', hintPlayer = null;
   var VEHICLE_ROLES = { driver: 'Driver', gunner: 'Gunner', rearLeft: 'Rear left', rearRight: 'Rear right' };
-  function vehicleName(v) { return v.type === 'tank' ? 'Tank' : 'Humvee'; }
-  function vehicleRepairLabel(v) { return '100 HP / ' + W.ARMOR_CREW.repairSecondsPer100[v.type === 'tank' ? 'tank' : 'humvee'] + 's'; }
+  function vehicleName(v) { return v.type === 'artillery' ? (v.fixed ? 'Artillery Cannon' : 'SP Artillery') : v.type === 'tank' ? 'Tank' : 'Humvee'; }
+  function vehicleRepairLabel(v) { return '100 HP / ' + (W.ARMOR_CREW.repairSecondsPer100[v.type] || W.ARMOR_CREW.repairSecondsPer100.humvee) + 's'; }
   function vehicleRole(world, v, seat) {
     if (world.vehicleSeatRole) return world.vehicleSeatRole(v, seat);
     if (v.type === 'tank') return { driver: 'Driver', gunner: 'Machine gunner', rearLeft: 'Cannon operator', rearRight: 'Passenger' }[seat] || 'Passenger';
@@ -56,7 +56,7 @@
       '<span>' + k('drop') + ' drop held item</span><span>' + k('inventory') + ' inventory</span><span>' + k('sprint') + ' sprint</span>' +
       '<span>' + k('map') + ' map · ' + k('reload') + ' reload</span><span>' + k('emotes') + ' emotes</span>' +
       '<span>' + k('weapon1') + k('weapon2') + (p && p.weapons.length > 2 ? k('item1') : '') + ' / wheel switch weapons</span><span><kbd>Esc</kbd> menu</span>';
-    el['hud-keys'].innerHTML = baseHints;
+    if (el['hud-keys']) el['hud-keys'].innerHTML = baseHints;
     delete cache.keyhints;
     lastWeaponsKey = '';
     delete cache.prompt;
@@ -183,7 +183,7 @@
     var cls = CLASSES[p.classId], i, key = esc(Controls.primary('interact'));
     var vehicle = p.vehicle ? (world.vehicles || []).find(function (v) { return v.id === p.vehicle && !v.wreck; }) : null;
     var role = p.vehicleSeat, moveKeys = ['up', 'left', 'down', 'right'].map(function (action) { return Controls.primary(action); }).join(' / ');
-    var tank = vehicle && vehicle.type === 'tank', vehicleWeapon = tank && world.vehicleWeaponFor ? world.vehicleWeaponFor(p) : null;
+    var tank = vehicle && vehicle.type === 'tank', artillery = vehicle && vehicle.type === 'artillery', vehicleWeapon = tank && world.vehicleWeaponFor ? world.vehicleWeaponFor(p) : null;
     var canSelectTank = tank && (role === 'driver' || vehicleRole(world, vehicle, role) === 'Cannon & machine gun');
     var gearKeys = Controls.bindings('gear').filter(Boolean).map(function (code) { return esc(Controls.label(code)); }).join(' / ');
     var repairing = p.repairVehicle && world.vehicleById ? world.vehicleById(p.repairVehicle) : null;
@@ -214,7 +214,7 @@
     set('vehicleweaponhidden', el['hud-vehicle-weapons'], 'hidden', !tank);
     if (vehicle) {
       var vehicleHp = U.clamp(vehicle.hp / vehicle.maxHp, 0, 1);
-      set('vehiclename', el['hud-vehicle-name'], 'text', tank ? 'Tank' : vehicle.armed ? 'Humvee · Turret I' : 'Humvee');
+      set('vehiclename', el['hud-vehicle-name'], 'text', vehicleName(vehicle) + (!tank && !artillery && vehicle.armed ? ' · Turret I' : ''));
       set('vehiclerole', el['hud-vehicle-role'], 'text', vehicleRole(world, vehicle, role));
       set('vehiclehp', el['hud-vehicle-text'], 'text', Math.ceil(vehicle.hp) + ' / ' + vehicle.maxHp + ' Vehicle HP');
       set('vehiclehpw', el['hud-vehicle-fill'], 'width', (vehicleHp * 100).toFixed(1) + '%');
@@ -318,6 +318,11 @@
       label = vehicleWeapon === 'cannon' ? 'Cannon · ' + (vehicle.cannonReload > 0 ? 'reloading ' + vehicle.cannonReload.toFixed(1) + 's' : vehicle.cannonCooldown > 0 ? 'ready in ' + vehicle.cannonCooldown.toFixed(1) + 's' : 'hold click to fire') :
         'Machine gun · ' + (vehicle.mgReload > 0 ? 'reloading ' + vehicle.mgReload.toFixed(1) + 's' : 'hold click · ' + Controls.primary('reload') + ' reload');
     }
+    else if (artillery) {
+      var setupLeft = Math.max(0, W.ARTILLERY.stationarySeconds - (vehicle.stationaryT || 0));
+      big = 'Artillery'; max = '';
+      label = (vehicle.fixed ? '2 targeting map · ' : '1 drive · 2 targeting map · ') + (setupLeft > .001 ? 'stationary setup ' + setupLeft.toFixed(1) + 's' : vehicle.artilleryCooldown > .001 ? 'next shell in ' + vehicle.artilleryCooldown.toFixed(1) + 's' : 'ready to fire');
+    }
     else if (vehicle) { big = role === 'driver' ? 'Drive' : role === 'gunner' ? '∞' : 'Ride'; max = ''; label = role === 'driver' ? moveKeys + ' · steer' : role === 'gunner' ? 'Turret I · hold click to fire' : 'Passenger · weapons stowed'; }
     else if (p.mount) { big = '∞'; max = ''; label = 'turret · click to fire · ' + Controls.primary('interact') + ' to get off'; }
     else if (heldIt) { big = String(p.items[p.held].n); max = ''; label = heldIt.name + (heldIt.kind === 'hold' ? ' · raised' : heldIt.kind === 'target' ? ' · click a target' : ' · click to use'); }
@@ -377,7 +382,7 @@
     else if (pickup) prompt = '<kbd>' + key + '</kbd> Pick up ' + esc(ITEMS[pickup.item].name) + (pickup.amount > 1 ? ' ×' + pickup.amount : '') +
       (world.canTake(p, pickup.item) ? '' : ' · full · ' + dropKey + ' drop held item');
     else if (recoverable) prompt = '<kbd>' + key + '</kbd> Pick up team rock' + (world.canTake(p, 'rock') ? '' : ' · full · ' + dropKey + ' drop held item');
-    else if (vehicleSeat) prompt = '<kbd>' + key + '</kbd> ' + (vehicleSeat.seat === 'driver' ? 'Drive ' + vehicleName(vehicleSeat.vehicle) : vehicleSeat.vehicle.type === 'tank' ? 'Enter Tank · ' + vehicleRole(world, vehicleSeat.vehicle, vehicleSeat.seat) : vehicleSeat.seat === 'gunner' ? 'Use Humvee Turret I' : 'Ride Humvee · ' + VEHICLE_ROLES[vehicleSeat.seat]);
+    else if (vehicleSeat) prompt = '<kbd>' + key + '</kbd> ' + (vehicleSeat.vehicle.fixed ? 'Operate ' + vehicleName(vehicleSeat.vehicle) : vehicleSeat.seat === 'driver' ? 'Drive ' + vehicleName(vehicleSeat.vehicle) : vehicleSeat.vehicle.type === 'tank' ? 'Enter Tank · ' + vehicleRole(world, vehicleSeat.vehicle, vehicleSeat.seat) : vehicleSeat.seat === 'gunner' ? 'Use Humvee Turret I' : 'Ride Humvee · ' + VEHICLE_ROLES[vehicleSeat.seat]);
     else if (mountable) prompt = '<kbd>' + key + '</kbd> Mount the ' + esc(ITEMS[mountable.item].name);
     else if (p.alive && p.fullNoteT > 0) prompt = 'Items full · select an item and ' + dropKey + ' drop its stack';
     else if (p.alive && p.dropT <= 0 && p.nearStation) {

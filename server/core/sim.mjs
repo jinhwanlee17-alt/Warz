@@ -15,5 +15,6 @@ import '../../js/engineer.js';
 import '../../js/rpg.js';
 import '../../js/magic-medic.js';
 import '../../js/pyromaniac.js';
+import '../../js/artillery.js';
 
 export const Warz = globalThis.Warz;

@@ -69,16 +69,16 @@ for (const [mode, teamSize, count] of modes) for (const seed of seeds) {
   const legendary = map.crates.find(c => c.tier === 'legendary');
   t.check(legendary.x === S / 2 && legendary.y === S / 2 && map.legendaryCrateId === legendary.id, tag + ': the reserved legendary stays at the center');
   const cars = map.vehicles, sectors = new Set(cars.map(v => (Math.round(Math.atan2(v.y - S / 2, v.x - S / 2) / (TAU / 8)) + 8) % 8));
-  t.check(cars.length === 8 && sectors.size === 8, tag + ': one Humvee occupies each of eight inner-ring sectors');
-  t.check(cars.every(v => { const r = Math.hypot(v.x - S / 2, v.y - S / 2) / S; return r >= 0.32 && r <= 0.34; }), tag + ': the vehicle ring stays inland with only modest radial variation');
+  t.check(cars.length === 8 && sectors.size === 8, tag + ': one Humvee occupies each of eight outer-lane sectors');
+  t.check(cars.every(v => { const extent = Math.max(Math.abs(v.x - S / 2), Math.abs(v.y - S / 2)) / S; return extent >= .40 && extent <= .46; }), tag + ': Humvees follow the outer red rounded-square lane');
   const angles = cars.map(v => (Math.atan2(v.y - S / 2, v.x - S / 2) + TAU) % TAU).sort((a, b) => a - b);
-  t.check(angles.every((a, i) => Math.abs(((angles[(i + 1) % 8] - a + TAU) % TAU) - TAU / 8) <= 0.100001), tag + ': neighboring Humvee sectors remain evenly distributed');
+  t.check(angles.every((a, i) => Math.abs(((angles[(i + 1) % 8] - a + TAU) % TAU) - TAU / 8) <= 0.26), tag + ': Humvees remain spread around all sides and rounded corners');
   let accessClear = true;
   for (const v of world.vehicles) for (const seat of W.VEHICLE_SEATS) {
     const point = world.vehicleSeatPoint(v, seat, true);
     if (!dryOpen(world, point.x, point.y, C.playerRadius)) accessClear = false;
   }
-  t.check(accessClear, tag + ': every Humvee and tank access point is dry and clear');
+  t.check(accessClear, tag + ': every Humvee, tank and artillery access point is dry and clear');
   t.equal(hash(W.MapGen.generate(seed, teamSize)), signature, tag + ': repeated generation is identical');
 }
 t.check(cornerDrops > 0, 'spacing tests include the curved corners');

@@ -81,17 +81,17 @@ for (const [teamSize,count] of [[1,50],[2,25],[3,16],[4,12]]) {
 // Capture actual arrow paths, transforms and fill alpha from MapArt.overlay.
 // This exercises both map modes without relying on their implementation names.
 function drawing() {
-  const fills=[],stack=[];
+  const fills=[],rects=[],stack=[];
   const g={fillStyle:'#000',strokeStyle:'#000',globalAlpha:.2,lineWidth:1,x:0,y:0,angle:0,path:[],
     save(){stack.push({fillStyle:this.fillStyle,strokeStyle:this.strokeStyle,globalAlpha:this.globalAlpha,lineWidth:this.lineWidth,x:this.x,y:this.y,angle:this.angle});},
     restore(){Object.assign(this,stack.pop());},
     beginPath(){this.path=[];},moveTo(x,y){this.path.push(['M',x,y]);},lineTo(x,y){this.path.push(['L',x,y]);},closePath(){this.path.push(['Z']);},
-    arc(){this.path.push(['arc']);},rect(){this.path.push(['rect']);},
+    arc(x,y,r){this.path.push(['arc',x,y,r]);},rect(){this.path.push(['rect']);},
     translate(x,y){this.x+=x;this.y+=y;},rotate(a){this.angle+=a;},
     fill(){fills.push({path:this.path.map(p=>p.slice()),color:this.fillStyle,alpha:this.globalAlpha,x:this.x,y:this.y,angle:this.angle});},
-    stroke(){},fillRect(){},strokeRect(){},setLineDash(){},strokeText(){},fillText(){},
+    stroke(){},fillRect(x,y,w,h){rects.push({x,y,w,h,color:this.fillStyle,tx:this.x,ty:this.y});},strokeRect(){},setLineDash(){},strokeText(){},fillText(){},
     measureText(text){return {width:String(text).length*Number((this.font||'13px').match(/[\d.]+/)[0])*0.58};}};
-  return {g,fills,stack};
+  return {g,fills,rects,stack};
 }
 const map = W.MapGen.generate(123), world = new W.World({map,teams:true,storm:false});
 map.stations=[];
@@ -105,7 +105,7 @@ for(const big of [false,true]) {
   const px=big?600:190,dpr=big?2:1;
   const {g,fills,stack}=drawing();
   W.MapArt.overlay(g,world,self,px,{big,dpr});
-  const arrows=fills.filter(f=>f.path[0]?.[0]==='M');
+  const arrows=fills.filter(f=>f.path[0]?.[0]==='M'&&['#ffffff','#4fa3ff','#ff454f'].includes(f.color));
   t.equal(arrows.length,3,`${big?'full map':'minimap'}: self, offscreen ally and drone-revealed foe remain visible`);
   const white=arrows.find(a=>a.color==='#ffffff'),blue=arrows.find(a=>a.color==='#4fa3ff'),red=arrows.find(a=>a.color==='#ff454f');
   t.check(!!white&&!!blue&&!!red,`${big?'full map':'minimap'}: white self, blue teammate and red enemy`);
@@ -116,7 +116,7 @@ for(const big of [false,true]) {
   t.equal(stack.length,0,`${big?'full map':'minimap'}: drawing context is restored`);
   world.time=1.37;
   const second=drawing();W.MapArt.overlay(second.g,world,self,px,{big,dpr});
-  t.equal(JSON.stringify(second.fills.filter(f=>f.path[0]?.[0]==='M')),JSON.stringify(arrows),`${big?'full map':'minimap'}: reveal arrows never pulse off between frames`);
+  t.equal(JSON.stringify(second.fills.filter(f=>f.path[0]?.[0]==='M'&&['#ffffff','#4fa3ff','#ff454f'].includes(f.color))),JSON.stringify(arrows),`${big?'full map':'minimap'}: reveal arrows never pulse off between frames`);
 }
 world.reveal[self.team]=0;
 const hidden=drawing();W.MapArt.overlay(hidden.g,world,self,190,{});
@@ -133,4 +133,21 @@ t.equal(terrain.fills.filter(f=>f.color==='#8f969e').length,1,'full map draws on
 map.rocks[0].alive=false;
 const demolished=drawing();W.MapArt.overlay(demolished.g,world,self,600,{big:true});
 t.equal(demolished.fills.filter(f=>f.color==='#8f969e').length,0,'destroying the final rock removes it from the next map frame');
+// Targeting shares the map painter while requesting the extra contacts supplied
+// by the artillery view. The ordinary map keeps its existing reveal rules.
+self.fx.radar=0;
+const occupied=world.vehicles[0], px=600, k=px/map.size;
+occupied.seats.driver=foe.id;foe.vehicle=occupied.id;
+const ordinary=drawing();W.MapArt.overlay(ordinary.g,world,self,px,{big:true});
+const hullAt=draw=>draw.rects.filter(r=>Math.abs(r.tx-occupied.x*k)<1e-8&&Math.abs(r.ty-occupied.y*k)<1e-8);
+t.equal(hullAt(ordinary).length,0,'ordinary map does not reveal an occupied enemy vehicle');
+const extra=world.addPlayer({x:self.x+200,y:self.y+200,team:2});
+const artillery=drawing();W.MapArt.overlay(artillery.g,world,self,px,{big:true,allVehicles:true,tinyPlayers:true});
+t.check(hullAt(artillery).length>0,'artillery uses the shared detailed marker for an occupied enemy vehicle');
+t.check(artillery.fills.some(f=>f.color==='#253124'&&f.path[0]?.[0]==='arc'&&f.path[0][3]===1.3),'artillery player contacts remain tiny');
+t.equal(artillery.fills.filter(f=>f.path[0]?.[0]==='M'&&f.color==='#ffffff').length,1,'artillery keeps the normal directional You arrow');
+extra.hidden=true;
+const hiddenContact=drawing();W.MapArt.overlay(hiddenContact.g,world,self,px,{big:true,allVehicles:true,tinyPlayers:true});
+t.check(!hiddenContact.fills.some(f=>f.color==='#253124'),'hidden players do not become stale artillery contacts');
+t.equal(artillery.stack.length,0,'artillery options preserve the drawing context');
 t.done();

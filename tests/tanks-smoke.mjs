@@ -28,11 +28,11 @@ function impact(a, x, y, hit = null) { a.w.tankShellImpact({ id: 99, owner: a.p.
 for (const seed of [1, 57, 9001]) {
   const map = W.MapGen.generate(seed), w = new W.World({ map, storm: false });
   t.equal(map.tanks.length, 4, seed + ': four tanks spawn');
-  t.equal(w.vehicles.length, 12, seed + ': tanks coexist with eight Humvees');
+  t.equal(w.vehicles.length, W.VEHICLE.count + W.TANK.count + W.ARTILLERY.count + W.GROUND_ARTILLERY.count, seed + ': tanks coexist with Humvees and artillery');
   t.equal(JSON.stringify(map.tanks), JSON.stringify(W.MapGen.generate(seed).tanks), seed + ': deterministic tank spawns');
   for (const v of w.vehicles.filter(v => v.type === 'tank')) {
-    const radius = Math.hypot(v.x-map.size/2, v.y-map.size/2)/map.size;
-    t.check(v.hp === 5000 && radius >= .32 && radius <= .34, 'tank has 5000 HP and spawns on inner ring');
+    const extent = Math.max(Math.abs(v.x-map.size/2), Math.abs(v.y-map.size/2))/map.size;
+    t.check(v.hp === 5000 && extent >= .18 && extent <= .25, 'tank has 5000 HP and spawns near the inner blue lane');
     t.check(map.rocks.every(r => Math.hypot(r.x-v.x,r.y-v.y) > r.r+v.r+60) &&
       map.ponds.every(r => Math.hypot(r.x-v.x,r.y-v.y) > r.r+v.r+60), 'tank has dry clear boarding space');
   }
