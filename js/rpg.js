@@ -91,6 +91,9 @@
       var direct = solid && (solid.crate === o || solid.struct === o);
       if (direct || (d <= radius && self.lineClear(x, y, o.x, o.y, o))) objects.push({ o: o, crate: !!entry.crate, damage: self.rpgDamageAt(d, null, direct) });
     });
+    this.damageFoliageInArea(x, y, radius, function (plant) {
+      return self.rpgDamageAt(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius), null, solid && solid.plant === plant);
+    }, g.owner, 'rpg');
     players.forEach(function (entry) { if (entry.damage > 0) self.damagePlayer(entry.p, entry.damage, g.owner, 'rpg', entry.p.x, entry.p.y, { x: x, y: y }); });
     vehicles.forEach(function (entry) { if (entry.damage > 0) self.damageVehicle(entry.v, entry.damage, g.owner, 'rpg', entry.v.x, entry.v.y); });
     objects.forEach(function (entry) {

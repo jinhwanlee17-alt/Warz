@@ -104,7 +104,7 @@
   }
   function terrainImage(pxW, pxH, mapPx, view) {
     if (baseMap !== currentWorld.map) { baseMap = currentWorld.map; terrainKey = ''; }
-    var key = [pxW, pxH, zoom, center.x, center.y].join('|');
+    var key = [pxW, pxH, zoom, center.x, center.y, baseMap.foliageVersion || 0].join('|');
     if (terrainKey === key) return terrain;
     terrainKey = key;
     terrainContext.setTransform(1, 0, 0, 1, 0, 0); terrainContext.clearRect(0, 0, pxW, pxH);

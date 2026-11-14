@@ -4,11 +4,11 @@ import { loadWarz, suite } from './harness.mjs';
 const W = loadWarz(['config', 'util', 'map', 'world', 'items', 'map-art']);
 const t = suite('map updates');
 const C = W.CONFIG;
-t.equal(C.worldSize, 24000, 'island is twenty-five percent wider and taller than the previous island');
-t.near(C.worldSize / 19200, 1.25, 1e-10, 'both island dimensions grow by twenty-five percent');
-t.near(C.cornerRadius / 2280, 1.25, 1e-10, 'rounded corners grow with the island dimensions');
-t.near(C.worldSize * C.worldSize / (6400 * 6400), 14.0625, 1e-10, 'terrain density follows the full expanded area');
-t.equal(C.mapAreaScale, 14.0625, 'fractional terrain multiplier preserves the existing density');
+t.equal(C.worldSize, 48000, 'island is twice the previous width and height');
+t.near(C.worldSize / 24000, 2, 1e-10, 'both island dimensions double');
+t.near(C.cornerRadius / 2850, 2, 1e-10, 'rounded corners grow with the island dimensions');
+t.near(C.worldSize * C.worldSize / (6400 * 6400), 56.25, 1e-10, 'terrain density follows the full expanded area');
+t.equal(C.mapAreaScale, 56.25, 'fractional terrain multiplier preserves the existing density');
 t.equal(C.stationCount, 9, 'nine upgrade stations are 75 percent fewer than before');
 t.equal(C.regularCrateCount, 210, 'thirty additional regular crates bring the total to210 plus the central legendary');
 t.equal([1,2,3,4].map(size => C.dropStationCounts[size]).join(), '50,25,16,12', 'each mode has its requested coastal drop count');
@@ -29,7 +29,7 @@ const started = Date.now();
 for (const seed of seeds) {
   const map = W.MapGen.generate(seed), center = map.size / 2;
   const legendary = map.crates.filter(c => c.tier === 'legendary');
-  t.equal(map.size, 24000, `seed ${seed}: generated map uses the expanded dimensions`);
+  t.equal(map.size, 48000, `seed ${seed}: generated map uses the expanded dimensions`);
   t.equal(map.crates.length, 211, `seed ${seed}: exactly210 regular crates and one legendary`);
   t.equal(legendary.length, 1, `seed ${seed}: one legendary crate`);
   t.check(legendary[0].x === center && legendary[0].y === center, `seed ${seed}: legendary is at the exact centre`);
@@ -59,12 +59,12 @@ for (const seed of seeds) {
     const quadrants=new Set(list.map(o=>(o.x>=center?1:0)+(o.y>=center?2:0)));
     t.equal(quadrants.size,4,`seed ${seed}: key locations cover every map quadrant`);
   }
-  t.check(map.trees.length===4219 && map.rocks.length===1969 && [56,70,84].includes(map.ponds.length), `seed ${seed}: terrain density rounds to the nearest whole object`);
-  t.equal(map.patches.length, 9141, `seed ${seed}: ground decoration density follows the expanded area`);
+  t.check(map.trees.length > 8000 && map.rocks.length > 5000 && [225,281,338].includes(map.ponds.length), `seed ${seed}: enlarged island has biome-adjusted terrain density`);
+  t.equal(map.patches.length, 36563, `seed ${seed}: ground decoration density follows the expanded area`);
   t.check(['x','y'].every(axis => map.rocks.some(o=>o[axis]>19200) && map.rocks.some(o=>o[axis]<4800)), `seed ${seed}: terrain reaches both new outer edges`);
 }
-t.check(Date.now()-started<5000, 'expanded maps still generate promptly');
-t.equal(JSON.stringify(W.MapGen.generate(57)),JSON.stringify(W.MapGen.generate(57)),'same seed rebuilds the full map identically');
+t.check(Date.now()-started<15000, 'ten expanded biome maps still generate promptly');
+t.check(JSON.stringify(W.MapGen.generate(57))===JSON.stringify(W.MapGen.generate(57)),'same seed rebuilds the full map identically');
 for (const [teamSize,count] of [[1,50],[2,25],[3,16],[4,12]]) {
   const modeMap = W.MapGen.generate(57, teamSize), perimeter = W.MapGen.edgeLength();
   t.equal(modeMap.teamSize,teamSize,`team size ${teamSize}: map stores its mode`);

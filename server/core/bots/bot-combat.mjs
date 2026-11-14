@@ -164,14 +164,31 @@ Object.assign(Bot.prototype, {
     if (this.shotFor === rec.id && now - this.shotAt < 0.12) return this.shotOk;
     const p = this.p, def = this.weaponDef(), o = rec.ref;
     const mount = p.mount ? this.world.structById(p.mount) : null, ox = mount ? mount.x : p.x, oy = mount ? mount.y : p.y;
+    this.shotBlocker = null;
     let ok;
     if (def.kind === 'flame') ok = this.world.lineClear(ox, oy, o.x, o.y, o.vehicle ? this.world.vehicleById(o.vehicle) : null);
     else {
       const hit = this.world.sweep(ox, oy, o.x, o.y, def.bulletRadius || 5, p.id, p.team);
+      if (hit && hit.solid && hit.solid.plant) this.shotBlocker = hit.solid.plant;
       ok = !!hit && (!!hit.player || !!(o.vehicle && hit.solid && hit.solid.vehicle && hit.solid.vehicle.id === o.vehicle && !hit.solid.vehicle.wreck));
     }
     this.shotFor = rec.id; this.shotAt = now; this.shotOk = ok;
     return ok;
+  },
+  // Walkable trunks can block a shot even when two opponents have already
+  // reached each other. Clear that cover instead of waiting inside chase tolerance.
+  clearFoliageLane(def) {
+    const plant = this.shotBlocker, p = this.p;
+    if (!plant || plant.alive === false || !def.bulletSpeed || this.dist(plant) > def.range * .9) return false;
+    const dx = p.x - plant.x, dy = p.y - plant.y, distance = Math.hypot(dx, dy);
+    // The muzzle starts ahead of the player. Step out of the trunk before
+    // aiming at it, otherwise shots can spawn on the far side and never hit it.
+    if (distance < 100) {
+      const e = this.target, ax = distance > 1 ? dx : e ? p.x - e.x : 1, ay = distance > 1 ? dy : e ? p.y - e.y : 0;
+      this.moveDir = this.safeDir(ax, ay) || this.safeDir(-ay, ax) || this.safeDir(ay, -ax);
+      this.look = plant;
+    } else this.shoot = { x: plant.x, y: plant.y, r: plant.hitRadius, def, plant };
+    return true;
   },
   strafeNow() {
     if (this.now >= this.strafeUntil) {
@@ -241,6 +258,7 @@ Object.assign(Bot.prototype, {
       return;
     }
     const clear = lob ? true : this.shotClear(e);
+    if (!clear && this.clearFoliageLane(def)) return;
     const reloading = w.reloading && w.reloadT > 0.6, hp = this.hpFrac();
     if (now - this.coverRollAt > 3) { this.coverRollAt = now; this.coverWanted = this.rng.next() < prof.coverUse; }
     let placed = false;

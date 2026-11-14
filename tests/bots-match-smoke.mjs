@@ -97,10 +97,11 @@ for (const [seed, size, label] of [[7, 1, 'Solo'], [2024, 1, 'Solo'], [21, 2, 'D
   t.check(s.match.ended && s.match.teamInfo.filter((x) => x.alive).length === 1, tag + 'the match ends with one team standing');
   t.check(s.time > 300 && s.time < W.STORM.at(-1).end + 45, tag + 'after ' + Math.round(s.time) + ' s (the storm closes for good at ' + W.STORM.at(-1).end + ')');
   t.check(s.alive[60] >= 38, tag + 'the landing is not a massacre (' + s.alive[60] + ' alive after a minute)');
-  t.check(s.alive[150] >= 24 && s.alive[150] <= 45, tag + 'the lobby thins steadily (' + s.alive[150] + ' alive when the storm starts moving)');
-  // New vehicle clearings change seeded routes and encounters. This broad pacing guard requires at least
-  // one-third eliminated after five minutes, with enough survivors to keep the match contested.
-  t.check(s.alive[300] >= 6 && s.alive[300] <= Math.floor(W.CONFIG.lobbySize * 2 / 3), tag + 'and is still a contest at five minutes (' + s.alive[300] + ' alive)');
+  t.check(s.alive[150] >= 24 && s.alive[150] <= s.alive[60], tag + 'survivors have time to cross the expanded island (' + s.alive[150] + ' alive when the storm starts moving)');
+  // The island now has four times the area with the same fifty seats. Early
+  // contacts are sparser; require continued eliminations and at least one-fifth
+  // gone by five minutes without forcing the old, denser island's encounter rate.
+  t.check(s.alive[300] >= 6 && s.alive[300] <= Math.floor(W.CONFIG.lobbySize * .8) && s.alive[300] < s.alive[150], tag + 'and keeps progressing at five minutes (' + s.alive[300] + ' alive)');
   t.check(s.crates >= 50, tag + 'crates get opened (' + s.crates + ')');
   t.check(s.upgrades >= 4, tag + 'bots spend tokens at Upgrade Stations (' + s.upgrades + ' upgrades)');
   t.check(Object.keys(s.items).length >= 8, tag + 'and use what they find (' + Object.keys(s.items).length + ' different items)');

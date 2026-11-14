@@ -150,7 +150,7 @@ for (const fixed of [false,true]) {
   tick(a,.05);
   t.check(a.world.fireArtillery(a.p,a.v,X+6000,Y),tag+': next shell is allowed at exactly 7.5 seconds');
   t.equal(a.v.artilleryCooldown,10,tag+': ordinary operator uses the normal firing interval on the next shot');
-  t.near(a.world.artilleryShells.at(-1).flightTime,2.5,1e-10,tag+': ordinary operator has normal shell travel speed');
+  t.near(a.world.artilleryShells.at(-1).flightTime,2+6000/W.CONFIG.worldSize*2,1e-10,tag+': ordinary operator has normal shell travel speed on the current island size');
   t.near(a.world.vehicleMaxSpeed(a.v),fixed?0:W.ARTILLERY.maxSpeed,1e-8,tag+': ordinary driver cannot inherit the speed bonus');
 }
 for (const fixed of [false,true]) {

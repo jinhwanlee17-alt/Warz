@@ -8,13 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261112l">
-  <link rel="stylesheet" href="css/upgrade-tree.css?v=20261112l">
-  <link rel="stylesheet" href="css/locker.css?v=20261112l">
-  <link rel="stylesheet" href="css/emotes.css?v=20261112l">
-  <link rel="stylesheet" href="css/sentry-upgrade.css?v=20261112l">
-  <link rel="stylesheet" href="css/artillery.css?v=20261112l">
-  <link rel="stylesheet" href="css/sound-cues.css?v=20261112l">
+  <link rel="stylesheet" href="css/style.css?v=20261113c">
+  <link rel="stylesheet" href="css/upgrade-tree.css?v=20261113c">
+  <link rel="stylesheet" href="css/locker.css?v=20261113c">
+  <link rel="stylesheet" href="css/emotes.css?v=20261113c">
+  <link rel="stylesheet" href="css/sentry-upgrade.css?v=20261113c">
+  <link rel="stylesheet" href="css/artillery.css?v=20261113c">
+  <link rel="stylesheet" href="css/sound-cues.css?v=20261113c">
 </head>
 <body data-screen="menu">
   <canvas id="game" tabindex="-1" aria-label="warz.io battlefield"></canvas>
@@ -331,6 +331,7 @@
           <button type="button" data-test="items" aria-controls="practice-items" aria-expanded="false">Choose hotbar items</button>
           <button type="button" data-test="armor">+25 armor</button>
           <button type="button" data-test="storm" id="practice-storm">Disable storm</button>
+          <button type="button" data-test="speed" id="practice-speed" aria-pressed="false" title="Click to cycle 1.5×, 2×, 3×, 5×, 10×, then 1×" hidden>Movement speed: 1&times;</button>
           <button type="button" data-test="station">Teleport to nearest Upgrade Station</button>
           <button type="button" data-test="bot">Spawn practice bot</button>
           <button type="button" data-test="friendly-fire" id="practice-friendly-fire" hidden>Fight each other: off</button>
@@ -362,42 +363,43 @@
     </div>
   </section>
 
-  <script src="js/config.js?v=20261112l"></script>
-  <script src="js/cosmetics.js?v=20261112l"></script>
-  <script src="js/util.js?v=20261112l"></script>
-  <script src="js/map.js?v=20261112l"></script>
-  <script src="js/world.js?v=20261112l"></script>
-  <script src="js/items.js?v=20261112l"></script>
-  <script src="js/class-combat.js?v=20261112l"></script>
-  <script src="js/vehicles.js?v=20261112l"></script>
-  <script src="js/sentry-combat.js?v=20261112l"></script>
-  <script src="js/level3-combat.js?v=20261112l"></script>
-  <script src="js/engineer.js?v=20261112l"></script>
-  <script src="js/rpg.js?v=20261112l"></script>
-  <script src="js/magic-medic.js?v=20261112l"></script>
-  <script src="js/pyromaniac.js?v=20261112l"></script>
-  <script src="js/artillery.js?v=20261112l"></script>
-  <script src="js/cosmetic-art.js?v=20261112l"></script>
-  <script src="js/render.js?v=20261112l"></script>
-  <script src="js/audio.js?v=20261112l"></script>
-  <script src="js/input.js?v=20261112l"></script>
-  <script src="js/controls.js?v=20261112l"></script>
-  <script src="js/icons.js?v=20261112l"></script>
-  <script src="js/map-art.js?v=20261112l"></script>
-  <script src="js/hud.js?v=20261112l"></script>
-  <script src="js/inventory.js?v=20261112l"></script>
-  <script src="js/map-screen.js?v=20261112l"></script>
-  <script src="js/upgrade-tree.js?v=20261112l"></script>
-  <script src="js/net.js?v=20261112l"></script>
-  <script src="js/online.js?v=20261112l"></script>
-  <script src="js/account.js?v=20261112l"></script>
-  <script src="js/menu.js?v=20261112l"></script>
-  <script src="js/demo.js?v=20261112l"></script>
-  <script src="js/locker.js?v=20261112l"></script>
-  <script src="js/emote-picker.js?v=20261112l"></script>
-  <script src="js/sentry-upgrade-ui.js?v=20261112l"></script>
-  <script src="js/artillery-ui.js?v=20261112l"></script>
-  <script src="js/sound-cues.js?v=20261112l"></script>
-  <script src="js/main.js?v=20261112l"></script>
+  <script src="js/config.js?v=20261113c"></script>
+  <script src="js/cosmetics.js?v=20261113c"></script>
+  <script src="js/util.js?v=20261113c"></script>
+  <script src="js/biomes.js?v=20261113c"></script>
+  <script src="js/map.js?v=20261113c"></script>
+  <script src="js/world.js?v=20261113c"></script>
+  <script src="js/items.js?v=20261113c"></script>
+  <script src="js/class-combat.js?v=20261113c"></script>
+  <script src="js/vehicles.js?v=20261113c"></script>
+  <script src="js/sentry-combat.js?v=20261113c"></script>
+  <script src="js/level3-combat.js?v=20261113c"></script>
+  <script src="js/engineer.js?v=20261113c"></script>
+  <script src="js/rpg.js?v=20261113c"></script>
+  <script src="js/magic-medic.js?v=20261113c"></script>
+  <script src="js/pyromaniac.js?v=20261113c"></script>
+  <script src="js/artillery.js?v=20261113c"></script>
+  <script src="js/cosmetic-art.js?v=20261113c"></script>
+  <script src="js/render.js?v=20261113c"></script>
+  <script src="js/audio.js?v=20261113c"></script>
+  <script src="js/input.js?v=20261113c"></script>
+  <script src="js/controls.js?v=20261113c"></script>
+  <script src="js/icons.js?v=20261113c"></script>
+  <script src="js/map-art.js?v=20261113c"></script>
+  <script src="js/hud.js?v=20261113c"></script>
+  <script src="js/inventory.js?v=20261113c"></script>
+  <script src="js/map-screen.js?v=20261113c"></script>
+  <script src="js/upgrade-tree.js?v=20261113c"></script>
+  <script src="js/net.js?v=20261113c"></script>
+  <script src="js/online.js?v=20261113c"></script>
+  <script src="js/account.js?v=20261113c"></script>
+  <script src="js/menu.js?v=20261113c"></script>
+  <script src="js/demo.js?v=20261113c"></script>
+  <script src="js/locker.js?v=20261113c"></script>
+  <script src="js/emote-picker.js?v=20261113c"></script>
+  <script src="js/sentry-upgrade-ui.js?v=20261113c"></script>
+  <script src="js/artillery-ui.js?v=20261113c"></script>
+  <script src="js/sound-cues.js?v=20261113c"></script>
+  <script src="js/main.js?v=20261113c"></script>
 </body>
 </html>

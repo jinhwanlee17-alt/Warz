@@ -47,6 +47,26 @@
 
   World.prototype.buildSolids = function () {
     var h = this.solids, m = this.map, cr = C.stationCoreRadius;
+    // Leafy cover has no collision or health. Discard old trunk metadata too.
+    ['trees', 'bushes'].forEach(function (kind) {
+      (m[kind] || []).forEach(function (plant) {
+        delete plant.hp; delete plant.maxHp; delete plant.hitRadius; delete plant.foliageKind;
+      });
+    });
+    // Cacti remain damageable hazards, separate from movement collision.
+    this.foliage = new U.SpatialHash(256);
+    var foliage = this.foliage;
+    ['cacti'].forEach(function (kind) {
+      (m[kind] || []).forEach(function (plant, index) {
+        if (plant.id === undefined) plant.id = index;
+        plant.foliageKind = kind;
+        plant.maxHp = 50;
+        if (plant.hp === undefined) plant.hp = plant.maxHp;
+        if (plant.alive === undefined) plant.alive = true;
+        plant.hitRadius = plant.r;
+        foliage.insert(plant, plant.x - plant.r, plant.y - plant.r, plant.x + plant.r, plant.y + plant.r);
+      });
+    });
     m.rocks.forEach(function (r, index) {
       if (r.id === undefined) r.id = index;
       if (r.alive === undefined) r.alive = true;
@@ -190,6 +210,7 @@
     if (this.updateVehicles) this.updateVehicles(dt);
     if (!this.remote) {
       this.separatePlayers();
+      this.updateCactusContacts();
       if (this.teams) this.updateRevives(dt);
       if (this.storm) this.storm.update(dt);
     }
@@ -312,11 +333,17 @@
     p.inPond = this.inPond(p.x, p.y);
     var sprint = this.tickStamina(p, intent, dt);
     var speed = C.playerSpeed * (p.inPond ? C.pondSpeedMul : 1) * (p.downed ? 0.35 : 1) * this.speedMul(p) * sprint, k = Math.min(1, C.playerAccel * dt);
+    if (p.snowFrozen) p.vx = p.vy = 0;
     p.vx += (mx * speed - p.vx) * k;
     p.vy += (my * speed - p.vy) * k;
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-    this.collide(p);
+    // Boosted practice movement must still meet thin walls instead of skipping them.
+    var steps = this.practice && p.isLocal && p.practiceSpeed > 1
+      ? Math.max(1, Math.ceil(Math.hypot(p.vx, p.vy) * dt / (p.r * 0.5))) : 1;
+    for (var step = 0; step < steps; step++) {
+      p.x += p.vx * dt / steps;
+      p.y += p.vy * dt / steps;
+      this.collide(p);
+    }
     p.nearStation = this.nearestStation(p.x, p.y, C.stationInteractRadius + p.r);
   };
 
@@ -702,6 +729,11 @@
         : U.segRect(x1, y1, x2, y2, s.x - br, s.y - br, s.w + br * 2, s.h + br * 2);
       if (t >= 0 && t < bestT) { bestT = t; best = s; }
     });
+    this.foliage.query(Math.min(x1, x2) - br, Math.min(y1, y2) - br, Math.max(x1, x2) + br, Math.max(y1, y2) + br, function (plant) {
+      if (plant.alive === false) return;
+      var t = U.segCircle(x1, y1, x2, y2, plant.x, plant.y, plant.hitRadius + br);
+      if (t >= 0 && t < bestT) { bestT = t; best = { type: 'foliage', plant: plant }; }
+    });
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
       if (!p.alive || p.id === ownerId || p.dropT > 0 || p.vehicle) continue;
@@ -763,12 +795,13 @@
   };
 
   World.prototype.bulletHit = function (b, hit, hx, hy) {
-    var target = null, key = null, struct = null, vehicle = null;
+    var target = null, key = null, struct = null, vehicle = null, plant = null;
     if (hit.player) { target = hit.player; key = 'p' + target.id; }
     else if (hit.solid.type === 'crate') { target = hit.solid.crate; key = 'c' + target.id; }
     else if (hit.solid.type === 'struct' && hit.solid.struct.maxHp) { struct = hit.solid.struct; key = 's' + struct.id; }
     else if (hit.solid.type === 'vehicle') { vehicle = hit.solid.vehicle; key = 'v' + vehicle.id; }
-    if (!target && !struct && !vehicle) { this.sparks(hx, hy, b.dx, b.dy, SPARK[hit.solid.type] || '#dddddd', 4); return; }
+    else if (hit.solid.type === 'foliage') { plant = hit.solid.plant; key = plant.foliageKind + plant.id; }
+    if (!target && !struct && !vehicle && !plant) { this.sparks(hx, hy, b.dx, b.dy, SPARK[hit.solid.type] || '#dddddd', 4); return; }
     var color = hit.player ? target.color : vehicle ? '#c8d0ad' : struct ? SPARK.rock : SPARK.crate;
     if (this.remote) { this.sparks(hx, hy, b.dx, b.dy, color, 5); return; } // damage arrives from the server
     if (b.shot) {
@@ -785,6 +818,7 @@
       if (b.shot && vehicle.wreck) occupants.forEach(function (id) { if (id) b.shot.hit['p' + id] = true; });
     }
     else if (struct) this.damageStruct(struct, dmg, b.owner, hx, hy, b.weapon);
+    else if (plant) this.damageFoliage(plant, dmg, b.owner, b.weapon);
     else this.damageCrate(target, dmg, b.owner, hx, hy);
     this.sparks(hx, hy, b.dx, b.dy, color, 5);
   };
@@ -861,6 +895,41 @@
     this.grenades = out;
   };
 
+  World.prototype.damageFoliage = function (plant, amount, sourceId, cause) {
+    if (this.remote || !plant || plant.foliageKind !== 'cacti' || plant.alive === false || !(amount > 0)) return false;
+    plant.hp = Math.max(0, plant.hp - amount);
+    if (!plant.hp) {
+      plant.alive = false;
+      this.map.foliageVersion = (this.map.foliageVersion || 0) + 1;
+      this.burst(plant.x, plant.y, 14, plant.foliageKind === 'cacti' ? '#7aab52' : '#a6ba67', 140, 0.6, 6);
+    }
+    this.emit({ type: 'foliage', plant: plant, source: sourceId || 0, cause: cause });
+    return true;
+  };
+  World.prototype.damageFoliageInArea = function (x, y, radius, amount, sourceId, cause, throughCover) {
+    if (this.remote) return;
+    var self = this, hits = [];
+    this.foliage.query(x - radius, y - radius, x + radius, y + radius, function (plant) {
+      if (plant.alive === false || Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius >= radius) return;
+      if (throughCover || self.lineClear(x, y, plant.x, plant.y)) hits.push(plant);
+    });
+    hits.forEach(function (plant) { self.damageFoliage(plant, typeof amount === 'function' ? amount(plant) : amount, sourceId, cause); });
+  };
+  World.prototype.updateCactusContacts = function () {
+    var self = this;
+    this.players.forEach(function (p) {
+      if (!p.alive || p.vehicle || p.dropT > 0) return;
+      var contacts = {};
+      self.foliage.query(p.x - p.r, p.y - p.r, p.x + p.r, p.y + p.r, function (plant) {
+        if (plant.foliageKind !== 'cacti' || plant.alive === false || Math.hypot(p.x - plant.x, p.y - plant.y) >= p.r + plant.r) return;
+        var until = p.cactusUntil && p.cactusUntil[plant.id] || 0;
+        if (until <= self.time) { self.damagePlayer(p, 8, null, 'cactus'); until = self.time + 1; }
+        contacts[plant.id] = until;
+      });
+      p.cactusUntil = contacts;
+    });
+  };
+
   // Heavy vehicle impacts break natural rocks outright, without a health state.
   World.prototype.damageMapRock = function (rock, cause, sourceId, hx, hy) {
     if (this.remote || !rock || rock.alive === false || this.map.rocks.indexOf(rock) < 0 || (cause !== 'tankram' && cause !== 'tank-cannon' && cause !== 'artillery')) return false;
@@ -925,6 +994,9 @@
         return Rules.explosionDamage(ex.maxDamage, R, Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r));
       }, ownerId, cause, { lineOfSight: true });
       if (cause === 'tank-cannon') this.damageMapRocksInArea(x, y, R, cause, ownerId, false);
+      this.damageFoliageInArea(x, y, R, function (plant) {
+        return Rules.explosionDamage(ex.maxDamage, R, Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius));
+      }, ownerId, cause);
     }
     this.explosions.push({ x: x, y: y, r: R, t: 0, dur: 0.6, power: ex.maxDamage });
     var big = ex.maxDamage >= 80;

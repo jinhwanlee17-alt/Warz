@@ -150,6 +150,22 @@ const marksman = (a, b) => (p) => { const d = Math.hypot(b.p.x - p.x, b.p.y - p.
 
 // ---------------------------------------------------------------- what they can see
 {
+  const canopy = tree(9500, 9000), bush = { x: 9500, y: 9300, r: 50 };
+  const a = arena({ extra: { trees: [canopy], bushes: [bush] } });
+  const viewer = a.human(9000, 9000, still), hidden = a.human(9500, 9000, still);
+  a.dir.cover.refresh(a.world.players);
+  t.check(a.dir.cover.hidden(viewer, hidden), 'live biome trees conceal players from bots');
+  a.world.damageFoliage(canopy, 250, viewer.id, 'ar');
+  a.dir.cover.refresh(a.world.players);
+  t.check(a.dir.cover.hidden(viewer, hidden), 'shots do not remove the visual concealment of leafy cover');
+  hidden.x = bush.x; hidden.y = bush.y;
+  a.dir.cover.refresh(a.world.players);
+  t.check(a.dir.cover.hidden(viewer, hidden), 'biome bushes conceal players from bots');
+  viewer.x = bush.x; viewer.y = bush.y;
+  a.dir.cover.refresh(a.world.players);
+  t.check(!a.dir.cover.hidden(viewer, hidden), 'sharing a bush reveals its occupants consistently with the renderer');
+}
+{
   const a = arena({ extra: { trees: [tree(9500, 9000)], buildings: [room(9000, 8560)] } });
   a.crowd();
   const b = a.plant(a.bot(9000, 9000, { aggression: 0.5 }));
@@ -819,6 +835,8 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   // Teleporter: one pad somewhere safe while things are quiet, the other when a fight is being lost.
   const a = arena({ storm: true });
   a.crowd();
+  // Keep this close-range fight independent of island size and random storm geometry.
+  a.world.storm.circles[1] = { x: 9000, y: 9000, r: 5000 };
   const c = a.world.storm.circles[1];
   const b = a.bot(c.x + 200, c.y + 200, { caution: 0.8 }, { items: [['teleporter', 2], ['bandage', 3]] });
   const home = usedIn(a, b, 'teleporter', 14);

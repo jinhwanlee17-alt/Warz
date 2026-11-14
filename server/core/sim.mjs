@@ -4,6 +4,7 @@ import './shim.mjs';
 import '../../js/config.js';
 import '../../js/cosmetics.js';
 import '../../js/util.js';
+import '../../js/biomes.js';
 import '../../js/map.js';
 import '../../js/world.js';
 import '../../js/items.js';

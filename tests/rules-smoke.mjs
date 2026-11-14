@@ -13,7 +13,7 @@ t.equal(CONFIG.stationCooldown, 90, 'used station recharges for 1:30');
 t.equal(CONFIG.upgradeCost, 8, 'first-tier upgrades cost eight tokens');
 t.check(Rules.upgradeCostFor('sniper') === 8 && Rules.upgradeCostFor('sniper2') === 15, 'target tiers use eight and fifteen tokens');
 t.check(Rules.nextUpgradeCost('soldier') === 8 && Rules.nextUpgradeCost('medic') === 15 && Rules.nextUpgradeCost('medic2') === 40 && Rules.nextUpgradeCost('engineer') === 0, 'next-tier cost follows all three upgrade levels');
-t.equal(CONFIG.bushes, false, 'bushes are temporarily removed');
+t.equal(CONFIG.bushes, true, 'biomes enable gameplay bush cover');
 t.check(CONFIG.tokenLoose <= 50 && CONFIG.regularCrateCount === 210, 'sparse loose tokens and 210 regular crates');
 
 // Soldier (starting class)

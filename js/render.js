@@ -46,7 +46,7 @@
   }
 
   // Fluffy canopy sprites: drawn once, then stamped (scaled and rotated) for every tree and bush.
-  function makeCanopy(seed, R, kind) {
+  function makeCanopy(seed, R, kind, palette) {
     var rng = U.rng(seed), size = Math.ceil(R * 2.5), c = document.createElement('canvas');
     c.width = c.height = size;
     var g = c.getContext('2d'), cx = size / 2, cy = size / 2, lumps = [{ x: 0, y: 0, r: R * 0.74 }];
@@ -58,6 +58,10 @@
     var col = kind === 'tree'
       ? { edge: '#2a6629', fill: '#3d8b39', dark: '#347c31', shine: '#53a44b' }
       : { edge: '#307a2c', fill: '#4c9c43', dark: '#428c3a', shine: '#66b65a' };
+    if (palette === 'snow') col = { edge: '#527d76', fill: '#d1e5df', dark: '#a5c9c0', shine: '#f3fcf7' };
+    if (palette === 'dry') col = kind === 'tree'
+      ? { edge: '#626d32', fill: '#859449', dark: '#71813a', shine: '#a9b85c' }
+      : { edge: '#92762f', fill: '#c5a443', dark: '#ae9138', shine: '#e0c76e' };
     function pass(color, grow, dx, dy, scale) {
       g.fillStyle = color;
       lumps.forEach(function (l) {
@@ -119,6 +123,14 @@
       this.trees = []; this.bushes = [];
       for (i = 0; i < 12; i++) this.trees.push(makeCanopy(101 + i * 7, 110 * res, 'tree'));
       for (i = 0; i < 8; i++) this.bushes.push(makeCanopy(501 + i * 11, 50 * res, 'bush'));
+      this.foliagePalettes = {};
+      var self = this;
+      ['snow', 'dry'].forEach(function (palette) {
+        var trees = [], bushes = [];
+        for (var j = 0; j < 12; j++) trees.push(makeCanopy(101 + j * 7, 110 * res, 'tree', palette));
+        for (var k = 0; k < 8; k++) bushes.push(makeCanopy(501 + k * 11, 50 * res, 'bush', palette));
+        self.foliagePalettes[palette] = { trees: trees, bushes: bushes };
+      });
     }
     if (this.map === map) return;
     this.map = map;
@@ -146,7 +158,7 @@
       path.closePath();
       return path;
     });
-    this.cache = { island: island, coast: coast, ponds: ponds, rocks: rocks };
+    this.cache = { island: island, coast: coast, ponds: ponds, rocks: rocks, biomes: W.Biomes ? W.Biomes.cells(map) : [] };
   };
 
   function visible(v, x, y, r) { return x + r > v.x0 && x - r < v.x1 && y + r > v.y0 && y - r < v.y1; }
@@ -183,6 +195,7 @@
     }
     for (i = 0; i < map.crates.length; i++) if (map.crates[i].alive && visible(v, map.crates[i].x, map.crates[i].y, 60)) this.drawCrate(ctx, map.crates[i], t);
     for (i = 0; i < map.rocks.length; i++) if (map.rocks[i].alive !== false && visible(v, map.rocks[i].x, map.rocks[i].y, map.rocks[i].r + 10)) this.drawRock(ctx, map.rocks[i], this.cache.rocks[i]);
+    for (i = 0; i < (map.cacti || []).length; i++) if (map.cacti[i].alive !== false && visible(v, map.cacti[i].x, map.cacti[i].y, map.cacti[i].r * 2)) this.drawCactus(ctx, map.cacti[i]);
     this.drawWalls(ctx, map, v);
     for (i = 0; i < map.stations.length; i++) if (visible(v, map.stations[i].x, map.stations[i].y, 80)) this.drawStationCore(ctx, map.stations[i], t);
     this.drawZones(ctx, world, v, t, false, viewer);
@@ -255,10 +268,16 @@
 
     ctx.save();
     ctx.clip(c.coast);
+    this.drawBiomes(ctx, map, v);
     for (i = 0; i < map.patches.length; i++) {
       var p = map.patches[i];
       if (!visible(v, p.x, p.y, p.r)) continue;
-      ctx.fillStyle = p.light ? PAL.patchLight : PAL.patchDark;
+      var patchBiome = W.Biomes ? W.Biomes.at(map, p.x, p.y) : 'normal';
+      ctx.fillStyle = patchBiome === 'tundra' || patchBiome === 'tundra-forest'
+        ? (p.light ? 'rgba(255,255,255,0.12)' : 'rgba(81,120,142,0.06)')
+        : patchBiome === 'desert' || patchBiome === 'savannah'
+          ? (p.light ? 'rgba(255,240,191,0.13)' : 'rgba(151,106,43,0.07)')
+          : p.light ? PAL.patchLight : PAL.patchDark;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
     }
     var gs = 80, x, y;
@@ -275,6 +294,8 @@
     for (i = 0; i < map.tufts.length; i++) {
       var tf = map.tufts[i];
       if (!visible(v, tf.x, tf.y, 12)) continue;
+      var biome = W.Biomes ? W.Biomes.at(map, tf.x, tf.y) : 'normal';
+      if (biome === 'desert' || biome === 'savannah' || biome === 'tundra' || biome === 'tundra-forest') continue;
       var s = tf.s * 7;
       ctx.moveTo(tf.x - s, tf.y - s * 0.9); ctx.lineTo(tf.x - s * 0.3, tf.y + s * 0.5);
       ctx.moveTo(tf.x, tf.y - s * 1.2); ctx.lineTo(tf.x, tf.y + s * 0.5);
@@ -308,6 +329,35 @@
       ctx.fillStyle = 'rgba(255,255,255,0.16)';
       ctx.beginPath(); ctx.ellipse(pd.x - pd.r * 0.32, pd.y - pd.r * 0.38, pd.r * 0.34, pd.r * 0.13, -0.3, 0, TAU); ctx.fill();
       ctx.restore();
+    }
+  };
+
+  Renderer.prototype.drawBiomes = function (ctx, map, view) {
+    if (!W.Biomes) return;
+    var cells = this.cache && this.cache.biomes || W.Biomes.cells(map);
+    for (var i = 0; i < cells.length; i++) {
+      var cell = cells[i];
+      if (cell.id === 'normal' || cell.x > view.x1 || cell.x + cell.w < view.x0 || cell.y > view.y1 || cell.y + cell.h < view.y0) continue;
+      var definition = W.Biomes.definitions[cell.id];
+      ctx.fillStyle = definition.color;
+      ctx.fillRect(cell.x, cell.y, cell.w, cell.h);
+      var snow = cell.id === 'tundra' || cell.id === 'tundra-forest';
+      var dry = cell.id === 'desert' || cell.id === 'savannah';
+      if (!snow && !dry) continue;
+      ctx.save(); ctx.beginPath(); ctx.rect(cell.x, cell.y, cell.w, cell.h); ctx.clip();
+      ctx.strokeStyle = snow ? 'rgba(255,255,255,0.5)' : 'rgba(143,101,39,0.16)';
+      ctx.lineWidth = snow ? 3 : 4;
+      var step = dry ? 210 : 160;
+      ctx.beginPath();
+      for (var y = Math.floor(Math.max(view.y0, cell.y) / step) * step; y < Math.min(view.y1, cell.y + cell.h); y += step) {
+        for (var x = Math.floor(Math.max(view.x0, cell.x) / step) * step; x < Math.min(view.x1, cell.x + cell.w); x += step) {
+          var shift = Math.sin(x * .013 + y * .009) * 32;
+          ctx.moveTo(x + shift, y);
+          if (snow) { ctx.lineTo(x + shift + 15, y + 4); ctx.moveTo(x + shift + 7, y - 6); ctx.lineTo(x + shift + 8, y + 10); }
+          else ctx.quadraticCurveTo(x + shift + 34, y - 16, x + shift + 70, y - 3);
+        }
+      }
+      ctx.stroke(); ctx.restore();
     }
   };
 
@@ -410,6 +460,20 @@
         ctx.lineWidth = 3;
         var vx = x + w * 0.25, vy = y + h * 0.28;
         ctx.fillRect(vx, vy, 30, 30); ctx.strokeRect(vx, vy, 30, 30);
+      }
+      if (b.kind === 'castle') {
+        ctx.strokeStyle = '#c2c5bd'; ctx.lineWidth = 12;
+        ctx.strokeRect(x + 12, y + 12, w - 24, h - 24);
+        ctx.fillStyle = '#c2c5bd';
+        for (var crenel = 18; crenel < w - 12; crenel += 48) { ctx.fillRect(x + crenel, y - 5, 22, 24); ctx.fillRect(x + crenel, y + h - 19, 22, 24); }
+        for (var merlon = 30; merlon < h - 12; merlon += 48) { ctx.fillRect(x - 5, y + merlon, 24, 22); ctx.fillRect(x + w - 19, y + merlon, 24, 22); }
+      } else if (b.kind === 'military-base') {
+        ctx.strokeStyle = '#ded8b0'; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, 32, 0, TAU); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + w / 2 - 18, y + h / 2); ctx.lineTo(x + w / 2 + 18, y + h / 2); ctx.moveTo(x + w / 2, y + h / 2 - 18); ctx.lineTo(x + w / 2, y + h / 2 + 18); ctx.stroke();
+      } else if (b.kind === 'city') {
+        ctx.fillStyle = '#607b87'; ctx.strokeStyle = '#c9d7db'; ctx.lineWidth = 3;
+        ctx.fillRect(x + w * .2, y + h * .55, w * .55, 28); ctx.strokeRect(x + w * .2, y + h * .55, w * .55, 28);
       }
       ctx.globalAlpha = 1;
     }
@@ -649,14 +713,18 @@
     function stamp(list, sprites, base, under) {
       for (var i = 0; i < list.length; i++) {
         var o = list[i];
+        if (o.alive === false) continue;
         var inside = Math.hypot(vx - o.x, vy - o.y) < o.r * under;
+        if (!Number.isFinite(o.fade)) o.fade = 1;
         o.fade += ((inside ? 0.4 : 1) - o.fade) * k;
         if (!visible(v, o.x, o.y, o.r * 1.3)) continue;
-        var spr = sprites[o.variant % sprites.length], scale = o.r / base;
+        var palette = o.biome === 'tundra' || o.biome === 'tundra-forest' ? 'snow' : o.biome === 'savannah' || o.biome === 'desert' ? 'dry' : null;
+        var variants = palette && self.foliagePalettes ? self.foliagePalettes[palette][base === 110 ? 'trees' : 'bushes'] : sprites;
+        var spr = variants[(o.variant || 0) % variants.length], scale = o.r / base;
         ctx.save();
         ctx.globalAlpha = o.fade;
         ctx.translate(o.x, o.y);
-        ctx.rotate(o.rot);
+        ctx.rotate(o.rot || 0);
         var size = spr.size * scale * (base / spr.R);
         ctx.drawImage(spr.canvas, -size / 2, -size / 2, size, size);
         ctx.restore();
@@ -664,6 +732,30 @@
     }
     stamp(map.bushes, self.bushes, 50, 1.0);
     stamp(map.trees, self.trees, 110, 0.9);
+  };
+
+  Renderer.prototype.drawFoliageHealth = function (ctx, o) {
+    if (!Number.isFinite(o.hp) || !o.maxHp || o.hp >= o.maxHp || o.alive === false) return;
+    var width = Math.max(36, Math.min(80, o.r)), y = o.y - o.r - 16;
+    ctx.fillStyle = '#26372c'; ctx.fillRect(o.x - width / 2 - 2, y - 2, width + 4, 9);
+    ctx.fillStyle = '#edd28a'; ctx.fillRect(o.x - width / 2, y, width * U.clamp(o.hp / o.maxHp, 0, 1), 5);
+  };
+
+  Renderer.prototype.drawCactus = function (ctx, cactus) {
+    if (cactus.alive === false) return;
+    var r = cactus.r;
+    ctx.save(); ctx.translate(cactus.x, cactus.y); ctx.rotate(cactus.rot || 0);
+    ctx.fillStyle = 'rgba(67,55,21,0.2)'; ctx.beginPath(); ctx.ellipse(6, 9, r * 1.15, r * .85, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#38623e'; ctx.lineWidth = r * .48;
+    ctx.beginPath(); ctx.moveTo(0, r * .7); ctx.lineTo(0, -r * .8); ctx.moveTo(0, r * .1); ctx.lineTo(-r * .7, r * .1); ctx.lineTo(-r * .7, -r * .45); ctx.moveTo(0, -r * .2); ctx.lineTo(r * .65, -r * .2); ctx.lineTo(r * .65, -r * .7); ctx.stroke();
+    ctx.strokeStyle = '#73a65c'; ctx.lineWidth = r * .3; ctx.stroke();
+    ctx.strokeStyle = '#bdd18a'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-r * .06, r * .65); ctx.lineTo(-r * .06, -r * .75); ctx.stroke();
+    ctx.strokeStyle = '#f2e9bf'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var i = 0; i < 5; i++) { var yy = -r * .65 + i * r * .29; ctx.moveTo(-r * .22, yy); ctx.lineTo(-r * .37, yy - r * .12); ctx.moveTo(r * .2, yy); ctx.lineTo(r * .35, yy - r * .08); }
+    ctx.stroke(); ctx.restore();
+    this.drawFoliageHealth(ctx, cactus);
   };
 
   // ---------------------------------------------------------------- players
@@ -1815,7 +1907,7 @@
 
   Renderer.prototype.drawSentryStatus = function (ctx, world, p, viewer) {
     if (!p.alive || p.hidden || p.vehicle || p.dropT > 0 || (p.fx.invisible > 0 && viewer && viewer !== p && viewer.team !== p.team)) return;
-    var frozen = p.sentryFreezeUntil > world.time, slow = world.activeSentrySnow && world.activeSentrySnow(p);
+    var frozen = p.snowFrozen || p.sentryFreezeUntil > world.time, slow = p.inSnow || (world.activeSentrySnow && world.activeSentrySnow(p));
     var burning = (p.sentryBurn && p.sentryBurn.until > world.time) || (world.pyroBurnTime ? world.pyroBurnTime(p) > 0 : p.pyroBurning > 0);
     if (!frozen && !slow && !burning) return;
     ctx.save(); ctx.translate(p.x + (p.ox || 0), p.y + (p.oy || 0));

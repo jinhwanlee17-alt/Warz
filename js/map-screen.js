@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var W = window.Warz;
-  var el, canvas, base = null, baseMap = null, open = false;
+  var el, canvas, base = null, baseMap = null, baseFoliageVersion = 0, open = false;
 
   function $(id) { return document.getElementById(id); }
   function size() {
@@ -40,9 +40,10 @@
       canvas.style.width = canvas.style.height = s.css + 'px';
       base = null;
     }
-    if (!base || baseMap !== world.map) {
+    if (!base || baseMap !== world.map || baseFoliageVersion !== (world.map.foliageVersion || 0)) {
       base = W.MapArt.base(world.map, s.px, { big: true, labelPx: 13 * s.dpr, dpr: s.dpr });
       baseMap = world.map;
+      baseFoliageVersion = world.map.foliageVersion || 0;
     }
     var g = canvas.getContext('2d');
     g.setTransform(1, 0, 0, 1, 0, 0);

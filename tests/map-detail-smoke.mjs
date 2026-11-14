@@ -14,7 +14,7 @@ function drawing() {
     fill(){ops.push({op:'fill',color:this.fillStyle,path:this.path.map(a=>a.slice())});},
     stroke(){ops.push({op:'stroke',color:this.strokeStyle,path:this.path.map(a=>a.slice())});},
     fillRect(...a){ops.push({op:'fillRect',color:this.fillStyle,a});},strokeRect(...a){ops.push({op:'strokeRect',color:this.strokeStyle,a});},
-    setLineDash(){},strokeText(){},fillText(){},
+    setLineDash(){},strokeText(){},fillText(){},clip(){},
     measureText(s){return {width:String(s).length*7};}
   };
   return {g,ops,stack};
@@ -58,7 +58,7 @@ t.equal(foliage.ops.filter(o=>o.op==='fill'&&o.color==='#367e38').length,2,'actu
 t.equal(JSON.stringify(map),before,'cartography details do not create terrain or change the map');
 const generated=W.MapGen.generate(57), decor=drawing();
 W.MapArt.paintBase(decor.g,generated,900,{big:true});
-t.check(!W.CONFIG.bushes&&generated.bushes.length===0&&decor.ops.some(o=>o.op==='fill'&&o.color==='#367e38'),'current maps have decorative shrubs without enabling gameplay bush cover');
+t.check(W.CONFIG.bushes&&generated.bushes.length>0&&decor.ops.some(o=>o.op==='fill'&&o.color==='#367e38'),'biome maps render actual gameplay bush cover alongside ground decoration');
 const clipped=drawing();
 W.MapArt.paintBase(clipped.g,map,900,{big:true,view:{x0:10000,y0:10000,x1:11000,y1:11000}});
 t.check(!clipped.ops.some(o=>o.op==='fill'&&['#327a32','#367e38'].includes(o.color)),'zoomed viewport skips offscreen foliage details');

@@ -47,7 +47,7 @@ t.check(WEAPONS.rpg.unlimitedRange && WEAPONS.rpg.projectileRadius > W.SENTRY_IV
 
 const template = W.MapGen.generate(112);
 function arena() {
-  return new W.World({ map: { ...template, rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], ponds: [], stations: [], vehicles: [] }, storm: false });
+  return new W.World({ map: { ...template, biomes: [], cacti: [], rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], ponds: [], stations: [], vehicles: [] }, storm: false });
 }
 for (const id of released) {
   const branch = { rocketeer: ['grenadier', 'grenadier2'], shotgunner3: ['shotgunner', 'shotgunner2'], magicmedic: ['medic', 'medic2'], pyromaniac: ['grenadier', 'pyromancer'] }[id] || ['medic', 'commander'];

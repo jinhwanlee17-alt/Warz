@@ -16,7 +16,7 @@
     command: 'Command boost · +25% damage, speed, fire rate',
     energy: 'Energy bar · +15% speed', speed: 'Speed potion · +15%', strength: 'Strength · +10% dmg', shield: 'Shield · −15% dmg taken', poison: 'Poisoned · −10 HP/s, slowed',
     invisible: 'Invisible', power: 'Power potion', immune: 'Immune', reduce: 'Shieldo · −50% dmg taken', deathImmune: 'Death immunity', radar: 'Radar',
-    regen: 'First aid · healing', drone: 'Drone · enemies on the map', snow: 'In a blizzard · slowed', mount: 'On a turret'
+    regen: 'First aid · healing', drone: 'Drone · enemies on the map', snow: 'In a blizzard · slowed', frozen: 'Frozen in place', mount: 'On a turret'
   };
 
   function $(id) { return document.getElementById(id); }
@@ -84,7 +84,7 @@
     for (i = 0; i < W.FX_KEYS.length; i++) { k = W.FX_KEYS[i]; if (k !== 'flash' && p.fx[k] > 0) parts.push(k + ':' + Math.ceil(p.fx[k])); }
     if (p.regen > 0) parts.push('regen:' + Math.ceil(p.regen) + ' HP');
     if ((world.reveal[p.team] || 0) > 0) parts.push('drone:' + Math.ceil(world.reveal[p.team]));
-    if (p.inSnow && p.alive) parts.push('snow:');
+    if (p.inSnow && p.alive) parts.push(p.snowFrozen ? 'frozen:' : 'snow:');
     if (p.mount) parts.push('mount:');
     var pyroBurn = world.pyroBurnTime ? world.pyroBurnTime(p) : p.pyroBurning || 0;
     if (pyroBurn > 0 && p.alive) parts.push('pyroburn:' + Math.ceil(pyroBurn));
@@ -441,11 +441,11 @@
     var canvas = el.minimap, dpr = Math.min(window.devicePixelRatio || 1, 2), size = canvas.clientWidth || 190;
     canvas.width = Math.round(size * dpr);
     canvas.height = Math.round(size * dpr);
-    mini = { base: W.MapArt.base(map, canvas.width, { labelPx: 9 * dpr, dpr: dpr }), dpr: dpr, map: map, cssSize: size };
+    mini = { base: W.MapArt.base(map, canvas.width, { labelPx: 9 * dpr, dpr: dpr }), dpr: dpr, map: map, cssSize: size, foliageVersion: map.foliageVersion || 0 };
   }
 
   function drawMinimap(world, p) {
-    if (!mini || mini.map !== world.map || mini.cssSize !== (el.minimap.clientWidth || 190) || mini.dpr !== Math.min(window.devicePixelRatio || 1, 2)) buildMinimap(world.map);
+    if (!mini || mini.map !== world.map || mini.foliageVersion !== (world.map.foliageVersion || 0) || mini.cssSize !== (el.minimap.clientWidth || 190) || mini.dpr !== Math.min(window.devicePixelRatio || 1, 2)) buildMinimap(world.map);
     var canvas = el.minimap, g = canvas.getContext('2d');
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(mini.base, 0, 0);

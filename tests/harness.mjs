@@ -17,6 +17,10 @@ export class MemoryStorage {
 }
 
 export function loadWarz(files = ['config', 'util', 'map', 'world', 'items', 'class-combat'], options = {}) {
+  if (!files.includes('biomes') && (files.includes('map') || files.includes('world'))) {
+    files = files.slice();
+    files.splice(files.includes('map') ? files.indexOf('map') : files.indexOf('world'), 0, 'biomes');
+  }
   if (files.includes('config') && !files.includes('cosmetics')) { files = files.slice(); files.splice(files.indexOf('config') + 1, 0, 'cosmetics'); }
   if (files.includes('render') && !files.includes('cosmetic-art')) { files = files.slice(); files.splice(files.indexOf('render'), 0, 'cosmetic-art'); }
   // Keep explicit simulation subsets on the same combat implementation as the game.

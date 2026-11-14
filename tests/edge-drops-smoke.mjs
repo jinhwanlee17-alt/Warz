@@ -40,7 +40,7 @@ t.equal(C.lobbySize, 50, 'the player capacity remains 50');
 t.near(W.MapGen.edgeLength(), perimeter, 1e-8, 'public edge length includes all four rounded corners');
 for (const distance of [-12345, 0, flat + arc / 2, perimeter + 12345]) {
   const point = W.MapGen.edgePoint(distance);
-  t.near(coastDistance(point.x, point.y), 480, 1e-8, 'wrapped edge positions stay 480 units inland');
+  t.near(coastDistance(point.x, point.y), inset, 1e-8, 'wrapped edge positions stay at the configured coastal inset');
   t.near(boundaryDistance(point), wrap(distance), 1e-8, 'edge coordinates preserve requested arc distance across wrapping');
 }
 const defaultMap = W.MapGen.generate(57);
@@ -52,7 +52,7 @@ for (const [mode, teamSize, count] of modes) for (const seed of seeds) {
   const tag = mode + ' seed ' + seed;
   t.check(map.teamSize === teamSize && map.drops.length === count, tag + ': exact mode-specific drop count');
   t.check(map.drops.every((d, i) => d.id === i && d.label === i + 1), tag + ': stable unique drop IDs and visible labels');
-  t.check(map.drops.every(d => Math.abs(coastDistance(d.x, d.y) - 480) < 1e-7), tag + ': every pad follows the same coastal inset');
+  t.check(map.drops.every(d => Math.abs(coastDistance(d.x, d.y) - inset) < 1e-7), tag + ': every pad follows the same coastal inset');
   const distances = map.drops.map(boundaryDistance).sort((a, b) => a - b);
   const gaps = distances.map((d, i) => wrap((distances[(i + 1) % count] || 0) - d));
   t.check(gaps.every(g => Math.abs(g - perimeter / count) < 1e-7), tag + ': all coast gaps are equal, including the closing gap');
@@ -117,7 +117,7 @@ for (const [mode, teamSize, count] of modes) {
         used.set(first.dropLabel, (used.get(first.dropLabel) || 0) + 1);
         return p;
       });
-      t.check(centers.every(p => Math.abs(coastDistance(p.x, p.y) - 480) < 1e-7), tag + ': shared and single-team landings stay on the coastal contour');
+      t.check(centers.every(p => Math.abs(coastDistance(p.x, p.y) - inset) < 1e-7), tag + ': shared and single-team landings stay on the coastal contour');
       t.check(match.players.every(p => dryOpen(match.world, p.x, p.y, p.r)), tag + ': all actual players spawn on dry land clear of terrain and vehicles');
       t.check(match.teamInfo.every(team => team.players.every(p => p.dropLabel === team.players[0].dropLabel)), tag + ': teammates retain one shared station label');
       let minEnemy = Infinity, overlap = false;

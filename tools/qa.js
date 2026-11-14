@@ -173,7 +173,7 @@ async function main() {
     // ---- practice match
     await startPractice();
     check(await evaluate('Warz.debug.match().world.map.stations.length') === 9, '9 upgrade stations on the island');
-    check(await evaluate('Warz.debug.match().world.map.bushes.length') === 0, 'no bushes');
+    check(await evaluate('Warz.debug.match().world.map.bushes.length') > 0, 'biomes provide bush cover');
     check(await P('p.dropT > 0'), 'player is dropping in');
     await shot('05-dropping');
     await waitFor('Warz.debug.player().dropT === 0', 'landing');

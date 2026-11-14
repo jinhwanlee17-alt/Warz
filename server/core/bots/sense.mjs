@@ -11,14 +11,14 @@ export class Cover {
     this.world = world;
     this.map = world.map;
     this.trees = new W.U.SpatialHash(256);
-    for (const t of this.map.trees) this.trees.insert(t, t.x - t.r, t.y - t.r, t.x + t.r, t.y + t.r);
+    for (const t of [...this.map.trees, ...(this.map.bushes || [])]) this.trees.insert(t, t.x - t.r, t.y - t.r, t.x + t.r, t.y + t.r);
     this.info = new Map();    // player id -> { trees, building, smoke }
     this.fired = new Map();   // player id -> world time of the last shot
   }
 
   canopiesAt(x, y, out) {
     out.length = 0;
-    this.trees.query(x, y, x, y, (t) => { if (Math.hypot(t.x - x, t.y - y) < t.r * 0.92 - 20) out.push(t); });
+    this.trees.query(x, y, x, y, (t) => { if (t.alive !== false && Math.hypot(t.x - x, t.y - y) < t.r * 0.92 - 20) out.push(t); });
     return out;
   }
   buildingAt(x, y) {

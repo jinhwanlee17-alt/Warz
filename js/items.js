@@ -20,7 +20,8 @@
     for (var i = 0; i < C.hotbarSize; i++) p.items.push(null);
     p.held = -1; p.mount = 0; p.shieldUp = false; p.itemCd = 0; p.hidden = false;
     p.fx = freshFx(); p.regen = 0; p.regenRate = 0; p.regenAcc = 0; p.poisonT = 0; p.poisonBy = 0;
-    p.inSnow = false; p.snowT = 0; p.snowTick = 0; p.tpT = 0; p.tpPad = 0; p.tpLock = 0; p.tpProgress = 0; p.openPad = 0; p.fullNoteT = 0;
+    p.inSnow = false; p.snowT = 0; p.snowTick = 0; p.tundraSnowT = 0; p.snowFrozen = false; p.snowSlow = 0; p.cactusUntil = {};
+    p.tpT = 0; p.tpPad = 0; p.tpLock = 0; p.tpProgress = 0; p.openPad = 0; p.fullNoteT = 0;
   };
   World.prototype.resetItems = function (p) { this.initItems(p); };
   World.prototype.clearItemState = function (p) {
@@ -28,6 +29,7 @@
     if (p.mount) this.dismount(p, true);
     if (p.vehicle && this.exitVehicle) this.exitVehicle(p, true);
     p.held = -1; p.fx = freshFx(); p.regen = 0; p.regenAcc = 0; p.shieldUp = false; p.inSnow = false; p.snowT = 0; p.tpT = 0; p.tpProgress = 0; p.poisonT = 0;
+    p.snowFrozen = false; p.tundraSnowT = 0; p.snowSlow = 0;
   };
   World.prototype.dropItems = function (p) {
     for (var i = 0; i < p.items.length; i++) {
@@ -209,8 +211,10 @@
     if (!fx) return 1;
     var k = 1 + (fx.energy > 0 ? ITEMS.energybar.speed : 0) + (fx.speed > 0 ? ITEMS.speed.speed : 0) + (fx.power > 0 ? ITEMS.power.speed : 0);
     if (fx.poison > 0) k *= 1 - ITEMS.poison.slow;
-    if (p.inSnow) k *= 1 - ITEMS.snowbomb.slow;
+    if (p.snowFrozen) return 0;
+    if (p.inSnow) k *= 1 - (p.snowSlow || ITEMS.snowbomb.slow);
     if (p.shieldUp) k *= 1 - ITEMS.riotshield.slow;
+    if (this.practice && p.isLocal && C.practiceSpeeds.indexOf(p.practiceSpeed) >= 0) k *= p.practiceSpeed;
     return k;
   };
   World.prototype.damageMul = function (src) {
@@ -295,6 +299,7 @@
   // What happens where an item grenade comes to rest. Visuals run everywhere; effects only in the simulation.
   World.prototype.itemBurst = function (id, x, y, ownerId) {
     var it = ITEMS[id], self = this, owner = ownerId ? this.playerById(ownerId) : null, team = owner ? owner.team : null, sim = !this.remote;
+    var climate = this.biomeWeather(x, y);
     switch (id) {
       case 'grenade':
         this.explode(x, y, it.explosion, ownerId, 'grenade');
@@ -322,12 +327,13 @@
       case 'firenade':
         this.burst(x, y, 24, '#ff9a3c', 300, 0.6, 6);
         this.explosions.push({ x: x, y: y, r: it.radius, t: 0, dur: 0.45, ring: true, color: '#ff7a2a' });
-        if (sim) this.addZone({ kind: 'fire', x: x, y: y, r: it.radius, dur: it.duration, owner: ownerId, team: team, dps: it.dps });
+        if (sim) this.addZone({ kind: 'fire', x: x, y: y, r: it.radius, dur: it.duration * climate.fireDuration, owner: ownerId, team: team, dps: it.dps * climate.fireDamage });
         break;
       case 'snowbomb':
         this.burst(x, y, 30, '#ffffff', 380, 0.8, 5);
         this.explosions.push({ x: x, y: y, r: it.radius, t: 0, dur: 0.7, ring: true, color: '#bfe9ff' });
-        if (sim) this.addZone({ kind: 'snow', x: x, y: y, r: it.radius, dur: it.duration, owner: ownerId, team: team });
+        if (sim) this.addZone({ kind: 'snow', x: x, y: y, r: it.radius, dur: climate.cold ? 20 : it.duration * climate.snowDuration,
+          owner: ownerId, team: team, dps: climate.cold ? 4 : undefined, slow: it.slow * climate.snowSlow, damageMul: climate.snowDamage, freezeAfter: climate.cold ? 5 : 0 });
         break;
       case 'poison':
         this.explosions.push({ x: x, y: y, r: it.radius, t: 0, dur: 0.5, ring: true, color: '#8cff4a' });
@@ -374,6 +380,12 @@
   };
 
   // ---------------------------------------------------------------- zones: fire, smoke, snow
+  World.prototype.biomeWeather = function (x, y) {
+    var id = W.Biomes ? W.Biomes.at(this.map, x, y) : 'normal';
+    var cold = id === 'tundra' || id === 'tundra-forest', hot = id === 'desert' || id === 'savannah';
+    return { cold: cold, fireDamage: cold ? 0.25 : hot ? 2 : 1, fireDuration: cold ? 0.5 : hot ? 2 : 1,
+      snowDuration: hot ? 0.5 : 1, snowSlow: cold ? 1.25 : hot ? 0.5 : 1, snowDamage: cold ? 2 : hot ? 0.5 : 1 };
+  };
   World.prototype.addZone = function (z) {
     z.id = z.id || this.nextId++;
     if (z.t === undefined) z.t = z.dur;
@@ -388,7 +400,9 @@
   };
   World.prototype.updateZones = function (dt) {
     var i, j, out = [], players = this.players, p, z, inside;
-    for (j = 0; j < players.length; j++) players[j].inSnow = false;
+    for (j = 0; j < players.length; j++) {
+      players[j].inSnow = false; players[j].snowSlow = 0; players[j].snowDamage = 0; players[j].snowFreezeAfter = 0;
+    }
     for (i = 0; i < this.zones.length; i++) {
       z = this.zones[i];
       z.t -= dt; z.age += dt;
@@ -398,7 +412,13 @@
       for (j = 0; j < players.length; j++) {
         p = players[j];
         if (!p.alive || p.dropT > 0) continue;
-        if (z.kind === 'snow' && Math.hypot(p.x - z.x, p.y - z.y) < z.r) p.inSnow = true;
+        if (z.kind === 'snow' && !p.vehicle && Math.hypot(p.x - z.x, p.y - z.y) < z.r) {
+          p.inSnow = true;
+          p.snowSlow = Math.max(p.snowSlow, z.slow === undefined ? ITEMS.snowbomb.slow : z.slow);
+          var coldDps = z.dps === undefined ? Math.max(SNOW_MIN_DPS, this.storm && this.storm.dps || 0) * (z.damageMul === undefined ? 1 : z.damageMul) : z.dps;
+          p.snowDamage = Math.max(p.snowDamage, coldDps);
+          if (z.freezeAfter) p.snowFreezeAfter = z.freezeAfter;
+        }
       }
       if (this.remote || z.kind !== 'fire') continue;
       z.tick -= dt;
@@ -411,21 +431,24 @@
         if (inside) this.damagePlayer(p, z.dps * FIRE_TICK, z.owner, 'fire', p.x, p.y - p.r);
       }
       if (this.damageVehiclesInArea) this.damageVehiclesInArea(z.x, z.y, z.r, z.dps * FIRE_TICK, z.owner, 'fire', { team: z.team });
+      this.damageFoliageInArea(z.x, z.y, z.r, z.dps * FIRE_TICK, z.owner, 'fire');
     }
     this.zones = out;
-    if (this.remote) return;
     for (j = 0; j < players.length; j++) {
       p = players[j];
-      if (!p.inSnow || !p.alive || p.vehicle) { p.snowT = 0; p.snowTick = 0; continue; }
+      if (!p.inSnow || !p.alive || p.vehicle) { p.snowT = 0; p.snowTick = 0; p.tundraSnowT = 0; p.snowFrozen = false; continue; }
       p.snowT += dt;
+      p.tundraSnowT = p.snowFreezeAfter ? (p.tundraSnowT || 0) + dt : 0;
+      if (!this.remote || p.isLocal) p.snowFrozen = !!p.snowFreezeAfter && p.tundraSnowT >= p.snowFreezeAfter - 0.000001;
+      if (p.snowFrozen) p.vx = p.vy = 0;
+      if (this.remote) continue;
       if (p.snowT < ITEMS.snowbomb.graceTime) continue;
       p.snowTick -= dt;
       if (p.snowTick > 0) continue;
       p.snowTick += SNOW_TICK;
-      var dps = Math.max(SNOW_MIN_DPS, this.storm && this.storm.dps ? this.storm.dps : 0);
-      this.damagePlayer(p, dps * SNOW_TICK, null, 'snow');
+      this.damagePlayer(p, p.snowDamage * SNOW_TICK, null, 'snow');
     }
-    if (this.updateVehicleSnow) this.updateVehicleSnow(dt);
+    if (!this.remote && this.updateVehicleSnow) this.updateVehicleSnow(dt);
   };
   World.prototype.zoneAmbience = function (z, dt) {
     var n = z.kind === 'smoke' ? 0 : Math.min(4, Math.round(z.r / 150 * (z.kind === 'fire' ? 2.2 : 1.3)));
@@ -841,6 +864,7 @@
         crates.forEach(function (c) { if (Math.hypot(c.x - st.x, c.y - st.y) < R + c.size / 2) self.damageCrate(c, st.damage, st.owner, c.x, c.y - c.size / 2); });
         structs.forEach(function (s) { if (!hitMounts[s.id] && Math.hypot(s.x - st.x, s.y - st.y) < R + s.r) self.damageStruct(s, st.damage, st.owner, s.x, s.y - s.r, 'meteor'); });
         if (this.damageVehiclesInArea) this.damageVehiclesInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', { team: team });
+        this.damageFoliageInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', true);
       }
       this.emit({ type: 'strike-hit', strike: st });
     }

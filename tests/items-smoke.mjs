@@ -9,6 +9,7 @@ const DT = 1 / 60;
 
 function range(extra) {
   const map = MapGen.generate(5);
+  map.biomes = []; map.cacti = [];
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = []; map.stations = [];
   Object.assign(map, extra || {});
   return map;

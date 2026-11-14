@@ -251,6 +251,9 @@
       if (direct || (d < radius && self.lineClear(x, y, o.x, o.y, o))) objects.push({ s: s, o: o, damage: damage(d, direct) });
     });
     var cause = 'sentry-' + g.kind;
+    this.damageFoliageInArea(x, y, radius, function (plant) {
+      return damage(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius), solid && solid.plant === plant);
+    }, g.owner, cause);
     players.forEach(function (entry) { if (entry.damage > 0) self.damagePlayer(entry.p, entry.damage, g.owner, cause, entry.p.x, entry.p.y, { x: x, y: y }); });
     vehicles.forEach(function (entry) { if (entry.damage > 0) self.damageVehicle(entry.v, entry.damage, g.owner, cause, entry.v.x, entry.v.y); });
     objects.forEach(function (entry) { if (entry.s.crate) self.damageCrate(entry.o, entry.damage, g.owner, entry.o.x, entry.o.y); else self.damageStruct(entry.o, entry.damage, g.owner, entry.o.x, entry.o.y, cause); });
@@ -280,6 +283,7 @@
         if (solid.struct.kind === 'rock' && g.kind === 'cannons') this.destroyStruct(solid.struct, g.owner);
         else this.damageStruct(solid.struct, def.damage, g.owner, x, y, cause);
       } else if (solid && solid.crate) this.damageCrate(solid.crate, def.damage, g.owner, x, y);
+      else if (solid && solid.plant) this.damageFoliage(solid.plant, def.damage, g.owner, cause);
     }
     this.sentryImpactFx(g.kind, x, y);
     this.emit({ type: 'sentry-impact', id: g.id, kind: g.kind, x: x, y: y });

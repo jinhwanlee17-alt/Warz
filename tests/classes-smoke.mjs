@@ -4,7 +4,7 @@ const W = loadWarz(), t = suite('classes');
 const { World, CLASSES, WEAPONS, Rules } = W;
 const template = W.MapGen.generate(15);
 function arena(teams = false, remote = false) {
-  const map = { ...template, rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], ponds: [], stations: [] };
+  const map = { ...template, biomes: [], cacti: [], rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], ponds: [], stations: [] };
   return new World({ map, teams, remote, storm: false });
 }
 function idle(p) { p.controller = () => ({ mx: 0, my: 0, aimX: p.x + 100, aimY: p.y }); }

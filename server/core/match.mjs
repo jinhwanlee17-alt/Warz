@@ -401,6 +401,7 @@ export class Match {
       crates: map.crates.filter((c) => c.hp < c.maxHp || !c.alive).map((c) => [c.id, c.alive ? Math.max(1, Math.ceil(c.hp)) : 0]),
       gone: [...this.gonePickups],
       rocks: map.rocks.filter((rock) => rock.alive === false).map((rock) => rock.id),
+      foliage: (map.cacti || []).filter(p => p.hp < p.maxHp || p.alive === false).map(p => ['cacti', p.id, p.alive === false ? 0 : p.hp]),
       strikes: this.world.strikes.map((s) => ({ id: s.id, k: s.kind, x: s.x, y: s.y, tg: s.target, tl: s.t, o: s.owner, tm: s.team, r: s.radius, dm: s.damage })),
       added: map.pickups.filter((pk) => pk.alive && pk.id > this.initialPickupMax).map((pk) => ({ id: pk.id, type: pk.type, it: pk.item || undefined, x: r1(pk.x), y: r1(pk.y), n: pk.amount, lk: r2(pk.lockT || 0) })),
       stations: map.stations.filter((s) => s.cooldown > 0).map((s) => [s.id, r1(s.cooldown)]),
@@ -430,7 +431,7 @@ export class Match {
   encodeSentryStatus(p) {
     const now = this.world.time, snow = (p.sentrySnow || []).filter(t => t > now).map(t => r3(t - now));
     const freeze = Math.max(0, (p.sentryFreezeUntil || 0) - now), b = p.sentryBurn;
-    return snow.length || freeze || (b && b.until > now) ? { snow, freeze: r3(freeze), burn: b && b.until > now ? [r3(b.until - now), r3(b.next - now), b.owner] : null } : null;
+    return snow.length || freeze || p.snowFrozen || (b && b.until > now) ? { snow, freeze: r3(freeze), cold: !!p.snowFrozen, burn: b && b.until > now ? [r3(b.until - now), r3(b.next - now), b.owner] : null } : null;
   }
   encodeRpgRocket(p) {
     return { id: p.id, owner: p.owner, team: p.team, x: r2(p.x), y: r2(p.y), dx: p.dx, dy: p.dy,
@@ -446,7 +447,8 @@ export class Match {
       ? [p.emote.id, r3(p.emote.until - this.world.time)] : null;
   }
   encodeZone(z) {
-    return { id: z.id, k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, dur: z.dur, tl: r1(z.t), o: z.owner || 0, tm: z.team, dps: z.dps };
+    return { id: z.id, k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, dur: z.dur, tl: r1(z.t), o: z.owner || 0, tm: z.team, dps: z.dps,
+      slow: z.slow, damageMul: z.damageMul, freezeAfter: z.freezeAfter };
   }
   encodeVehicle(v) {
     const row = { id: v.id, type: v.type || 'humvee', x: r2(v.x), y: r2(v.y), vx: r2(v.vx), vy: r2(v.vy), a: r3(v.angle),
@@ -664,6 +666,7 @@ export class Match {
     const you = {
       x: r2(p.x), y: r2(p.y), vx: r2(p.vx), vy: r2(p.vy), ack: p.net.ack, hp: Math.ceil(p.hp * 10) / 10, mhp: p.maxHp, ar: p.armor,
       stam: r3(p.stamina), exh: p.sprintExhausted, rest: r3(p.sprintRestT), spr: p.sprinting,
+      snow: { inside: !!p.inSnow, slow: p.snowSlow || 0, time: r3(p.snowT || 0), cold: r3(p.tundraSnowT || 0), frozen: !!p.snowFrozen },
       tok: p.tokens, keys: p.keys, cls: this.classIndex.indexOf(p.classId), slot: p.slot,
       ammo: p.weapons.map((w) => w.ammo), rel: p.weapons.map((w) => (w.reloading ? r2(w.reloadT) : 0)), gren: p.grenades, med: r1(p.medkitCd),
       down: p.downed, downT: r1(p.downT), rev: r2(p.revive), sc: p.scoping, near: p.nearStation ? p.nearStation.id : -1,
@@ -700,6 +703,7 @@ export class Match {
         src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, global: true };
       case 'launch': case 'throw': return { msg: { t: e.type, id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), tr: r1(e.travel || 0), fuse: e.fuse, it: e.item || undefined, startX: e.startX, startY: e.startY, targetX: e.targetX, targetY: e.targetY, flightTime: e.flightTime, peakHeight: e.peakHeight }, x: e.x, y: e.y };
       case 'rock-gone': return { msg: { t: 'rock-gone', id: e.rock.id }, global: true };
+      case 'foliage': return { msg: { t: 'foliage', k: e.plant.foliageKind, id: e.plant.id, hp: e.plant.hp }, global: true };
       case 'legendary-crate-broken': return { msg: { t: 'legendary-crate-broken', id: e.crate.id, by: e.player ? e.player.id : 0 }, global: true };
       case 'command': return { msg: { t: 'command', id: e.player.id, d: e.duration, rd: e.radarDuration, cd: e.cooldown, tm: e.team }, global: true };
       case 'flame': return { msg: { t: 'flame', id: e.player.id, x: e.x, y: e.y, a: e.angle, r: e.range, ha: e.halfAngle, dm: e.damage, w: e.weapon || undefined }, x: e.x, y: e.y };

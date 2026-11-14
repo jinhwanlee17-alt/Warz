@@ -29,9 +29,10 @@
 
   // Small lobed canopies keep foliage recognizable without adding cover to the
   // simulation. The variant comes from the existing map, never a new RNG call.
-  function foliage(g, x, y, r, variant, bush) {
+  function foliage(g, x, y, r, variant, bush, biome) {
     var phase = (variant || 0) * 0.71, lobes = bush ? 4 : 5;
-    g.fillStyle = bush ? '#367e38' : '#327a32';
+    var snow = biome === 'tundra' || biome === 'tundra-forest', dry = biome === 'savannah' || biome === 'desert';
+    g.fillStyle = snow ? '#80a69b' : dry ? (bush ? '#b19642' : '#6e813e') : bush ? '#367e38' : '#327a32';
     g.beginPath();
     for (var i = 0; i < lobes; i++) {
       var a = phase + i * U.TAU / lobes, rr = r * (bush ? .62 : .58);
@@ -39,7 +40,7 @@
       g.moveTo(xx + rr, yy); g.arc(xx, yy, rr, 0, U.TAU);
     }
     g.fill();
-    g.fillStyle = bush ? '#5a9c48' : '#4c9940';
+    g.fillStyle = snow ? '#e5f2e9' : dry ? (bush ? '#e1c76b' : '#9cac59') : bush ? '#5a9c48' : '#4c9940';
     g.beginPath();
     g.arc(x - r * .2, y - r * .23, r * .44, 0, U.TAU);
     g.moveTo(x + r * .54, y + r * .02); g.arc(x + r * .24, y + r * .02, r * .3, 0, U.TAU);
@@ -148,6 +149,15 @@
     g.moveTo(map.coast[0], map.coast[1]);
     for (var i = 2; i < map.coast.length; i += 2) g.lineTo(map.coast[i], map.coast[i + 1]);
     g.closePath(); g.fill();
+    if (W.Biomes && map.biomes && map.biomes.length) {
+      g.save(); g.clip();
+      W.Biomes.cells(map).forEach(function (cell) {
+        if (cell.id === 'normal' || !visible(cell.x + cell.w / 2, cell.y + cell.h / 2, Math.max(cell.w, cell.h))) return;
+        g.fillStyle = W.Biomes.definitions[cell.id].color;
+        g.fillRect(cell.x, cell.y, cell.w, cell.h);
+      });
+      g.restore();
+    }
     if (big) {
       g.strokeStyle = 'rgba(28,64,20,0.08)';
       g.lineWidth = 6;
@@ -155,13 +165,21 @@
       for (var gx = 0; gx <= S; gx += 800) { g.moveTo(gx, 0); g.lineTo(gx, S); g.moveTo(0, gx); g.lineTo(S, gx); }
       g.stroke();
     }
-    map.trees.forEach(function (t) { if (visible(t.x, t.y, t.r)) foliage(g,t.x,t.y,t.r*.8,t.variant,false); });
-    (map.bushes || []).forEach(function (b) { if (visible(b.x,b.y,b.r)) foliage(g,b.x,b.y,b.r,b.variant,true); });
+    map.trees.forEach(function (t) { if (t.alive !== false && visible(t.x, t.y, t.r)) foliage(g,t.x,t.y,t.r*.8,t.variant,false,t.biome); });
+    (map.bushes || []).forEach(function (b) { if (b.alive !== false && visible(b.x,b.y,b.r)) foliage(g,b.x,b.y,b.r,b.variant,true,b.biome); });
+    (map.cacti || []).forEach(function (c) {
+      if (c.alive === false || !visible(c.x,c.y,c.r)) return;
+      g.strokeStyle = '#477a43'; g.lineWidth = c.r * .55;
+      g.beginPath(); g.moveTo(c.x,c.y+c.r*.7); g.lineTo(c.x,c.y-c.r*.7);
+      g.moveTo(c.x-c.r*.6,c.y-c.r*.3); g.lineTo(c.x-c.r*.6,c.y+c.r*.1); g.lineTo(c.x+c.r*.6,c.y+c.r*.1); g.lineTo(c.x+c.r*.6,c.y-c.r*.5); g.stroke();
+    });
     // A small sample of the existing grass decoration becomes low shrub detail.
     // It is only cartography, so hiding/collision and map generation stay intact.
     (map.tufts || []).forEach(function (t,i) {
       if (i % 9 || !visible(t.x,t.y,40)) return;
-      foliage(g,t.x,t.y,24+(t.s||1)*9,i%8,true);
+      var biome = W.Biomes ? W.Biomes.at(map, t.x, t.y) : 'normal';
+      if (biome === 'grassland' || biome === 'desert' || biome === 'tundra' || biome === 'tundra-forest') return;
+      foliage(g,t.x,t.y,24+(t.s||1)*9,i%8,true,biome);
     });
     g.fillStyle = '#4aa3dc';
     map.ponds.forEach(function (p) { if (!visible(p.x, p.y, p.r)) return; g.beginPath(); g.arc(p.x, p.y, p.r, 0, U.TAU); g.fill(); });
@@ -182,10 +200,42 @@
     g.lineWidth = 3 * dpr;
     g.strokeStyle = 'rgba(20,30,20,0.7)';
     g.fillStyle = '#ffffff';
-    map.towns.forEach(function (t) {
-      g.strokeText(t.name, t.x * k, t.y * k - 4 * dpr);
-      g.fillText(t.name, t.x * k, t.y * k - 4 * dpr);
-    });
+    var occupied = [], compact = px / dpr < 500;
+    function labelPosition(text, x, y, font, pad) {
+      var width = g.measureText(text).width;
+      return { text: text, width: width, height: font,
+        x: U.clamp(x, width / 2 + pad, px - width / 2 - pad),
+        y: U.clamp(y, font / 2 + pad, px - font / 2 - pad) };
+    }
+    function overlaps(a, b) { return Math.abs(a.x - b.x) < (a.width + b.width) / 2 + 3 * dpr && Math.abs(a.y - b.y) < (a.height + b.height) / 2 + 3 * dpr; }
+    if (big && W.Biomes) {
+      var regions = {};
+      W.Biomes.cells(map).forEach(function (cell) { if (cell.id !== 'normal' && (!regions[cell.id] || regions[cell.id].w * regions[cell.id].h < cell.w * cell.h)) regions[cell.id] = cell; });
+      g.save(); g.globalAlpha = .8; g.textBaseline = 'middle';
+      var biomeFont = Math.round(labelPx * (compact ? .8 : 1.05));
+      g.font = 'bold ' + biomeFont + 'px Trebuchet MS, sans-serif';
+      Object.keys(regions).forEach(function (id) {
+        var cell = regions[id], text = W.Biomes.definitions[id].name.toUpperCase();
+        var label = labelPosition(text, (cell.x + cell.w / 2) * k, (cell.y + cell.h / 2) * k, biomeFont, 4 * dpr);
+        occupied.push(label);
+        g.strokeText(text, label.x, label.y); g.fillText(text, label.x, label.y);
+      });
+      g.restore();
+    }
+    if (big) {
+      var townFont = Math.round(labelPx * (compact ? .72 : 1)), pad = Math.min(px * .085, 40 * dpr);
+      g.font = 'bold ' + townFont + 'px Trebuchet MS, sans-serif'; g.textBaseline = 'middle';
+      map.towns.forEach(function (town) {
+        var label, original = labelPosition(town.name, town.x * k, town.y * k - 4 * dpr, townFont, pad);
+        for (var attempt = 0; attempt < 15; attempt++) {
+          var offset = attempt === 0 ? 0 : Math.ceil(attempt / 2) * (townFont + 4 * dpr) * (attempt % 2 ? -1 : 1);
+          label = labelPosition(town.name, original.x, original.y + offset, townFont, pad);
+          if (!occupied.some(function (other) { return overlaps(label, other); })) break;
+        }
+        occupied.push(label);
+        g.strokeText(label.text, label.x, label.y); g.fillText(label.text, label.x, label.y);
+      });
+    }
     if (big) {
       var dropFont = Math.round(labelPx * 0.85);
       g.font = 'bold ' + dropFont + 'px Trebuchet MS, sans-serif';

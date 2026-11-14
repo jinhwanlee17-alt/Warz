@@ -128,12 +128,16 @@
     this.players.forEach(function (o) { if (o !== p && o.alive && !o.vehicle && o.dropT <= 0 && o.team !== p.team) consider('player', o, o.r, o.mount ? self.structById(o.mount) : null); });
     (this.vehicles || []).forEach(function (v) { if (!v.wreck && self.vehicleTeam(v) !== p.team) consider('vehicle', v, v.r); });
     this.map.crates.forEach(function (c) { if (c.alive) consider('crate', c, c.size / 2); });
+    this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
+      if (plant.alive !== false) consider('foliage', plant, plant.hitRadius);
+    });
     this.structures.forEach(function (s) { if (s.alive && s.kind !== 'teleporter' && (s.kind === 'rock' || s.team !== p.team)) consider('struct', s, s.r); });
     if (best) {
       var target = best.target;
       if (best.kind === 'player') this.damagePlayer(target, def.damage, p.id, def.id, target.x, target.y - target.r, { x: p.x, y: p.y });
       else if (best.kind === 'vehicle') this.damageVehicle(target, def.damage, p.id, def.id, target.x, target.y - target.r);
       else if (best.kind === 'crate') this.damageCrate(target, def.damage, p.id, target.x, target.y - target.size / 2);
+      else if (best.kind === 'foliage') this.damageFoliage(target, def.damage, p.id, def.id);
       else this.damageStruct(target, def.damage, p.id, target.x, target.y - target.r, def.id);
     }
     this.emit({ type: 'melee', player: p, weapon: def.id, x: p.x, y: p.y, a: p.angle, reach: def.range });
@@ -176,6 +180,9 @@
       });
       if (this.damageVehiclesMatching) this.damageVehiclesMatching(function (v) { return inFlame(v, v.r); }, damage, p.id, 'flamethrower', { team: p.team });
       this.map.crates.forEach(function (c) { if (c.alive && inFlame(c, c.size / 2)) self.damageCrate(c, damage, p.id, c.x, c.y); });
+      this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
+        if (plant.alive !== false && inFlame(plant, plant.hitRadius)) self.damageFoliage(plant, damage, p.id, 'flamethrower');
+      });
       this.structures.forEach(function (s) { if (s.alive && s.maxHp && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, damage, p.id, s.x, s.y); });
       this.flameFx(p.x, p.y, p.angle, def.range);
       this.emit({ type: 'flame', player: p, x: p.x, y: p.y, angle: p.angle, range: def.range, halfAngle: def.halfAngle, damage: damage });

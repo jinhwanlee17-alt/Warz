@@ -5,7 +5,7 @@ const W = loadWarz(), t = suite('projectiles');
 const { World, MapGen, WEAPONS, ITEMS, CONFIG: C } = W;
 const DT = 1 / 120;
 function map(extra = {}) {
-  return Object.assign(MapGen.generate(22), { rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], stations: [], ponds: [] }, extra);
+  return Object.assign(MapGen.generate(22), { biomes: [], cacti: [], rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], stations: [], ponds: [] }, extra);
 }
 function steps(world, seconds) { for (let i = 0; i < Math.ceil(seconds / DT); i++) world.update(DT); }
 function crate(id, x, y) { return { id, x, y, size: 52, hp: 180, maxHp: 180, tier: 'epic', alive: true, shake: 0 }; }
@@ -164,6 +164,8 @@ for (const id of ['grenade', ...throwIds.filter(id => id !== 'grenade'), 'launch
   const p = world.addPlayer({ x: 3300, y: 3200 });
   world.collide(p);
   t.check(p.x === 3300 && p.y === 3200, 'green tree canopy has no hidden center movement collision');
-  t.equal(world.sweep(3200, 3200, 3400, 3200, 5, p.id, p.team), null, 'decorative foliage also does not invisibly stop bullets');
+  t.equal(world.sweep(3200, 3200, 3400, 3200, 5, p.id, p.team), null, 'leafy canopy does not block projectiles');
+  t.equal(world.damageFoliage(tree, 250, p.id, 'ar'), false, 'leafy canopy does not accept damage');
+  t.check(tree.hp === undefined && tree.maxHp === undefined, 'leafy canopy has no health pool');
 }
 t.done();

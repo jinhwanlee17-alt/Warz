@@ -21,9 +21,9 @@ for (const seed of [1, 42, 9001, 123456, 777777]) {
   t.check(m.buildings.length >= 18, 'seed ' + seed + ': towns have buildings (' + m.buildings.length + ')');
   t.equal(m.crates.length, C.regularCrateCount + 1, 'seed ' + seed + ': regular crate quota plus one legendary crate');
   const tokens = m.pickups.filter((p) => p.type === 'token').length;
-  t.check(tokens >= 35 && tokens <= 100, 'seed ' + seed + ': fewer loose tokens (' + tokens + ')');
+  t.check(tokens >= C.tokenLoose && tokens <= C.tokenLoose + m.buildings.length, 'seed ' + seed + ': loose tokens plus at most one per building (' + tokens + ')');
   t.check(m.pickups.filter((p) => p.type === 'key').length >= 3, 'seed ' + seed + ': a few station keys');
-  t.equal(m.bushes.length, 0, 'seed ' + seed + ': no bushes');
+  t.check(m.bushes.length > 0, 'seed ' + seed + ': biome bush cover');
   t.check(m.trees.length > 200 && m.rocks.length > 80 && m.ponds.length >= 3, 'seed ' + seed + ': trees, rocks and ponds');
   t.check(m.towns.length >= 4, 'seed ' + seed + ': named towns');
 }
@@ -36,7 +36,7 @@ t.check(JSON.stringify(a.stations) !== JSON.stringify(c.stations), 'different se
 function range(extra) {
   const map = MapGen.generate(5);
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = [];
-  map.stations = [];
+  map.stations = []; map.biomes = []; map.cacti = [];
   Object.assign(map, extra || {});
   return map;
 }

@@ -105,6 +105,9 @@
       });
       this.damageVehiclesMatching(function (v) { return inFlame(v, v.r); }, stage.damage, p.id, def.id, { team: p.team });
       this.map.crates.forEach(function (c) { if (c.alive && inFlame(c, c.size / 2)) self.damageCrate(c, stage.damage, p.id, c.x, c.y); });
+      this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
+        if (plant.alive !== false && inFlame(plant, plant.hitRadius)) self.damageFoliage(plant, stage.damage, p.id, def.id);
+      });
       this.structures.forEach(function (s) { if (s.alive && s.maxHp && !s.mounted && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, stage.damage, p.id, s.x, s.y, def.id); });
       this.flameFx(p.x, p.y, p.angle, def.range);
       this.emit({ type: 'flame', weapon: def.id, player: p, x: p.x, y: p.y, angle: p.angle, range: def.range, halfAngle: def.halfAngle, damage: stage.damage });

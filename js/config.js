@@ -6,14 +6,15 @@
   W.VERSION = '0.1 test build';
 
   var CONFIG = W.CONFIG = {
-    worldSize: 24000,          // 25% wider and taller than the previous 19,200-unit island
-    cornerRadius: 2850,
-    mapAreaScale: 14.0625,     // preserve terrain coverage across the expanded island
-    beach: 210,
+    worldSize: 48000,          // twice the previous width and height; normalized vehicle lanes stay fixed
+    cornerRadius: 5700,
+    mapAreaScale: 56.25,       // four times the previous area, with biome-specific terrain density
+    beach: 420,
     lobbySize: 50,
     viewArea: 1800 * 1013,      // world area visible on screen at normal zoom
     playerRadius: 24,
     playerSpeed: 270,
+    practiceSpeeds: [1, 1.5, 2, 3, 5, 10],
     playerAccel: 12,
     sprintSpeedMul: 1.5,
     staminaMax: 100,
@@ -36,10 +37,10 @@
     armorPlate: 25,             // armor granted by an armor plate pickup
     armorMax: 100,
     hotbarSize: 3,              // item slots; two class weapon/gear slots make five slots total
-    bushes: false,              // temporarily removed
+    bushes: true,
     dropStationCount: 50,      // Solo/default compatibility value
     dropStationCounts: { 1: 50, 2: 25, 3: 16, 4: 12 },
-    dropCoastInset: 480,
+    dropCoastInset: 960,
     dropStationRadius: 104,
     stationPadRadius: 54,
     stationCoreRadius: 28,
@@ -289,8 +290,8 @@
     energybar: { id: 'energybar', name: 'Energy Bar', tier: 'common', kind: 'consume', effect: 'energy', duration: 20, speed: 0.15, stack: 5, found: 1,
       blurb: '+15% movement speed for 20 s.' },
 
-    firenade: { id: 'firenade', name: 'Grenade of Fire', tier: 'rare', kind: 'throw', fuse: 0, radius: G * 2, duration: 5, dps: 25, stack: 3, found: 1,
-      blurb: 'Bursts on landing into a wall of fire two grenades wide. 25 damage per second inside, for 5 s.' },
+    firenade: { id: 'firenade', name: 'Molotov', tier: 'rare', kind: 'throw', fuse: 0, radius: G * 2, duration: 5, dps: 25, stack: 3, found: 1,
+      blurb: 'Bursts on landing: 25 damage per second for 5 s. Tundra: 75% less damage, half duration. Desert/Savannah: double damage and duration.' },
     shieldo: { id: 'shieldo', name: 'Shieldo Shieldo', tier: 'rare', kind: 'consume', effect: 'shieldo', immune: 1, reduce: 0.5, reduceFor: 5, stack: 3, found: 1,
       blurb: 'Immune to all weapons (not the storm) for 1 s, then 50% less damage for 5 s.' },
     firstaid: { id: 'firstaid', name: 'First Aid Kit', tier: 'rare', kind: 'consume', heal: 100, over: 15, stack: 3, found: 1,
@@ -317,7 +318,7 @@
     blackhole: { id: 'blackhole', name: 'Black Hole Grenade', tier: 'epic', kind: 'throw', fuse: 0, radius: G * 3, stack: 2, found: 1,
       blurb: 'Bursts on landing and sucks every enemy (and everything loose) within three grenade radii into its middle.' },
     snowbomb: { id: 'snowbomb', name: 'Snowbomb', tier: 'epic', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G * 5, duration: 20, slow: 0.5, graceTime: 4, stack: 2, found: 1,
-      blurb: 'A blizzard five grenades wide for 20 s. Everyone inside moves at half speed, and after 4 s takes storm damage.' },
+      blurb: 'A 20 s blizzard: 50% slow, damage after 4 s. Tundra: 62.5% slow, 4 damage/s, freezes after 5 s inside. Desert/Savannah: half duration, damage and slow.' },
     overheal: { id: 'overheal', name: 'Overheal Potion', tier: 'epic', kind: 'consume', heal: 30, overheal: 30, stack: 3, found: 1,
       blurb: '+30 HP, even past your maximum (up to 130).' },
 

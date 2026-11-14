@@ -95,9 +95,9 @@ try {
       const legendary = m.crates.filter(c => c.tier === 'legendary');
       return { size: m.size, counts, total: m.crates.length, center: legendary.length === 1 && legendary[0].x === m.size / 2 && legendary[0].y === m.size / 2 };
     });
-    check(map.size === 24000 && data.size === 24000 && map.total === 181 && map.center &&
-      Object.entries({ common: 144, rare: 18, epic: 14, mythic: 4, legendary: 1 }).every(([tier, count]) => map.counts[tier] === count),
-    label + ': 24,000-unit island has 180 regular crates at the existing rarity split plus one center Legendary');
+    check(map.size === 48000 && data.size === 48000 && map.total === 211 && map.center &&
+      Object.entries({ common: 168, rare: 21, epic: 17, mythic: 4, legendary: 1 }).every(([tier, count]) => map.counts[tier] === count),
+    label + ': 48,000-unit island has 210 regular crates at the existing rarity split plus one center Legendary');
     check(JSON.stringify(data.phases.map(p => p.safeArea)) === JSON.stringify(fractions) &&
       data.phases.every((p, i) => p.start - (i ? data.phases[i - 1].end : 0) === 150 + i * 30),
     label + ': all six safe-area targets and 150/180/210/240/270/300-second pauses are loaded');

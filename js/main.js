@@ -632,6 +632,11 @@
     var practice = match && (!match.online || match.practice), settings = practice && match.online ? Online.state().practiceSettings : null;
     $('test-tools-section').hidden = !practice;
     $('settings-practice-tools').hidden = !practice;
+    var speedButton = $('practice-speed'), practiceSpeed = practice && !match.online ? match.player.practiceSpeed || 1 : 1;
+    speedButton.hidden = !practice || match.online;
+    speedButton.setAttribute('aria-pressed', String(practiceSpeed > 1));
+    var speedLabel = 'Movement speed: ' + practiceSpeed + '×';
+    if (speedButton.textContent !== speedLabel) speedButton.textContent = speedLabel;
     Array.prototype.forEach.call(document.querySelectorAll('[data-test="bot"]'), function (button) {
       button.disabled = !practice || !match.player.alive || match.player.downed || match.player.dropT > 0;
     });
@@ -641,10 +646,15 @@
     $('practice-friendly-fire').hidden = !match.online;
     $('practice-friendly-fire').disabled = !settings || settings.leader !== match.player.id;
     $('practice-friendly-fire').textContent = 'Fight each other: ' + (settings && settings.friendlyFire ? 'on' : 'off');
-    Array.prototype.forEach.call($('practice-item-slot').options, function (option, i) {
+    var slots = $('practice-item-slot');
+    // Mutating options can rebuild an open native macOS picker and trap clicks.
+    // Defer live inventory/binding changes until focus leaves, then sync next frame.
+    if (document.activeElement === slots) return;
+    Array.prototype.forEach.call(slots.options, function (option, i) {
       var item = match.player.items[i];
-      option.textContent = 'Item slot ' + (i + 1) + ' (' + Controls.primary(Controls.itemAction(match.player, i)) + ')' +
+      var label = 'Item slot ' + (i + 1) + ' (' + Controls.primary(Controls.itemAction(match.player, i)) + ')' +
         (item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
+      if (option.textContent !== label) option.textContent = label;
     });
   }
 
@@ -759,6 +769,7 @@
         if (!match || (match.online && !match.practice) || !match.player.alive) return;
         var p = match.player, world = match.world, msg;
         var action = btn.getAttribute('data-test');
+        if (action === 'speed' && match.online) return;
         if (match.online && action !== 'items') {
           practiceCommand(action, action === 'friendly-fire' ? { enabled: !Online.state().practiceSettings.friendlyFire } : undefined);
           return;
@@ -779,6 +790,12 @@
             msg = 'Choose an item, its quantity and one of your three item slots.';
             break;
           case 'armor': p.armor = Math.min(C.armorMax, p.armor + C.armorPlate); msg = 'Armor: ' + p.armor + '/' + C.armorMax + '.'; break;
+          case 'speed':
+            var speedIndex = C.practiceSpeeds.indexOf(p.practiceSpeed || 1);
+            p.practiceSpeed = C.practiceSpeeds[(speedIndex + 1) % C.practiceSpeeds.length];
+            syncPracticeTools();
+            msg = 'Movement speed set to ' + p.practiceSpeed + '×.';
+            break;
           case 'storm':
             if (world.storm) {
               match.practiceStorm = world.storm; world.storm = null;

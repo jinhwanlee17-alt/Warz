@@ -12,7 +12,7 @@ function drawing() {
     save() { stack.push({ fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, globalAlpha: this.globalAlpha }); },
     restore() { Object.assign(this, stack.pop()); },
     beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, arc() {}, arcTo() {}, rect() {}, fill() {}, stroke() {},
-    scale() {}, translate() {}, rotate() {}, setLineDash() {}, strokeRect() {}, strokeText() {},
+    scale() {}, translate() {}, rotate() {}, setLineDash() {}, strokeRect() {}, strokeText() {}, clip() {},
     measureText(text) { return { width: String(text).length * Number(this.font.match(/[\d.]+/)[0]) * 0.58 }; },
     fillRect(x, y, w, h) { rects.push({ x, y, w, h, color: this.fillStyle, alpha: this.globalAlpha }); },
     fillText(text, x, y) { labels.push({ text, x, y, width: this.measureText(text).width, height: Number(this.font.match(/[\d.]+/)[0]), color: this.fillStyle }); }

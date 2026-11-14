@@ -167,4 +167,34 @@ function advance(a, intent, seconds, dt = DT) {
   t.check(!m.pullInput(p).sprint && p.stamina === 50, 'malformed sprint and client-supplied stamina cannot override server state');
   m.destroy();
 }
+{
+  const normal = arena(), boosted = arena();
+  for (const a of [normal, boosted]) { a.world.practice = true; a.p.isLocal = true; }
+  for (const speed of [1.5, 2, 3, 5, 10, 1]) {
+    boosted.p.practiceSpeed = speed;
+    for (const intent of [walk, sprint]) {
+      for (const a of [normal, boosted]) { a.p.x = 8000; a.p.vx = 0; a.p.stamina = 100; }
+      advance(normal, intent, 1); advance(boosted, intent, 1);
+      t.near(boosted.p.x - 8000, speed * (normal.p.x - 8000), 1e-8, speed + '× practice speed multiplies actual ' + (intent.sprint ? 'sprinting' : 'walking') + ' movement');
+      t.equal(boosted.p.stamina, normal.p.stamina, speed + '× practice speed leaves stamina costs unchanged');
+    }
+  }
+  boosted.p.practiceSpeed = 1;
+  t.equal(boosted.world.speedMul(boosted.p), 1, 'switching the practice boost off restores normal speed');
+  boosted.p.practiceSpeed = 10; boosted.p.isLocal = false;
+  t.equal(boosted.world.speedMul(boosted.p), 1, 'practice boost does not speed up practice bots');
+  boosted.p.isLocal = true; boosted.world.practice = false;
+  t.equal(boosted.world.speedMul(boosted.p), 1, 'practice boost cannot affect normal matches or online prediction');
+  boosted.world.practice = true; boosted.p.snowFrozen = true;
+  t.equal(boosted.world.speedMul(boosted.p), 0, 'practice speed boost still respects being frozen');
+  boosted.p.snowFrozen = false;
+  const wall = { type: 'wall', shape: 'rect', x: 8240, y: 7800, w: 18, h: 400 };
+  boosted.world.solids.insert(wall, wall.x, wall.y, wall.x + wall.w, wall.y + wall.h);
+  for (const speed of [3, 5, 10]) {
+    boosted.p.practiceSpeed = speed; boosted.p.x = 8000; boosted.p.vx = 0; boosted.p.stamina = 100;
+    advance(boosted, sprint, 1);
+    t.check(boosted.p.x <= wall.x - boosted.p.r + 1e-8 && boosted.p.x > 8000, speed + '× sprint cannot skip through a building wall');
+  }
+}
+
 t.done();

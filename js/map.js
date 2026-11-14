@@ -176,8 +176,10 @@
     function scaledCount(count) { return Math.round(count * area); }
     var map = {
       seed: seed, teamSize: teamSize, size: S, coast: null, ponds: [], patches: [], tufts: [], towns: [], buildings: [],
-      rocks: [], trees: [], bushes: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], artillery: [], groundArtillery: [], pickups: [], nextPickupId: 1
+      rocks: [], trees: [], bushes: [], cacti: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], artillery: [], groundArtillery: [], pickups: [], nextPickupId: 1
     };
+    map.biomes = W.Biomes.generate(seed, S);
+    map.biomeCells = W.Biomes.cells(map);
     map.coast = coastline(rng, C.beach, 34);
     // Reserve the centre before any terrain, building, station or spawn is placed.
     // The legendary crate can always be approached from every direction.
@@ -187,18 +189,31 @@
       for (var i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].y - y) < d) return true;
       return false;
     }
+    var pondSpace = new U.SpatialHash(512);
     function inPond(x, y, pad) {
-      for (var i = 0; i < map.ponds.length; i++) {
-        var p = map.ponds[i];
-        if (Math.hypot(p.x - x, p.y - y) < p.r + pad) return true;
-      }
-      return false;
+      var found = false;
+      pondSpace.query(x - pad, y - pad, x + pad, y + pad, function (p) {
+        if (Math.hypot(p.x - x, p.y - y) < p.r + pad) found = true;
+      });
+      return found;
     }
     function scatter(count, attempts, place) {
       for (var made = 0, t = 0; made < count && t < attempts; t++) {
         var x = rng.range(300, S - 300), y = rng.range(300, S - 300);
         if (place(x, y)) made++;
       }
+    }
+    // Allocate a density budget per resolved cell, so excluded terrain is not
+    // redistributed into the other biomes and overlap rules stay exact.
+    function scatterBiome(base, property, place) {
+      map.biomeCells.forEach(function (cell) {
+        var density = W.Biomes.definitions[cell.id][property] || 0;
+        var expected = base * area * cell.w * cell.h / (S * S) * density;
+        var target = Math.floor(expected) + (rng.chance(expected % 1) ? 1 : 0);
+        for (var made = 0, tries = 0; made < target && tries < target * 30; tries++) {
+          if (place(rng.range(cell.x, cell.x + cell.w), rng.range(cell.y, cell.y + cell.h), cell.id)) made++;
+        }
+      });
     }
 
     // Equal arc-length spacing on the rounded coastline, including its curved corners.
@@ -260,20 +275,31 @@
       var pr = rng.range(150, 300);
       x = rng.range(600, S - 600); y = rng.range(600, S - 600);
       if (!inside(x, y, pr + 420) || !occ.circleFree(x, y, pr + 60)) continue;
-      map.ponds.push({ x: x, y: y, r: pr, pts: blob(rng, x, y, pr, 22, 0.12) });
+      var pond = { x: x, y: y, r: pr, pts: blob(rng, x, y, pr, 22, 0.12) };
+      map.ponds.push(pond);
+      // The query stamp belongs to a private proxy, never to the seeded map data.
+      pondSpace.insert({ x: x, y: y, r: pr }, x - pr, y - pr, x + pr, y + pr);
       occ.addCircle(x, y, pr + 30);
     }
 
-    // Towns: named clusters of buildings.
-    var names = {};
-    for (tries = 0; map.towns.length < 6 && tries < 800; tries++) {
-      x = rng.range(1000, S - 1000); y = rng.range(1000, S - 1000);
-      if (!inside(x, y, 900) || near(map.towns, x, y, 1500) || !occ.circleFree(x, y, 240)) continue;
-      var name;
-      do { name = rng.pick(PREFIX) + ' ' + rng.pick(SUFFIX); } while (names[name]);
-      names[name] = true;
-      map.towns.push({ x: x, y: y, name: name });
-    }
+    // Distinct settlements: small villages, denser towns/cities, stone castles
+    // and regimented military compounds. Reserve their full footprint first.
+    var names = {}, settlementKinds = ['village','village','village','village','village','village',
+      'small-town','small-town','small-town','city','city','castle','castle','military-base','military-base'];
+    var settlementNames = { village: 'Village', 'small-town': 'Town', city: 'City', castle: 'Castle', 'military-base': 'Base' };
+    settlementKinds.forEach(function (kind) {
+      var radius = kind === 'city' ? 2300 : kind === 'small-town' || kind === 'military-base' ? 1800 : 1500;
+      for (var attempt = 0; attempt < 3000; attempt++) {
+        x = rng.range(radius + 600, S - radius - 600); y = rng.range(radius + 600, S - radius - 600);
+        if (!inside(x, y, radius + 500) || !occ.rectFree(x - radius, y - radius, radius * 2, radius * 2) ||
+          map.towns.some(function (t) { return Math.hypot(t.x - x, t.y - y) < t.radius + radius + 500; })) continue;
+        var name;
+        do { name = rng.pick(PREFIX) + ' ' + rng.pick(SUFFIX) + ' ' + settlementNames[kind]; } while (names[name]);
+        names[name] = true;
+        map.towns.push({ id: map.towns.length, x: x, y: y, radius: radius, kind: kind, name: name });
+        break;
+      }
+    });
     function tryBuilding(bx, by, w, h) {
       var pad = 80;
       if (!inside(bx, by, 420) || !inside(bx + w, by, 420) || !inside(bx, by + h, 420) || !inside(bx + w, by + h, 420)) return false;
@@ -283,10 +309,25 @@
       return true;
     }
     map.towns.forEach(function (t) {
-      var want = rng.int(4, 6), placed = 0;
-      for (var k = 0; k < 80 && placed < want; k++) {
-        var w = snap(rng.range(260, 440)), h = snap(rng.range(230, 360));
-        if (tryBuilding(t.x + rng.range(-640, 640) - w / 2, t.y + rng.range(-540, 540) - h / 2, w, h)) placed++;
+      var want = t.kind === 'village' ? rng.int(7, 12) : t.kind === 'small-town' ? rng.int(14, 20) :
+        t.kind === 'city' ? rng.int(28, 36) : t.kind === 'castle' ? 9 : rng.int(10, 14);
+      var cols = t.kind === 'city' ? 6 : t.kind === 'small-town' ? 5 : 4, rows = Math.ceil(want / cols), pitch = 600;
+      t.buildingCount = 0;
+      for (var k = 0; k < want; k++) {
+        var w = snap(rng.range(260, 400)), h = snap(rng.range(240, 360)), style = 'house';
+        var ox = (k % cols - (cols - 1) / 2) * pitch, oy = (Math.floor(k / cols) - (rows - 1) / 2) * pitch;
+        if (t.kind === 'castle') {
+          var positions = [[0,0],[-950,-950],[950,-950],[-950,950],[950,950],[0,-950],[0,950],[-950,0],[950,0]];
+          ox = positions[k][0]; oy = positions[k][1]; style = k === 0 ? 'keep' : k < 5 ? 'tower' : 'gatehouse';
+          w = h = k === 0 ? 600 : k < 5 ? 260 : 340;
+        } else if (t.kind === 'military-base') { style = k === 0 ? 'command' : k < 3 ? 'hangar' : 'barracks'; w = 420; h = 300; }
+        if (tryBuilding(t.x + ox - w / 2, t.y + oy - h / 2, w, h)) {
+          var building = map.buildings[map.buildings.length - 1];
+          building.kind = t.kind; building.style = style; building.settlement = t.id;
+          if (t.kind === 'castle') building.roof = '#727a88';
+          if (t.kind === 'military-base') building.roof = k < 3 ? '#6b7770' : '#657348';
+          t.buildingCount++;
+        }
       }
     });
     for (var k = 0, extra = 0; k < 600 && extra < 12; k++) {
@@ -315,30 +356,42 @@
       if (stationFits(x, y)) addStation(x, y);
     }
 
-    scatter(scaledCount(140), scaledCount(3000), function (rx, ry) {
+    scatterBiome(140, 'rockDensity', function (rx, ry, biome) {
       var r = rng.range(26, 66);
       if (!inside(rx, ry, 300 + r) || !occ.circleFree(rx, ry, r + 26)) return false;
-      map.rocks.push({ x: rx, y: ry, r: r, pts: blob(rng, rx, ry, r, rng.int(7, 10), 0.16), shine: rng.range(0, U.TAU) });
+      map.rocks.push({ x: rx, y: ry, r: r, biome: biome, pts: blob(rng, rx, ry, r, rng.int(7, 10), 0.16), shine: rng.range(0, U.TAU) });
       occ.addCircle(rx, ry, r + 10);
       return true;
     });
-    scatter(scaledCount(300), scaledCount(5000), function (tx, ty) {
+    scatterBiome(300, 'treeDensity', function (tx, ty, biome) {
       var r = rng.range(68, 112);
       if (!inside(tx, ty, 280 + r * 0.5) || !occ.circleFree(tx, ty, r * 0.55)) return false;
       if (near(map.stations, tx, ty, r + 70) || near(map.drops, tx, ty, r + C.dropStationRadius + 10)) return false;
-      map.trees.push({ x: tx, y: ty, r: r, trunk: Math.max(14, r * 0.17), variant: rng.int(0, 11), rot: rng.range(0, U.TAU), fade: 1 });
+      map.trees.push({ id: map.trees.length, x: tx, y: ty, r: r, trunk: Math.max(14, r * 0.17), variant: rng.int(0, 11), rot: rng.range(0, U.TAU), fade: 1,
+        biome: biome, conceals: biome === 'forest' || biome === 'tundra-forest' || biome === 'savannah', alive: true });
       occ.addCircle(tx, ty, r * 0.5);
       return true;
     });
     if (C.bushes) {
-      scatter(scaledCount(170), scaledCount(4000), function (bx, by) {
+      scatterBiome(170, 'bushDensity', function (bx, by, biome) {
         var r = rng.range(32, 50);
         if (!inside(bx, by, 280) || !occ.circleFree(bx, by, r * 0.8) || near(map.stations, bx, by, r + 60)) return false;
-        map.bushes.push({ x: bx, y: by, r: r, variant: rng.int(0, 7), rot: rng.range(0, U.TAU), fade: 1 });
+        map.bushes.push({ x: bx, y: by, r: r, biome: biome, variant: rng.int(0, 7), rot: rng.range(0, U.TAU), fade: 1 });
         occ.addCircle(bx, by, r * 0.7);
         return true;
       });
     }
+    map.biomeCells.forEach(function (cell) {
+      if (cell.id !== 'desert' && cell.id !== 'savannah') return;
+      var target = Math.round(120 * area * cell.w * cell.h / (S * S));
+      for (var made = 0, attempt = 0; made < target && attempt < target * 30; attempt++) {
+        x = rng.range(cell.x, cell.x + cell.w); y = rng.range(cell.y, cell.y + cell.h);
+        var r = rng.range(22, 34);
+        if (!inside(x, y, 320) || !occ.circleFree(x, y, r + 30)) continue;
+        map.cacti.push({ id: map.cacti.length, x: x, y: y, r: r, hp: 50, maxHp: 50, alive: true, biome: cell.id, variant: rng.int(0, 2) });
+        occ.addCircle(x, y, r + 15); made++;
+      }
+    });
 
     // Crates (tiered: tokens, sometimes an armor plate or a key, and items by rarity) and loose pickups.
     function addCrate(cx, cy, tier) {

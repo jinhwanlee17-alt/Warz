@@ -74,6 +74,10 @@ try {
   t.check(!neverSeen.alive && neverSeen.hidden, 'a never-seen death stays hidden while updating roster state');
 
   // Rejoining restores world-wide state, but sync is not a visibility grant.
+  // Arrange a nearby opponent explicitly: the enlarged island no longer guarantees
+  // another random coastal spawn happens to fall inside the observer's interest radius.
+  const rejoinNeighbor = match.players.find(p => p !== human && p.alive);
+  rejoinNeighbor.x = human.x + 150; rejoinNeighbor.y = human.y; rejoinNeighbor.fx.invisible = 0;
   state = Online.start(match.startMessage(human, true));
   Online.applySync(match.syncMessage());
   t.check(!state.me.hidden && state.me.x !== state.world.map.size / 2,
@@ -84,7 +88,7 @@ try {
     'hidden rejoin roster entries still retain their synchronized positions');
   match.sendSnapshots([]);
   const nearby = state.world.players.filter(p => p !== state.me && p.seenAt >= 0);
-  t.check(nearby.length > 0 && nearby.every(p => !p.hidden), 'the next interest snapshot reveals nearby rejoined players normally');
+  t.check(nearby.some(p => p.id === rejoinNeighbor.id) && nearby.every(p => !p.hidden), 'the next interest snapshot reveals nearby rejoined players normally');
   t.check(state.world.players.filter(p => p.seenAt < 0).every(p => p.hidden), 'other rejoined roster entries stay hidden');
 
   // Explicit event coordinates are valid even if the firing body is unknown.

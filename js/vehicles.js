@@ -439,6 +439,9 @@
         return { solid: s, target: target, amount: direct || (d < R && self.lineClear(x, y, target.x, target.y, target)) ? damage(d, direct) : 0 };
       });
       // Evaluate rock cover before this explosion removes any nearby crate or structure.
+      this.damageFoliageInArea(x, y, R, function (plant) {
+        return damage(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius), solid && solid.plant === plant);
+      }, shell.owner, 'tank-cannon');
       if (this.damageMapRocksInArea) this.damageMapRocksInArea(x, y, R, 'tank-cannon', shell.owner, false);
       people.forEach(function (entry) { if (entry.amount) self.damagePlayer(entry.target, entry.amount, shell.owner, 'tank-cannon', entry.target.x, entry.target.y, { x: x, y: y }); });
       hulls.forEach(function (entry) { if (entry.amount) self.damageVehicle(entry.target, entry.amount, shell.owner, 'tank-cannon', x, y); });
@@ -639,15 +642,17 @@
     for (var i = 0; i < this.vehicles.length; i++) {
       var v = this.vehicles[i];
       if (v.wreck) continue;
-      var inside = this.zones.some(function (z) { return z.kind === 'snow' && Math.hypot(v.x - z.x, v.y - z.y) < z.r + v.r; });
-      if (!inside) { v.snowT = 0; v.snowTick = 0; continue; }
+      var snowDamage = 0, baseDps = Math.max(W.ItemRules.SNOW_MIN_DPS, this.storm ? this.storm.dps : 0);
+      this.zones.forEach(function (z) {
+        if (z.kind === 'snow' && Math.hypot(v.x - z.x, v.y - z.y) < z.r + v.r) snowDamage = Math.max(snowDamage, z.dps === undefined ? baseDps * (z.damageMul === undefined ? 1 : z.damageMul) : z.dps);
+      });
+      if (!snowDamage) { v.snowT = 0; v.snowTick = 0; continue; }
       v.snowT += dt;
       if (v.snowT < W.ITEMS.snowbomb.graceTime) continue;
       v.snowTick -= dt;
       if (v.snowTick > 0) continue;
       v.snowTick += W.ItemRules.SNOW_TICK;
-      var dps = Math.max(W.ItemRules.SNOW_MIN_DPS, this.storm ? this.storm.dps : 0);
-      this.damageVehicle(v, dps * W.ItemRules.SNOW_TICK, null, 'snow');
+      this.damageVehicle(v, snowDamage * W.ItemRules.SNOW_TICK, null, 'snow');
     }
   };
 

@@ -89,6 +89,7 @@
           if (d <= R && self.lineClear(x, y, s.x, s.y, s.struct)) objects.push({ s: s.struct, n: damage(d) });
         }
       });
+      this.damageFoliageInArea(x, y, R, function (plant) { return damage(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius)); }, shell.owner, 'artillery');
       this.damageMapRocksInArea(x, y, R, 'artillery', shell.owner, false);
       people.forEach(function (e) { if (e.n) self.damagePlayer(e.p, e.n, shell.owner, 'artillery', e.p.x, e.p.y, { x: x, y: y }); });
       hulls.forEach(function (e) { if (e.n) self.damageVehicle(e.v, e.n, shell.owner, 'artillery', x, y); });

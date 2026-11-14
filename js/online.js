@@ -194,7 +194,7 @@
   }
 
   function terrainEvent(e) {
-    return e.t === 'crate' || e.t === 'rock-gone' || e.t === 'struct';
+    return e.t === 'crate' || e.t === 'rock-gone' || e.t === 'foliage' || e.t === 'struct';
   }
 
   function applySnapshot(s) {
@@ -238,6 +238,7 @@
       state.pending = state.pending.filter(function (i) { return i.seq > y.ack; });
       me.alive = y.alive; me.dropT = y.drop; me.downed = y.down; me.downT = y.downT; me.revive = y.rev; me.team = y.team;
       me.hp = y.hp; me.maxHp = y.mhp; me.armor = y.ar; me.tokens = y.tok; me.keys = y.keys;
+      if (y.snow) { me.inSnow = y.snow.inside; me.snowSlow = y.snow.slow; me.snowT = y.snow.time; me.tundraSnowT = y.snow.cold; me.snowFrozen = y.snow.frozen; }
       me.upgradeFrom = y.from || null;
       me.upgradePath = Array.isArray(y.path) ? y.path.filter(function (id) { return !!W.CLASSES[id]; }) : [];
       setSentryBuild(me, y.sb);
@@ -389,6 +390,7 @@
     var now = state.world.time;
     p.sentrySnow = row && Array.isArray(row.snow) ? row.snow.map(function (left) { return now + Math.max(0, left); }) : [];
     p.sentryFreezeUntil = row && row.freeze > 0 ? now + row.freeze : 0;
+    p.snowFrozen = !!(row && row.cold);
     p.sentryBurn = row && row.burn ? { until: now + row.burn[0], next: now + row.burn[1], owner: row.burn[2] } : null;
   }
   function applySentryProjectiles(rows) {
@@ -485,6 +487,15 @@
   // ---------------------------------------------------------------- events -> world effects
   function proxy(p, x, y, angle) {
     return { id: p.id, team: p.team, color: p.color, outline: p.outline, r: p.r, x: x, y: y, angle: angle, recoil: 0, vx: 0, vy: 0, isLocal: p.isLocal };
+  }
+
+  function applyFoliage(kind, id, hp) {
+    if (!state || kind !== 'cacti') return;
+    var map = state.world.map, plant = (map[kind] || [])[id];
+    if (!plant || !Number.isFinite(hp)) return;
+    var wasAlive = plant.alive !== false;
+    plant.hp = Math.max(0, Math.min(plant.maxHp, hp)); plant.alive = plant.hp > 0;
+    if (wasAlive !== plant.alive) map.foliageVersion = (map.foliageVersion || 0) + 1;
   }
 
   function applyEvent(e) {
@@ -604,6 +615,9 @@
       case 'rock-gone':
         if (world.map.rocks[e.id]) world.map.rocks[e.id].alive = false;
         return;
+      case 'foliage':
+        applyFoliage(e.k, e.id, e.hp);
+        return;
       case 'legendary-crate-broken':
         world.emit({ type: 'legendary-crate-broken', crate: world.map.crates[e.id], player: byId(e.by) });
         return;
@@ -616,7 +630,8 @@
         return;
       case 'zone':
         if (world.zoneById(e.id)) return;
-        world.addZone({ id: e.id, kind: e.k, x: e.x, y: e.y, r: e.r, dur: e.dur, t: e.tl, age: e.dur - e.tl, owner: e.o, team: e.tm, dps: e.dps });
+        world.addZone({ id: e.id, kind: e.k, x: e.x, y: e.y, r: e.r, dur: e.dur, t: e.tl, age: e.dur - e.tl, owner: e.o, team: e.tm, dps: e.dps,
+          slow: e.slow, damageMul: e.damageMul, freezeAfter: e.freezeAfter });
         world.emit({ type: 'zone', zone: world.zoneById(e.id) });
         return;
       case 'struct':
@@ -748,6 +763,7 @@
     m.crates.forEach(function (c) { var crate = map.crates[c[0]]; if (!crate) return; crate.hp = c[1]; if (c[1] <= 0) crate.alive = false; });
     m.gone.forEach(function (id) { var pk = world.pickupById(id); if (pk) pk.alive = false; });
     (m.rocks || []).forEach(function (id) { if (map.rocks[id]) map.rocks[id].alive = false; });
+    (m.foliage || []).forEach(function (row) { applyFoliage(row[0], row[1], row[2]); });
     (m.strikes || []).forEach(function (s) { applyEvent(Object.assign({ t: 'strike' }, s)); });
     if (m.tankShells) { world.tankShells = []; m.tankShells.forEach(function (shell) { world.spawnTankShell(shell); }); }
     if (m.artilleryShells) { world.artilleryShells = []; m.artilleryShells.forEach(function (shell) { world.spawnArtilleryShell(shell); }); }
@@ -756,7 +772,8 @@
     applyMedicStaffMarkers(m.medicStaffs);
     m.added.forEach(function (pk) { world.spawnPickupAt({ id: pk.id, type: pk.type, item: pk.it, x: pk.x, y: pk.y, amount: pk.n, lockT: pk.lk || 0 }); });
     (m.structs || []).forEach(function (s) { if (!world.structById(s.id)) world.structFromServer(Object.assign({ op: 'add' }, s)); });
-    (m.zones || []).forEach(function (z) { if (!world.zoneById(z.id)) world.addZone({ id: z.id, kind: z.k, x: z.x, y: z.y, r: z.r, dur: z.dur, t: z.tl, age: z.dur - z.tl, owner: z.o, team: z.tm, dps: z.dps }); });
+    (m.zones || []).forEach(function (z) { if (!world.zoneById(z.id)) world.addZone({ id: z.id, kind: z.k, x: z.x, y: z.y, r: z.r, dur: z.dur, t: z.tl, age: z.dur - z.tl, owner: z.o, team: z.tm, dps: z.dps,
+      slow: z.slow, damageMul: z.damageMul, freezeAfter: z.freezeAfter }); });
     m.stations.forEach(function (s) { if (map.stations[s[0]]) map.stations[s[0]].cooldown = s[1]; });
     m.players.forEach(function (row) {
       var p = world.playerById(row[0]);
