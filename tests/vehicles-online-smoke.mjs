@@ -58,10 +58,10 @@ function seatAttached(p, v, world) {
 
 try {
   state = Online.start(match.startMessage(driver, false));
-  t.check(state.world.vehicles.length === W.VEHICLE.count + W.TANK.count + W.ARTILLERY.count + W.GROUND_ARTILLERY.count && state.world.vehicles.every(v => v.hidden), 'roster startup hides every vehicle until the first server packet');
+  t.check(state.world.vehicles.length === match.world.vehicles.length && state.world.vehicles.every(v => v.hidden), 'roster startup hides every ring and settlement vehicle until the first server packet');
   connect(driver);
-  t.check(lastSnapshot.vehicles.length === W.VEHICLE.count + W.TANK.count + W.ARTILLERY.count + W.GROUND_ARTILLERY.count && state.world.vehicles.every(v => !v.hidden), 'initial snapshots synchronize all vehicles');
-  t.check(state.world.vehicles.filter(v => v.type === 'humvee' && v.armed).length === 2, 'the two armed team Humvees survive snapshot decoding');
+  t.check(lastSnapshot.vehicles.length === match.world.vehicles.length && state.world.vehicles.every(v => !v.hidden), 'initial snapshots synchronize all ring and settlement vehicles');
+  t.equal(state.world.vehicles.filter(v => v.type === 'humvee' && v.armed).length, 2 + match.world.map.settlementVehicles.length, 'armed ring and town Humvees survive snapshot decoding');
   const at = match.world.vehicleSeatPoint(vehicle, 'driver', true);
   driver.x = at.x; driver.y = at.y; driver.stamina = 40;
   match.sendSnapshots([]);

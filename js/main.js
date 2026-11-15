@@ -424,9 +424,14 @@
           else if (e.source === p) play('hit', 0.7);
           break;
         case 'crate': if (e.source === p) play('crate'); break;
-        case 'legendary-crate-broken':
-          W.Hud.banner('Legendary crate opened!', (e.player ? e.player.name : 'Someone') + ' broke the center crate · all four legendary items dropped', 5, '#ffd23f');
-          W.Hud.feed('The legendary crate at the center has been broken.', 'key'); play('crate'); break;
+        case 'legendary-crate-broken': {
+          var townLoot = e.crate && e.crate.legendaryDrops === 1;
+          W.Hud.banner('Legendary crate opened!', (e.player ? e.player.name : 'Someone') + (townLoot
+            ? ' opened a town crate · one legendary item dropped'
+            : ' broke the center crate · all four legendary items dropped'), 5, '#ffd23f');
+          W.Hud.feed(townLoot ? 'A town legendary crate has been opened.' : 'The legendary crate at the center has been broken.', 'key');
+          play('crate'); break;
+        }
         case 'command':
           if (e.team === p.team) { W.Hud.banner('Command boost', '+25% damage, speed and fire rate for 15 seconds', 3, '#75cfff'); play('upgrade'); }
           break;

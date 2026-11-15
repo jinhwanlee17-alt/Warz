@@ -47,6 +47,7 @@ function play(seed, teamSize, o = {}) {
     if (s.ticks % 20 === 0) {
       for (const p of match.players) {
         if (!p.alive || !p.bot || p.downed || p.mount) continue;
+        if (p.vehicle && (world.vehicleById(p.vehicle) || {}).type === 'artillery') continue;   // an artillery crew sits still on purpose, like a turret gunner
         const at = spots.get(p.id);
         if (Math.hypot(p.x - at.x, p.y - at.y) > 60) { at.x = p.x; at.y = p.y; at.t = world.time; }
         else if (world.time - at.t > 40 && world.storm.phase < 4) { s.frozen++; at.t = world.time; }   // late on, holding a spot in a tiny circle is the right thing to do
@@ -145,7 +146,8 @@ for (const [seed, size, label] of [[7, 1, 'Solo'], [2024, 1, 'Solo'], [21, 2, 'D
 
 // ---------------------------------------------------------------- a connection that drops and comes back
 {
-  const s = play(31, 1, { humans: 1, until: 20, emptyTimeout: 3, setup(x) { x.conn = fakeConn(); x.match.claim(x.match.slots[0].ticket, x.conn); } });
+  // (The player stands idle at the landing spot all this time; bots that strike first would otherwise end the test early.)
+  const s = play(31, 1, { humans: 1, until: 20, emptyTimeout: 3, setup(x) { x.conn = fakeConn(); x.match.claim(x.match.slots[0].ticket, x.conn); x.match.players[0].hp = x.match.players[0].maxHp = 1e6; } });
   const m = s.match, me = m.players[0];
   s.conn.open = false; m.detach(s.conn);                     // the socket drops: a tunnel, a phone switching tabs, a reload
   for (let i = 0; i < 12 / TICK; i++) m.tick();

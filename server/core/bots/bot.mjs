@@ -2,7 +2,7 @@
 // (move, aim point, fire, slot, gear, held item, interact, drop), built from what a player could see on screen.
 // The layers, top to bottom: senses -> a goal ("mode") -> feet (path following), eyes (aim with lag and wobble),
 // trigger -> item plays. Combat, looting and items live in bot-combat.mjs, bot-loot.mjs and bot-items.mjs.
-import { canSee, viewHalf } from './sense.mjs';
+import { canSee, viewHalf, onlyLeaves, VIEW } from './sense.mjs';
 import { classPlan } from './profile.mjs';
 
 const TAU = Math.PI * 2;
@@ -13,7 +13,8 @@ const CALLOUT_RANGE = 900;   // teammates this close hear "one over there"
 
 function freshIntent() {
   return { mx: 0, my: 0, aimX: null, aimY: null, fire: false, firePressed: false, scope: false, reload: false, slot: null, cycle: 0,
-    swap: false, utility: false, charge: 0, utilityCharge: 0, iv: false, held: null, interactPressed: false, dropPressed: false };
+    swap: false, utility: false, charge: 0, utilityCharge: 0, iv: false, held: null, interactPressed: false, dropPressed: false,
+    sprint: false, artilleryFire: false };
 }
 
 export class Bot {
@@ -45,12 +46,19 @@ export class Bot {
     this.loot = null; this.badLoot = new Map(); this.lootAt = 0; this.nextInteract = 0;
     this.station = null; this.badStation = new Map();
     this.storm = { must: false, soon: false, x: 0, y: 0 };
-    this.hazards = []; this.evade = null; this.heed = new Map(); this.avoid = [];
+    this.hazards = []; this.evade = null; this.heed = new Map(); this.avoid = []; this.guardMarginUntil = 0;
     this.act = null; this.queue = []; this.hes = new Map(); this.itemAt = 0; this.openers = 0; this.strikeAt = -9;
     this.pauseUntil = 0; this.landAt = Infinity; this.landed = false; this.roam = null; this.lastX = player.x; this.lastY = player.y;
     this.home = null; this.padWait = null; this.myRock = null; this.siege = null; this.siegeBan = new Map(); this.huntAt = null; this.huntHold = 0; this.mountIdle = 0; this.mountAt = 0; this.gearAt = 0;
     this.lastEnemyAt = -99; this.reviving = null; this.scopeScan = 0;
     this.launchCharge = null; this.gearCharge = null;
+    this.sprint = false;
+    // Vehicles (bot-vehicles.mjs). Their choices draw on a stream of their own, so the rest of this bot's decisions
+    // come out the same whether or not there is a vehicle around.
+    this.vrng = W.U.rng((director.seed ^ Math.imul(player.id, 0x85ebca6b) ^ 0x2c1b3c6d) >>> 0);
+    this.wheels = this.vrng.next();                                                        // keen on vehicles at all
+    this.gunnerish = clamp(this.vrng.next() * 0.8 + profile.caution * 0.4 - 0.1, 0, 1);    // keen on artillery
+    this.ride = null; this.drive = null; this.badVehicle = new Map(); this.vehicleAt = 0; this.watch = new Map();
   }
 
   // ---------------------------------------------------------------- small helpers
@@ -98,9 +106,11 @@ export class Bot {
     if ((this.tSense -= dt) <= 0) { this.tSense = this.prof.senseEvery; this.sense(); }
     for (const rec of this.known.values()) if (!rec.noticed && rec.visible && this.now >= rec.noticeAt) { rec.noticed = true; this.redecide = true; }
     if ((this.tHazard -= dt) <= 0) { this.tHazard = 0.1; this.scanHazards(); }
-    this.moveGoal = null; this.moveDir = null; this.look = null; this.shoot = null; this.still = false; this.clickAt = null; this.freeze = false;
-    if ((p.downed || p.mount) && this.act) this.act.chargeAt = null;
+    this.moveGoal = null; this.moveDir = null; this.look = null; this.shoot = null; this.still = false; this.clickAt = null; this.freeze = false; this.sprint = false;
+    if (!p.vehicle && this.drive) this.leftVehicle();
+    if ((p.downed || p.mount || p.vehicle) && this.act) this.act.chargeAt = null;
     if (p.downed) this.thinkDowned();
+    else if (p.vehicle) this.thinkVehicle();
     else if (p.mount) this.thinkMounted();
     else if (this.now >= this.landAt) {
       if ((this.tDecide -= dt) <= 0 || this.redecide) { this.tDecide = this.prof.decideEvery; this.redecide = false; this.decide(); }
@@ -109,7 +119,7 @@ export class Bot {
     }
     this.chargeGear();
     this.launchRequested = false;
-    this.steer();
+    if (!p.vehicle) this.steer();                          // a driver's feet are the steering wheel (thinkVehicle)
     this.aim();
     if (!this.launchRequested) this.launchCharge = null;
     return out;
@@ -119,7 +129,7 @@ export class Bot {
   // Keep the chosen landing point while charging; switching actions safely cancels it.
   chargeGear() {
     const p = this.p, out = this.out;
-    if (!p.alive || p.downed || p.mount || p.held >= 0 || this.act || this.gearKind() !== 'grenade' || p.grenades <= 0) {
+    if (!p.alive || p.downed || p.mount || p.vehicle || p.held >= 0 || this.act || this.gearKind() !== 'grenade' || p.grenades <= 0) {
       this.gearCharge = null;
       return;
     }
@@ -161,7 +171,9 @@ export class Bot {
       if (o.team === p.team) { this.mates.push(o); continue; }
       let rec = known.get(o.id);
       const marked = !!revealed && revealed.has(o.id);
-      const seen = !blind && canSee(this.W, cover, p, o, half, revealed);
+      let seen = !blind && canSee(this.W, cover, p, o, half, revealed);
+      // Somebody we were already watching steps under leaves: the eyes stay on them.
+      if (!seen && !blind && rec && rec.noticed && rec.visible && onlyLeaves(this.W, cover, p, o, half)) seen = true;
       if (seen || marked) {
         if (!rec) { rec = this.newRecord(o); known.set(o.id, rec); rec.noticeAt = marked ? now + 0.25 : now + this.noticeDelay(o, half); }
         else if (!rec.visible && now - rec.seenAt > 2 && !rec.noticed) rec.noticeAt = now + this.noticeDelay(o, half);
@@ -299,7 +311,7 @@ export class Bot {
       }
       if (!h.heed || now < h.at) return;
       list.push({ id, x, y, r, eta, kind, d });
-      if (lasting || eta < 4) avoid.push({ x, y, r: r + 30, cost: 25 });
+      if (lasting || eta < 4) avoid.push({ x, y, r: r + (kind === 'sentry' ? 0 : 30), cost: 25, hard: kind === 'sentry' });
     };
     for (const g of world.grenades) {
       const own = g.owner === p.id, mate = !own && g.team === p.team, it = g.item;
@@ -322,6 +334,11 @@ export class Bot {
       if (s.kind === 'airstrike') add('s' + s.id, s.x, s.y, s.radius + 50, s.t, 'airstrike', true);
       else if (s.kind === 'meteor' && s.team !== p.team) add('s' + s.id, s.x, s.y, s.radius + 44, s.t, 'meteor', false);
     }
+    // An artillery shell coming down on screen (a teammate's spares us; ours never lands this close).
+    for (const s of world.artilleryShells || []) {
+      if (s.team === p.team || Math.abs(s.x - p.x) > VIEW.HALF_W || Math.abs(s.y - p.y) > VIEW.HALF_H) continue;
+      add('a' + s.id, s.targetX, s.targetY, this.W.ARTILLERY.blastRadius + 40, Math.max(0, s.flightTime - s.elapsed), 'artillery', false);
+    }
     // Enemy sentries never miss. The basic one is worth shooting down, for a bot carrying a gun that reaches it from
     // wherever it reaches us; a bigger one (or one we have nothing to answer with) is a circle to stay out of.
     this.sentryFoe = null;
@@ -331,7 +348,7 @@ export class Bot {
       if (d > it.range + 420) continue;
       const inSight = d < it.range && world.sentryLineClear(s, p.x, p.y);
       if (this.smallSentry(s) && this.gunFor(it.range) >= 0) { if (inSight && (!this.sentryFoe || d < this.dist(this.sentryFoe))) this.sentryFoe = s; }
-      else if (d >= it.range || inSight) add('t' + s.id, s.x, s.y, it.range + 60, 0, 'sentry', true);
+      else if (d >= it.range || inSight) add('t' + s.id, s.x, s.y, it.range + (now < this.guardMarginUntil ? 0 : 60), 0, 'sentry', true);
     }
     // Pick the escape: out of whatever we are standing in (or about to be standing in), most urgent first.
     let worst = null;
@@ -409,7 +426,9 @@ export class Bot {
       const wait = s.state === 'waiting' ? s.timeLeft : 0;
       const hit = p.inStorm ? 0 : m1 >= 0 ? Infinity : wait + len * clamp(m0 / Math.max(1, m0 - m1), 0, 1);
       const reach = Math.max(0, need) / Math.max(120, this.speed() * 0.92);
-      st.must = p.inStorm || hit - reach < this.prof.stormSlack;
+      // Once leaving for safety, finish reaching the next circle. Small changes
+      // in travel time around a house must not flip us back to a distant errand.
+      st.must = p.inStorm || this.mode === 'storm' || hit - reach < this.prof.stormSlack;
       st.soon = st.must || hit - reach < this.prof.stormSlack + 25;
       // Aim for a spot inside the next circle on our side of it (deeper for small circles).
       const k = dNext > 1 ? Math.max(0, next.r - pad - this.rng.range(0, Math.min(200, next.r * 0.3))) / dNext : 0;
@@ -445,10 +464,11 @@ export class Bot {
     if (stance === 'flee') return this.startFlee(e);
     if (stance === 'fight') return this.setMode('fight');
     if (this.pickSiege() && !(this.storm.must && p.inStorm)) return this.setMode('siege');
-    if (this.storm.must) return this.setMode('storm');
+    if (this.storm.must) return this.pickVehicle(true) ? this.setMode('board') : this.setMode('storm');   // a car parked right here gets there sooner
     if (this.pickRevive()) return this.setMode('revive');
-    if (stance === 'avoid') return this.startFlee(e, true);   // hurt, and a stranger in plain view: somewhere quiet first
+    if (stance === 'avoid') return this.startFlee(e, true);   // hurt (or facing a tank), a stranger in plain view: somewhere quiet first
     if (this.pickStation()) return this.setMode('upgrade');
+    if (this.pickVehicle(false)) return this.setMode('board');   // a tank, a Humvee or a gun worth the walk (or our teammate's ride)
     if (this.needRegroup()) return this.setMode('regroup');
     if (this.pickLoot()) return this.setMode('loot');
     if (this.following()) return this.setMode('escort');   // nothing to pick up here: stay with whoever leads the team
@@ -470,6 +490,7 @@ export class Bot {
       case 'explore': this.doExplore(); break;
       case 'siege': this.doSiege(); break;
       case 'escort': this.doEscort(); break;
+      case 'board': this.doBoard(); break;
       default: this.doRoam();
     }
     // Feet may be busy with something else; the gun still answers whoever is shooting at us.
@@ -497,6 +518,7 @@ export class Bot {
     const st = this.storm;
     if (!st.must && !st.soon) { this.redecide = true; return; }
     this.moveGoal = { x: st.x, y: st.y, tol: 70 };
+    if (st.must) this.sprint = true;
     if (this.arrivedAt(st, 80)) { st.fixed = false; this.redecide = true; }
   }
   arrivedAt(pt, tol) { return Math.hypot(pt.x - this.p.x, pt.y - this.p.y) <= tol; }
@@ -621,6 +643,7 @@ export class Bot {
     const lead = this.lead;
     if (!lead || !lead.alive) { this.redecide = true; return; }
     this.moveGoal = { x: lead.x, y: lead.y, tol: 200 };
+    if (this.dist(lead) > 700) this.sprint = true;
     if (this.dist(lead) < 240) this.redecide = true;
   }
   pickRevive() {
@@ -633,7 +656,7 @@ export class Bot {
       // The closest standing teammate goes; a bot does not leave a human to do it alone.
       let closer = false;
       for (const m of this.mates) {
-        if (m === o || m.downed || !m.bot || Math.hypot(m.x - o.x, m.y - o.y) >= d - 1) continue;
+        if (m === o || m.downed || !m.bot || m.vehicle || Math.hypot(m.x - o.x, m.y - o.y) >= d - 1) continue;
         const ai = m.ai;
         if (!ai || ai.reviving === o || (ai.mode !== 'fight' && ai.mode !== 'flee')) closer = true;   // (one in a firefight is not coming)
       }
@@ -693,6 +716,7 @@ export class Bot {
   }
   follow(g) {
     const p = this.p, nav = this.nav, d = Math.hypot(g.x - p.x, g.y - p.y);
+    const opts = { avoid: this.avoid.length ? this.avoid : null, dry: true };
     if (d <= (g.tol || 24)) return null;
     let r = this.route;
     const stale = !r || Math.hypot(r.gx - g.x, r.gy - g.y) > Math.max(40, d * 0.12) || this.now - r.at > 7;
@@ -707,19 +731,21 @@ export class Bot {
       }
     }
     const pts = r.pts, last = pts.length - 1;
-    while (r.i < last && Math.hypot(pts[r.i].x - p.x, pts[r.i].y - p.y) < 30) r.i++;
+    // A close waypoint may be the clearance around a doorjamb or corner. Do not
+    // turn early unless the next leg is clear from the bot's actual position.
+    while (r.i < last && Math.hypot(pts[r.i].x - p.x, pts[r.i].y - p.y) < 30 &&
+      nav.segmentClear(p.x, p.y, pts[r.i + 1].x, pts[r.i + 1].y, opts)) r.i++;
     if (this.now >= r.cut) {
       r.cut = this.now + 0.25;
-      const opts = { avoid: this.avoid.length ? this.avoid : null, dry: true };
       let jumped = false;
       for (let k = Math.min(last, r.i + 3); k > r.i; k--) if (nav.segmentClear(p.x, p.y, pts[k].x, pts[k].y, opts)) { r.i = k; jumped = true; break; }
-      if (!jumped && !nav.segmentClear(p.x, p.y, pts[r.i].x, pts[r.i].y)) { if (++r.blocked >= 2) { this.route = null; return null; } } else r.blocked = 0;
+      if (!jumped && !nav.segmentClear(p.x, p.y, pts[r.i].x, pts[r.i].y, opts)) { if (++r.blocked >= 2) { this.route = null; return null; } } else r.blocked = 0;
     }
     const t = pts[r.i], td = Math.hypot(t.x - p.x, t.y - p.y);
     if (r.i === last && td < 16) {
       if (r.partial) { this.route = null; return null; }
       // The path ends in the middle of the nearest free cell; the goal itself can be a few steps on, close to a wall.
-      if (d > Math.max(16, g.tol || 24) && nav.segmentClear(p.x, p.y, g.x, g.y)) return { x: (g.x - p.x) / d, y: (g.y - p.y) / d };
+      if (d > Math.max(16, g.tol || 24) && nav.segmentClear(p.x, p.y, g.x, g.y, opts)) return { x: (g.x - p.x) / d, y: (g.y - p.y) / d };
       return null;
     }
     return { x: (t.x - p.x) / td, y: (t.y - p.y) / td };
@@ -734,7 +760,10 @@ export class Bot {
       const a = base + off, x = p.x + Math.cos(a) * step, y = p.y + Math.sin(a) * step;
       if (!nav.freeAt(x, y) || (nav.pondAt(x, y) && !p.inPond)) continue;
       let bad = false;
-      for (const h of this.hazards) if (Math.hypot(x - h.x, y - h.y) < h.r && h.d >= h.r) { bad = true; break; }
+      for (const h of this.hazards) {
+        const radius = h.r, start = Math.hypot(p.x - h.x, p.y - h.y), end = Math.hypot(x - h.x, y - h.y);
+        if (end < radius && (start >= radius || (h.kind === 'sentry' && end < start - 1e-6))) { bad = true; break; }
+      }
       if (!bad) return { x: Math.cos(a), y: Math.sin(a) };
     }
     return null;
@@ -759,25 +788,31 @@ export class Bot {
         if (z) v = z;
       }
     }
-    const requestedMove = !!v && !!this.moveGoal && !this.still && now >= this.pauseUntil;
+    const requestedMove = !!this.moveGoal && !this.still && !this.freeze && now >= this.pauseUntil &&
+      Math.hypot(this.moveGoal.x - p.x, this.moveGoal.y - p.y) > (this.moveGoal.tol || 24);
     if (v && !this.evade) {
+      const rim = { avoid: this.hazards.map(h => ({ x: h.x, y: h.y, r: h.r, hard: h.kind === 'sentry' })), dry: !p.inPond };
       // Do not step into a danger zone we are standing outside of: slide along its rim instead.
       for (const h of this.hazards) {
-        if (h.d < h.r) continue;
+        const distance = Math.hypot(p.x - h.x, p.y - h.y), radius = h.r;
+        if (distance < radius) continue;
         const nx = p.x + v.x * 60 - h.x, ny = p.y + v.y * 60 - h.y;
-        if (Math.hypot(nx, ny) >= h.r) continue;
-        const rx = (p.x - h.x) / (h.d || 1), ry = (p.y - h.y) / (h.d || 1), inward = v.x * rx + v.y * ry;
+        if (Math.hypot(nx, ny) >= radius) continue;
+        const rx = (p.x - h.x) / (distance || 1), ry = (p.y - h.y) / (distance || 1), inward = v.x * rx + v.y * ry;
         if (inward < 0) {
           v = { x: v.x - rx * inward, y: v.y - ry * inward };
           const l = Math.hypot(v.x, v.y);
           if (l > 0.05) { v.x /= l; v.y /= l; }
-          else {
+          // A tangent around a permanent sentry zone can point straight into a
+          // nearby house. Try the other side or move outward rather than pinning
+          // the bot against that wall while its desired route keeps refreshing.
+          if (l <= 0.05 || !this.nav.segmentClear(p.x, p.y, p.x + v.x * 64, p.y + v.y * 64, rim)) {
             // A path aimed straight into the danger has no tangent to normalize. Pick a safe side instead
             // of cancelling the movement forever; if both sides are blocked, the usual stuck recovery applies.
             v = null;
             for (const [x, y] of [[-ry, rx], [ry, -rx], [rx, ry]]) {
               const side = this.safeDir(x, y);
-              if (side && this.nav.segmentClear(p.x, p.y, p.x + side.x * 64, p.y + side.y * 64, { dry: !p.inPond })) { v = side; break; }
+              if (side && this.nav.segmentClear(p.x, p.y, p.x + side.x * 64, p.y + side.y * 64, rim)) { v = side; break; }
             }
           }
         }
@@ -800,6 +835,9 @@ export class Bot {
         }
       }
       out.mx = v.x + sx; out.my = v.y + sy;
+      // Sprinting when it matters (closing in, getting away, racing the storm), keeping some stamina back otherwise.
+      // Never while dodging a blast: how quickly a bot reacts to one is part of how good it is.
+      if (this.sprint && !this.evade && (p.stamina > 30 || this.mode === 'flee' || this.mode === 'storm')) out.sprint = true;
     }
     // Stuck? (wanting to move, not moving)
     const st = this.stuck;
@@ -808,7 +846,13 @@ export class Bot {
       if (trying && moved < 9) {
         st.n++;
         this.route = null; this.coverSpot = null;
-        if (st.n >= 2) { const a = this.rng.range(0, TAU); this.unstick = { x: Math.cos(a), y: Math.sin(a), until: now + 0.35 }; }
+        if (st.n >= 2) {
+          // A wall or a newly placed deployable can close the extra caution margin
+          // between guards. Retry using their actual firing range, still avoiding
+          // every damaging zone, so that a physically safe exit remains usable.
+          if (this.hazards.some(h => h.kind === 'sentry')) this.guardMarginUntil = now + 12;
+          const a = this.rng.range(0, TAU); this.unstick = { x: Math.cos(a), y: Math.sin(a), until: now + 0.35 };
+        }
         if (st.n >= 5) { st.n = 0; this.shove = now + 4; this.giveUp(); }
       } else if (moved > 30 || !trying) st.n = 0;
       st.x = p.x; st.y = p.y; st.at = now;
@@ -826,7 +870,9 @@ export class Bot {
   // ---------------------------------------------------------------- eyes and trigger
   aim() {
     const p = this.p, out = this.out, prof = this.prof, dt = this.dt, U = this.W.U;
-    const mount = p.mount ? this.world.structById(p.mount) : null, ox = mount ? mount.x : p.x, oy = mount ? mount.y : p.y;
+    // A turret or a vehicle weapon turns about its own centre, not about the player sitting at it.
+    const mount = p.mount ? this.world.structById(p.mount) : p.vehicle ? this.world.vehicleById(p.vehicle) : null;
+    const ox = mount ? mount.x : p.x, oy = mount ? mount.y : p.y;
     if (this.clickAt) {
       // A deliberate click (throwing, placing, calling a strike): the hand jumps there.
       const c = this.clickAt;
@@ -938,6 +984,11 @@ export class Bot {
       return;
     }
     if (def.kind === 'flame') { if (dist < def.range + 20 && err < def.halfAngle * 0.8) out.fire = true; return; }
+    if (def.kind === 'cannon') {
+      // A tank shell is three seconds of reload: wait until the barrel is on them (the blast forgives a little).
+      if (err < Math.atan2((s.rec ? p.r : s.r || 20) + 25, Math.max(60, dist)) * Math.min(1.3, prof.sprayLoose)) out.fire = true;
+      return;
+    }
     if (on) this.sprayUntil = now + (1.1 - prof.skill) * 0.3;
     if (def.kind === 'launcher') {
       const w = p.weapons[p.slot];

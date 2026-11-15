@@ -771,7 +771,7 @@
     applyRpgRockets(m.rpgRockets);
     applyMedicStaffMarkers(m.medicStaffs);
     m.added.forEach(function (pk) { world.spawnPickupAt({ id: pk.id, type: pk.type, item: pk.it, x: pk.x, y: pk.y, amount: pk.n, lockT: pk.lk || 0 }); });
-    (m.structs || []).forEach(function (s) { if (!world.structById(s.id)) world.structFromServer(Object.assign({ op: 'add' }, s)); });
+    if (Array.isArray(m.structs)) applySentryStructures(m.structs);
     (m.zones || []).forEach(function (z) { if (!world.zoneById(z.id)) world.addZone({ id: z.id, kind: z.k, x: z.x, y: z.y, r: z.r, dur: z.dur, t: z.tl, age: z.dur - z.tl, owner: z.o, team: z.tm, dps: z.dps,
       slow: z.slow, damageMul: z.damageMul, freezeAfter: z.freezeAfter }); });
     m.stations.forEach(function (s) { if (map.stations[s[0]]) map.stations[s[0]].cooldown = s[1]; });

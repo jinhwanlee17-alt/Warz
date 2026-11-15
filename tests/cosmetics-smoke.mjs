@@ -22,7 +22,7 @@ const mutable = C.normalize(); mutable.emotes[0] = 'cooked';
 t.equal(C.normalize().emotes[0], 'smile', 'settings copies cannot mutate shared defaults');
 
 const map = W.MapGen.generate(57);
-for (const key of ['rocks','trees','bushes','buildings','crates','pickups','ponds','stations','vehicles','tanks']) map[key] = [];
+for (const key of ['rocks','trees','bushes','buildings','crates','pickups','ponds','stations','vehicles','tanks','settlementStructures','settlementVehicles']) map[key] = [];
 const world = new W.World({ map, storm: false }), p = world.addPlayer({ name: 'Player', x: 8000, y: 8000, team: 9, cosmetics: fixed });
 t.check(p.color === fixed.color && p.face === 'evil' && p.emotes[1] === 'cooked', 'Practice player spawns with its Locker look and loadout');
 const original = JSON.stringify([p.team,p.classId,p.hp,p.armor,p.weapons,p.items,p.tokens]);

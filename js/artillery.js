@@ -84,7 +84,7 @@
         if (s.crate && s.crate.alive) {
           var d = Math.hypot(x - U.clamp(x, s.x, s.x + s.w), y - U.clamp(y, s.y, s.y + s.h));
           if (d <= R && self.lineClear(x, y, s.crate.x, s.crate.y, s.crate)) objects.push({ c: s.crate, n: damage(d) });
-        } else if (s.struct && s.struct.alive && s.struct.maxHp && !s.struct.mounted && s.struct.team !== team) {
+        } else if (s.struct && s.struct.alive && s.struct.maxHp && (!s.struct.mounted || s.struct.neutral) && s.struct.team !== team) {
           var d = Math.max(0, Math.hypot(x - s.x, y - s.y) - s.r);
           if (d <= R && self.lineClear(x, y, s.x, s.y, s.struct)) objects.push({ s: s.struct, n: damage(d) });
         }

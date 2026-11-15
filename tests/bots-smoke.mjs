@@ -111,6 +111,19 @@ const marksman = (a, b) => (p) => { const d = Math.hypot(b.p.x - p.x, b.p.y - p.
       total++;
       const c = real.map.crates[i];
       bot.p.x = c.x + 500; bot.p.y = c.y + 500;
+      // A 500-unit town grid can put that old test origin inside the next
+      // house or its crate. Start from clear exterior ground, as a looting bot would.
+      if (real.dir.nav.solidAt(bot.p.x, bot.p.y, 24) || real.dir.cover.buildingAt(bot.p.x, bot.p.y) >= 0) {
+        let start = null;
+        for (const radius of [500, 700, 900]) {
+          for (let side = 0; side < 16; side++) {
+            const angle = side / 16 * Math.PI * 2, x = c.x + Math.cos(angle) * radius, y = c.y + Math.sin(angle) * radius;
+            if (!real.dir.nav.solidAt(x, y, 25) && real.dir.nav.freeAt(x, y) && real.dir.cover.buildingAt(x, y) < 0) { start = { x, y }; break; }
+          }
+          if (start) break;
+        }
+        if (start) { bot.p.x = start.x; bot.p.y = start.y; }
+      }
       const spot = bot.crateSpot(c, { range: 280, min: 0 });
       if (!spot) continue;
       real.dir.nav.budget = 99;
@@ -158,12 +171,34 @@ const marksman = (a, b) => (p) => { const d = Math.hypot(b.p.x - p.x, b.p.y - p.
   a.world.damageFoliage(canopy, 250, viewer.id, 'ar');
   a.dir.cover.refresh(a.world.players);
   t.check(a.dir.cover.hidden(viewer, hidden), 'shots do not remove the visual concealment of leafy cover');
+  viewer.x = 9200;
+  a.dir.cover.refresh(a.world.players);
+  t.check(!a.dir.cover.hidden(viewer, hidden), 'but not from a bot standing close by (300 units)');
+  viewer.x = 8700;
   hidden.x = bush.x; hidden.y = bush.y;
   a.dir.cover.refresh(a.world.players);
-  t.check(a.dir.cover.hidden(viewer, hidden), 'biome bushes conceal players from bots');
+  t.check(a.dir.cover.hidden(viewer, hidden), 'a bush hides a player from a bot near the edge of its screen (850 units off)');
+  viewer.x = 9000;
+  a.dir.cover.refresh(a.world.players);
+  t.check(!a.dir.cover.hidden(viewer, hidden), 'but a bush is barely wider than the player in it: from most of a screen away (580 units) a bot picks them out');
   viewer.x = bush.x; viewer.y = bush.y;
   a.dir.cover.refresh(a.world.players);
   t.check(!a.dir.cover.hidden(viewer, hidden), 'sharing a bush reveals its occupants consistently with the renderer');
+}
+{
+  // Ducking under leaves in front of a bot that is already watching does not make anyone disappear.
+  const a = arena({ extra: { trees: [tree(9600, 9000)] } });
+  a.crowd();
+  const watcher = a.plant(a.bot(9000, 9000, {})), h = a.human(9600, 9300, still);
+  watcher.stance = () => 'ignore';
+  const seen = (b) => { const r = b.known.get(h.id); return !!r && r.noticed && r.visible; };
+  a.until(() => seen(watcher), 3);
+  h.x = 9600; h.y = 9000;                                        // under the canopy, 600 units from the bot
+  const late = a.plant(a.bot(9000, 8900, {}));
+  late.stance = () => 'ignore';
+  a.step(1.5);
+  t.check(seen(watcher), 'a player who steps under a tree while a bot is watching them stays seen');
+  t.check(!seen(late), 'one who was already under it when a bot came along is not spotted from 600 units');
 }
 {
   const a = arena({ extra: { trees: [tree(9500, 9000)], buildings: [room(9000, 8560)] } });
@@ -252,21 +287,33 @@ function accuracy(skill, strafe, d = 300) {
   t.check(a.count('shot', (e) => e.player === b.p) >= 10, 'with its own gun, one bullet at a time');
 }
 {
-  // Left alone, a bot mostly leaves a harmless player alone right after landing; when the circle is small it does not.
-  let early = 0, late = 0;
+  // Bots strike first. A player in plain view who is leaving a bot alone gets their landing grace and not much more.
+  let grace = 0, early = 0, mid = 0, late = 0;
   const N = 24;
-  for (let k = 0; k < N; k++) {
+  for (let k = 0; k < N * 2; k++) {
+    const a1 = arena({ seed: 300 + k });                       // the middle of a match, with plenty of people left
+    a1.crowd();
+    const b1 = a1.bot(9000, 9000, {}), h1 = a1.human(9450, 9000, still, { hp: 1e6 });
+    b1.prof.aggression = 0.5;
+    if (a1.until(() => h1.hp < 1e6, 12) >= 0) mid++;
+    if (k >= N) continue;
     const a = arena({ seed: 300 + k });
     a.crowd();
     const b = a.bot(9000, 9000, {}), h = a.human(9450, 9000, still, { hp: 1e6 });
     b.landAt = 0; b.prof.aggression = 0.5;
-    if (a.until(() => h.hp < 1e6, 18) >= 0) early++;
+    b.pauseUntil = 1e9;                                          // busy where it landed (looting, say), so the player stays on its screen
+    const first = a.until(() => h.hp < 1e6, 40);
+    if (first >= 0 && first < 14) grace++;
+    if (first >= 0) early++;
     const a2 = arena({ seed: 300 + k });
     const b2 = a2.bot(9000, 9000, {}), h2 = a2.human(9450, 9000, still, { hp: 1e6 });
     b2.prof.aggression = 0.5;
     if (a2.until(() => h2.hp < 1e6, 18) >= 0) late++;       // no crowd: these two are the last ones standing
   }
-  t.check(early <= N * 0.2, 'fresh off the parachute, few bots pick a fight with a player who is leaving them alone (' + early + ' of ' + N + ' within 18 s)');
+  t.equal(grace, 0, 'nobody gets shot in their first fourteen seconds on the ground');
+  t.check(early >= N * 0.6, 'fresh off the parachute, most bots still strike first at a player in plain view soon after that (' + early + ' of ' + N + ' within 40 s)');
+  // (One look decides it, and one that says "not now" walks on out of sight: hence well over half, not all.)
+  t.check(mid > N, 'in the middle of a match most average bots open fire on a player they can see within seconds (' + mid + ' of ' + N * 2 + ' within 12 s)');
   t.check(late >= N * 0.6, 'with only two left on the island, most do (' + late + ' of ' + N + ')');
 }
 {
@@ -1093,7 +1140,13 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   t.equal(bad, 0, 'ninety seconds of twelve bots on a real island: every intent they return is made of finite numbers');
   t.equal(frozen, 0, 'and none of them stands in one spot for 25 seconds');
   t.equal(a.dir.errors, 0, 'and no bot throws');
-  t.check(bots.filter((b) => b.p.tokens > 0 || W.CLASSES[b.p.classId].tier > 0).length >= 9, 'most of them have picked up tokens by then');
+  // Guaranteed house loot moves much of the old scattered loot behind guarded
+  // settlements. Keep the ninety-second movement checks, then allow three minutes
+  // of exploration for the existing majority-looting requirement.
+  const lootedAt90 = bots.filter(b => b.p.tokens > 0 || W.CLASSES[b.p.classId].tier > 0).length;
+  a.step(90);
+  const lootedAt180 = bots.filter(b => b.p.tokens > 0 || W.CLASSES[b.p.classId].tier > 0).length;
+  t.check(lootedAt180 >= 9 && lootedAt180 >= lootedAt90, 'most bots find tokens within three minutes and looting continues to progress (' + lootedAt90 + ' to ' + lootedAt180 + ')');
 }
 
 t.done();

@@ -25,13 +25,13 @@ for (const seed of [1, 42, 57, 79, 991, 9001]) {
   }
   t.near(map.biomeCells.reduce((sum, c) => sum + c.w * c.h, 0), S * S, 0.001, seed + ': biome cells cover exactly the whole map');
   t.check(map.biomeCells.every(c => c.id === B.at(map, c.x + c.w / 2, c.y + c.h / 2)), seed + ': draw cells resolve the same overlap as combat');
-  t.check(['village', 'small-town', 'city', 'castle', 'military-base'].every(kind => map.towns.some(town => town.kind === kind)), seed + ': all five settlement types exist');
+  t.check(map.towns.every(town => ['village', 'town'].includes(town.kind)) && map.towns.filter(town => town.kind === 'town').length === 2, seed + ': only the replacement villages and two towns exist');
   t.check(map.towns.filter(town => town.kind === 'village').every(town => {
     const houses = map.buildings.filter(b => b.settlement === town.id);
-    return houses.length >= 7 && houses.length <= 12 && houses.length === town.buildingCount && houses.every(b => b.style === 'house');
-  }), seed + ': villages contain seven to twelve actual houses');
+    return houses.length >= 6 && houses.length <= 12 && houses.length === town.buildingCount && houses.every(b => b.style === 'house');
+  }), seed + ': villages contain six to twelve actual houses');
   t.check(map.towns.every(town => town.buildingCount === map.buildings.filter(b => b.settlement === town.id).length), seed + ': all settlement counts match collision buildings');
-  t.check(map.buildings.some(b => b.style === 'keep') && map.buildings.some(b => b.style === 'tower') && map.buildings.some(b => b.style === 'hangar'), seed + ': castles and bases have distinct structures');
+  t.check(map.buildings.every(b => b.style === 'house') && map.towns.filter(town => town.kind === 'town').every(town => town.houseCount >= 20 && town.houseCount <= 30), seed + ': towns contain twenty to thirty house plots without old castles or bases');
   t.check(map.trees.every((tree, i) => tree.id === i && tree.hp === undefined && tree.maxHp === undefined && tree.alive), seed + ': leafy cover has stable IDs without health pools');
   t.check(map.trees.every(tree => tree.biome === at(tree) && tree.conceals === ['forest', 'tundra-forest', 'savannah'].includes(tree.biome)), seed + ': forest and savannah trees conceal players');
   t.check(map.bushes.length > 0 && map.bushes.every(bush => !['grassland', 'desert'].includes(at(bush))), seed + ': bushes return except in grassland and desert');

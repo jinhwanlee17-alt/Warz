@@ -10,6 +10,7 @@ const DT = 1 / 60;
 function range(extra) {
   const map = MapGen.generate(5);
   map.biomes = []; map.cacti = [];
+  map.settlementStructures = []; map.settlementVehicles = [];
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = []; map.stations = [];
   Object.assign(map, extra || {});
   return map;
@@ -48,9 +49,9 @@ const pickups = (world, type) => world.map.pickups.filter((pk) => pk.alive && pk
 for (const seed of [1, 42, 9001]) {
   const m = MapGen.generate(seed), tiers = {};
   m.crates.forEach((c) => { tiers[c.tier] = (tiers[c.tier] || 0) + 1; });
-  const q = Rules.crateQuota(m.crates.length);
-  t.equal(m.crates.length, 211, 'seed ' + seed + ': 210 regular crates plus the center legendary crate');
-  t.check(W.CRATE_ORDER.every((id) => (tiers[id] || 0) === q[id]), 'seed ' + seed + ': crates dealt by tier ' + JSON.stringify(tiers));
+  const outdoor = m.crates.filter(c => c.settlement === undefined && c.id !== m.legendaryCrateId), q = Rules.crateQuota(outdoor.length + 1);
+  t.equal(m.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': 210 regular crates plus legendary rewards');
+  t.check(W.CRATE_ORDER.filter(id => id !== 'legendary').every(id => outdoor.filter(c => c.tier === id).length === q[id]), 'seed ' + seed + ': outdoor crates retain their rarity shares');
   t.check((tiers.legendary || 0) >= 1 && (tiers.mythic || 0) >= 1 && (tiers.epic || 0) >= 5, 'seed ' + seed + ': rare crates exist');
   t.check(m.crates.filter((c) => c.tier === 'legendary').every((c) => c.hp === CRATES.legendary.hp), 'seed ' + seed + ': legendary crates are tougher');
 }

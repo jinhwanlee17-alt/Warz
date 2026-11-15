@@ -84,13 +84,14 @@
     return pts;
   }
 
-  function makeBuilding(rng, id, x, y, w, h) {
-    var walls = [], sides = rng.shuffle(['top', 'bottom', 'left', 'right']);
-    var doors = sides.slice(0, rng.chance(0.55) ? 2 : 1), doorSet = {};
+  function makeBuilding(rng, id, x, y, w, h, entrance) {
+    var walls = [], doorways = [], sides = rng.shuffle(['top', 'bottom', 'left', 'right']);
+    var doors = entrance ? [entrance] : sides.slice(0, rng.chance(0.55) ? 2 : 1), doorSet = {};
     doors.forEach(function (d) { doorSet[d] = true; });
     function horizontal(yy, door) {
       if (!door) { walls.push({ x: x, y: yy, w: w, h: WALL }); return; }
       var dx = x + WALL + rng.range(30, w - WALL * 2 - DOOR - 30);
+      doorways.push({ x: dx, y: yy, w: DOOR, h: WALL, side: yy === y ? 'top' : 'bottom' });
       walls.push({ x: x, y: yy, w: dx - x, h: WALL });
       walls.push({ x: dx + DOOR, y: yy, w: x + w - dx - DOOR, h: WALL });
     }
@@ -98,6 +99,7 @@
       var top = y + WALL, len = h - WALL * 2;
       if (!door) { walls.push({ x: xx, y: top, w: WALL, h: len }); return; }
       var dy = top + rng.range(26, len - DOOR - 26);
+      doorways.push({ x: xx, y: dy, w: WALL, h: DOOR, side: xx === x ? 'left' : 'right' });
       walls.push({ x: xx, y: top, w: WALL, h: dy - top });
       walls.push({ x: xx, y: dy + DOOR, w: WALL, h: top + len - dy - DOOR });
     }
@@ -106,7 +108,7 @@
     vertical(x, doorSet.left);
     vertical(x + w - WALL, doorSet.right);
     return {
-      id: id, x: x, y: y, w: w, h: h, walls: walls, doors: doors,
+      id: id, x: x, y: y, w: w, h: h, walls: walls, doors: doors, doorways: doorways,
       roof: rng.pick(ROOFS), ridgeVertical: h > w, vent: rng.chance(0.6), fade: 1
     };
   }
@@ -176,7 +178,8 @@
     function scaledCount(count) { return Math.round(count * area); }
     var map = {
       seed: seed, teamSize: teamSize, size: S, coast: null, ponds: [], patches: [], tufts: [], towns: [], buildings: [],
-      rocks: [], trees: [], bushes: [], cacti: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], artillery: [], groundArtillery: [], pickups: [], nextPickupId: 1
+      rocks: [], trees: [], bushes: [], cacti: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], artillery: [], groundArtillery: [],
+      settlementStructures: [], settlementVehicles: [], pickups: [], nextPickupId: 1
     };
     map.biomes = W.Biomes.generate(seed, S);
     map.biomeCells = W.Biomes.cells(map);
@@ -282,58 +285,85 @@
       occ.addCircle(x, y, pr + 30);
     }
 
-    // Distinct settlements: small villages, denser towns/cities, stone castles
-    // and regimented military compounds. Reserve their full footprint first.
-    var names = {}, settlementKinds = ['village','village','village','village','village','village',
-      'small-town','small-town','small-town','city','city','castle','castle','military-base','military-base'];
-    var settlementNames = { village: 'Village', 'small-town': 'Town', city: 'City', castle: 'Castle', 'military-base': 'Base' };
+    // Settlements have a clear courtyard, inward-facing house entrances and a
+    // reserved perimeter for their neutral guards. No other settlement types spawn.
+    var srng = U.rng((seed ^ 0x28d7e3a1) >>> 0), names = {}, villageCount = srng.int(4, 6);
+    var settlementKinds = ['town', 'town'];
+    for (var village = 0; village < villageCount; village++) settlementKinds.push('village');
+    var settlementVehicleId = Math.max.apply(null, [0].concat(map.vehicles, map.tanks, map.artillery, map.groundArtillery).map(function (v) { return v.id || 0; }));
     settlementKinds.forEach(function (kind) {
-      var radius = kind === 'city' ? 2300 : kind === 'small-town' || kind === 'military-base' ? 1800 : 1500;
+      var want = kind === 'village' ? srng.int(6, 12) : srng.int(20, 30), cols = Math.ceil(want / 2);
+      var halfW = kind === 'town' ? 1800 : Math.max(900, (cols - 1) * 200 + 400), halfH = kind === 'town' ? 1800 : 760;
+      var radius = Math.hypot(halfW, halfH), t;
       for (var attempt = 0; attempt < 3000; attempt++) {
-        x = rng.range(radius + 600, S - radius - 600); y = rng.range(radius + 600, S - radius - 600);
-        if (!inside(x, y, radius + 500) || !occ.rectFree(x - radius, y - radius, radius * 2, radius * 2) ||
-          map.towns.some(function (t) { return Math.hypot(t.x - x, t.y - y) < t.radius + radius + 500; })) continue;
+        x = srng.range(radius + 500, S - radius - 500); y = srng.range(radius + 500, S - radius - 500);
+        if (!inside(x, y, radius + 420) || !occ.rectFree(x - halfW - 100, y - halfH - 100, halfW * 2 + 200, halfH * 2 + 200) ||
+          map.drops.some(function (drop) {
+            var dx = Math.max(0, Math.abs(drop.x - x) - halfW), dy = Math.max(0, Math.abs(drop.y - y) - halfH);
+            return Math.hypot(dx, dy) < drop.clearRadius + Math.max(W.ITEMS.sentry.range, W.ITEMS.sentry2.range, W.ITEMS.sentry3.range);
+          }) ||
+          map.towns.some(function (other) { return Math.hypot(other.x - x, other.y - y) < other.radius + radius + 400; })) continue;
         var name;
-        do { name = rng.pick(PREFIX) + ' ' + rng.pick(SUFFIX) + ' ' + settlementNames[kind]; } while (names[name]);
+        do { name = srng.pick(PREFIX) + ' ' + srng.pick(SUFFIX) + (kind === 'village' ? ' Village' : ' Town'); } while (names[name]);
         names[name] = true;
-        map.towns.push({ id: map.towns.length, x: x, y: y, radius: radius, kind: kind, name: name });
+        t = { id: map.towns.length, x: x, y: y, radius: radius, halfW: halfW, halfH: halfH,
+          kind: kind, name: name, houseCount: want, buildingCount: want };
+        map.towns.push(t);
         break;
       }
-    });
-    function tryBuilding(bx, by, w, h) {
-      var pad = 80;
-      if (!inside(bx, by, 420) || !inside(bx + w, by, 420) || !inside(bx, by + h, 420) || !inside(bx + w, by + h, 420)) return false;
-      if (!occ.rectFree(bx - pad, by - pad, w + pad * 2, h + pad * 2)) return false;
-      map.buildings.push(makeBuilding(rng, map.buildings.length, bx, by, w, h));
-      occ.addRect(bx - 30, by - 30, w + 60, h + 60);
-      return true;
-    }
-    map.towns.forEach(function (t) {
-      var want = t.kind === 'village' ? rng.int(7, 12) : t.kind === 'small-town' ? rng.int(14, 20) :
-        t.kind === 'city' ? rng.int(28, 36) : t.kind === 'castle' ? 9 : rng.int(10, 14);
-      var cols = t.kind === 'city' ? 6 : t.kind === 'small-town' ? 5 : 4, rows = Math.ceil(want / cols), pitch = 600;
-      t.buildingCount = 0;
-      for (var k = 0; k < want; k++) {
-        var w = snap(rng.range(260, 400)), h = snap(rng.range(240, 360)), style = 'house';
-        var ox = (k % cols - (cols - 1) / 2) * pitch, oy = (Math.floor(k / cols) - (rows - 1) / 2) * pitch;
-        if (t.kind === 'castle') {
-          var positions = [[0,0],[-950,-950],[950,-950],[-950,950],[950,950],[0,-950],[0,950],[-950,0],[950,0]];
-          ox = positions[k][0]; oy = positions[k][1]; style = k === 0 ? 'keep' : k < 5 ? 'tower' : 'gatehouse';
-          w = h = k === 0 ? 600 : k < 5 ? 260 : 340;
-        } else if (t.kind === 'military-base') { style = k === 0 ? 'command' : k < 3 ? 'hangar' : 'barracks'; w = 420; h = 300; }
-        if (tryBuilding(t.x + ox - w / 2, t.y + oy - h / 2, w, h)) {
-          var building = map.buildings[map.buildings.length - 1];
-          building.kind = t.kind; building.style = style; building.settlement = t.id;
-          if (t.kind === 'castle') building.roof = '#727a88';
-          if (t.kind === 'military-base') building.roof = k < 3 ? '#6b7770' : '#657348';
-          t.buildingCount++;
+      if (!t) throw new Error('No clear settlement footprint for ' + kind);
+      var slots = [];
+      if (kind === 'village') {
+        for (var i = 0; i < want; i++) slots.push({ x: (i % cols - (cols - 1) / 2) * 400, y: i < cols ? -340 : 340 });
+      } else {
+        var inner = [];
+        for (var row = 0; row < 6; row++) for (var col = 0; col < 6; col++) {
+          var slot = { x: (col - 2.5) * 500, y: (row - 2.5) * 500 };
+          if (row === 0 || row === 5 || col === 0 || col === 5) slots.push(slot);
+          else if (Math.abs(slot.x) > 250 || Math.abs(slot.y) > 250) inner.push(slot);
         }
+        slots = slots.concat(srng.shuffle(inner)).slice(0, want);
       }
+      var crateTiers;
+      if (kind === 'village') {
+        crateTiers = slots.map(function () { return 'common'; });
+        crateTiers[srng.int(0, want - 1)] = want > 10 ? 'mythic' : 'epic';
+      } else {
+        crateTiers = srng.shuffle(['common','common','common','common','common','common','common','common','common','common','common',
+          'rare','rare','rare','rare','rare','epic','epic','epic','mythic']);
+        for (var extra = 20; extra < want; extra++) { var roll = srng.next(); crateTiers.push(roll < .75 ? 'common' : roll < .95 ? 'rare' : 'epic'); }
+      }
+      slots.forEach(function (slot, index) {
+        var w = snap(srng.range(220, 280)), h = snap(srng.range(200, 240));
+        var entrance = kind === 'village' ? (slot.y < 0 ? 'bottom' : 'top') :
+          Math.abs(slot.x) > Math.abs(slot.y) ? (slot.x < 0 ? 'right' : 'left') : (slot.y < 0 ? 'bottom' : 'top');
+        var b = makeBuilding(srng, map.buildings.length, t.x + slot.x - w / 2, t.y + slot.y - h / 2, w, h, entrance);
+        b.kind = kind; b.style = 'house'; b.settlement = t.id; b.crateTier = crateTiers[index];
+        b.ruined = kind === 'town' && srng.chance(.05);
+        if (b.ruined) { b.walls = []; b.ruinSeed = srng.int(1, 2147483647); }
+        map.buildings.push(b);
+      });
+      var directions = kind === 'village'
+        ? [{ name: 'north', x: 0, y: -halfH + 140 }, { name: 'east', x: halfW - 140, y: 0 },
+          { name: 'south', x: 0, y: halfH - 140 }, { name: 'west', x: -halfW + 140, y: 0 }]
+        : [{ name: 'north', x: 0, y: -1600 }, { name: 'northeast', x: 1600, y: -1600 },
+          { name: 'east', x: 1600, y: 0 }, { name: 'southeast', x: 1600, y: 1600 },
+          { name: 'south', x: 0, y: 1600 }, { name: 'southwest', x: -1600, y: 1600 },
+          { name: 'west', x: -1600, y: 0 }, { name: 'northwest', x: -1600, y: -1600 }];
+      var upgraded = kind === 'village' ? (want === 12 ? 2 : want > 8 ? 1 : 0) : 0;
+      var upgradeOrder = srng.shuffle([0, 1, 2, 3]);
+      directions.forEach(function (direction, index) {
+        var item = kind === 'town' ? (want === 30 ? 'sentry3' : 'sentry2') : (upgradeOrder.indexOf(index) < upgraded ? 'sentry2' : 'sentry');
+        map.settlementStructures.push({ kind: 'sentry', item: item, x: t.x + direction.x, y: t.y + direction.y,
+          angle: Math.atan2(direction.y, direction.x), bearing: direction.name, settlement: t.id, neutral: true });
+      });
+      map.settlementStructures.push({ kind: 'turret', item: kind === 'town' ? 'turret3' : 'turret',
+        x: t.x + (kind === 'town' && teamSize > 1 ? 130 : 0), y: t.y, angle: 0, settlement: t.id, neutral: true });
+      if (kind === 'town' && teamSize > 1) map.settlementVehicles.push({ id: ++settlementVehicleId, type: 'humvee',
+        x: t.x - 130, y: t.y, angle: 0, armed: true, settlement: t.id, neutral: true });
+      // Protect every house, doorway, guard and boarding approach from later scatter.
+      occ.addRect(t.x - halfW, t.y - halfH, halfW * 2, halfH * 2);
     });
-    for (var k = 0, extra = 0; k < 600 && extra < 12; k++) {
-      var bw = snap(rng.range(240, 380)), bh = snap(rng.range(220, 320));
-      if (tryBuilding(rng.range(500, S - 500 - bw), rng.range(500, S - 500 - bh), bw, bh)) extra++;
-    }
 
     // Upgrade stations: one per cell of a jittered grid, topped up randomly if a cell was blocked.
     function addStation(sx, sy) {
@@ -397,7 +427,9 @@
     function addCrate(cx, cy, tier) {
       tier = tier || 'common';
       var hp = W.CRATES[tier].hp;
-      map.crates.push({ id: map.crates.length, x: cx, y: cy, size: C.crateSize, tier: tier, hp: hp, maxHp: hp, alive: true, shake: 0 });
+      var crate = { id: map.crates.length, x: cx, y: cy, size: C.crateSize, tier: tier, hp: hp, maxHp: hp, alive: true, shake: 0 };
+      map.crates.push(crate);
+      return crate;
     }
     function addPickup(type, px, py, amount) {
       map.pickups.push({ id: map.nextPickupId++, type: type, x: px, y: py, amount: amount || 1, alive: true, age: rng.range(0, 6), vx: 0, vy: 0 });
@@ -408,12 +440,9 @@
         for (var i = 0; i < spots.length; i++) if (Math.hypot(spots[i].x - px, spots[i].y - py) < gap) return false;
         return true;
       }
-      var crates = map.crates.length < C.regularCrateCount && rng.chance(C.crateInBuilding) ? 1 : 0;
-      for (tries2 = 0; tries2 < 40 && crates > 0; tries2++) {
-        var cx = rng.range(b.x + WALL + 40, b.x + b.w - WALL - 40), cy = rng.range(b.y + WALL + 40, b.y + b.h - WALL - 40);
-        if (!free(cx, cy, 76)) continue;
-        spots.push({ x: cx, y: cy }); addCrate(cx, cy); crates--;
-      }
+      var cx = b.x + b.w / 2, cy = b.y + b.h / 2, houseCrate = addCrate(cx, cy, b.crateTier);
+      houseCrate.building = b.id; houseCrate.settlement = b.settlement;
+      spots.push({ x: cx, y: cy });
       var loot = [];
       if (rng.chance(0.55)) loot.push('token');
       if (rng.chance(0.06)) loot.push('key');
@@ -444,17 +473,23 @@
     for (y = 380; map.crates.length < C.regularCrateCount && y < S - 380; y += 160) {
       for (x = 380; map.crates.length < C.regularCrateCount && x < S - 380; x += 160) outdoorCrates(x, y);
     }
-    // Only regular crates enter the 80/10/8/2 deck. The legendary is never
-    // shuffled into a building: it is the single crate at the island centre.
-    var quota = W.Rules.crateQuota(map.crates.length + 1), deck = [];
+    // House rewards stay fixed. Only outdoor crates enter the ordinary rarity deck.
+    var outdoor = map.crates.filter(function (crate) { return crate.building === undefined; });
+    var quota = W.Rules.crateQuota(outdoor.length + 1), deck = [];
     W.CRATE_ORDER.forEach(function (tier) { if (tier !== 'legendary') for (var q = 0; q < (quota[tier] || 0); q++) deck.push(tier); });
     rng.shuffle(deck).forEach(function (tier, idx) {
-      var cr = map.crates[idx];
+      var cr = outdoor[idx];
       cr.tier = tier;
       cr.hp = cr.maxHp = W.CRATES[tier].hp;
     });
     map.legendaryCrateId = map.crates.length;
     addCrate(S / 2, S / 2, 'legendary');
+    map.towns.forEach(function (town) {
+      if (town.kind !== 'town' || town.houseCount !== 30) return;
+      var bonus = addCrate(town.x, town.y + 240, 'legendary');
+      bonus.settlement = town.id; bonus.legendaryDrops = 1;
+      town.legendaryCrateId = bonus.id;
+    });
     scatter(C.tokenLoose, 4000, function (px, py) {
       if (!inside(px, py, 300) || !occ.circleFree(px, py, 22) || inPond(px, py, 20)) return false;
       addPickup('token', px, py, 1);

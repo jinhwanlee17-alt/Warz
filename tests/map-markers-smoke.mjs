@@ -25,7 +25,7 @@ vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'js', 'map-art.js'), 'utf8'),
 });
 
 const map = W.MapGen.generate(57), world = new W.World({ map, storm: false });
-const crate = map.crates.find(c => c.tier === 'legendary');
+const crate = map.crates.find(c => c.tier === 'legendary' && c.legendaryDrops !== 1);
 function icons(draw) { return draw.rects.filter(r => r.color === '#ffd44f'); }
 for (const [big, px, dpr] of [[false, 190, 1], [false, 280, 2], [true, 863, 1], [true, 716, 2]]) {
   const label = (big ? 'full map' : 'minimap') + ' DPR ' + dpr;

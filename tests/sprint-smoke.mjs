@@ -11,6 +11,7 @@ function clearWorld(world) {
   world.map.rocks = []; world.map.trees = []; world.map.buildings = []; world.map.crates = [];
   world.map.pickups = []; world.map.ponds = []; world.map.stations = [];
   world.solids = new W.U.SpatialHash(256); world.storm = null;
+  world.structures = []; world.vehicles = [];
 }
 function arena() {
   const world = new W.World({ map: W.MapGen.generate(22), storm: false });

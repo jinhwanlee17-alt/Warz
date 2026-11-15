@@ -86,7 +86,7 @@
     var objects = [];
     this.solids.query(x - radius, y - radius, x + radius, y + radius, function (entry) {
       var o = entry.crate || entry.struct;
-      if (!o || !o.alive || (entry.struct && (o.kind === 'rock' || o.mounted || o.team === g.team))) return;
+      if (!o || !o.alive || (entry.struct && (o.kind === 'rock' || (o.mounted && !o.neutral) || o.team === g.team))) return;
       var d = entry.crate ? Math.hypot(x - U.clamp(x, entry.x, entry.x + entry.w), y - U.clamp(y, entry.y, entry.y + entry.h)) : Math.max(0, Math.hypot(x - o.x, y - o.y) - o.r);
       var direct = solid && (solid.crate === o || solid.struct === o);
       if (direct || (d <= radius && self.lineClear(x, y, o.x, o.y, o))) objects.push({ o: o, crate: !!entry.crate, damage: self.rpgDamageAt(d, null, direct) });

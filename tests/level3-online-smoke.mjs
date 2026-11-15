@@ -15,6 +15,9 @@ const match = new Match({ W: ServerW, id: 'level3-check', seed: 23, mode: 'solo'
 const [p, foe] = match.players, world = match.world;
 function clear(world) {
   for (const key of ['rocks', 'trees', 'buildings', 'crates', 'pickups', 'ponds']) world.map[key] = [];
+  // Isolate player construction from the island's pre-existing settlement defenses.
+  world.map.settlementStructures = []; world.map.settlementVehicles = [];
+  world.structures = [];
   world.solids = new W.U.SpatialHash(256);
   world.vehicles.forEach((v, i) => { v.x = 2000 + i * 300; v.y = 2000; });
   world.map.stations = [{ id: 0, number: 1, x: 5000, y: 5000, cooldown: 0 }];

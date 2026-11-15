@@ -35,10 +35,11 @@
   World.prototype.initVehicles = function () {
     var self = this;
     this.tankShells = []; this.nextTankShellId = 1;
-    this.vehicles = this.demo ? [] : (this.map.vehicles || []).concat(this.map.tanks || [], this.map.artillery || [], this.map.groundArtillery || []).map(function (s, i) {
+    this.vehicles = this.demo ? [] : (this.map.vehicles || []).concat(this.map.tanks || [], this.map.artillery || [], this.map.groundArtillery || [], this.map.settlementVehicles || []).map(function (s, i) {
       var tank = s.type === 'tank', artillery = s.type === 'artillery', def = W.vehicleDef(s);
       return { id: s.id || i + 1, x: s.x, y: s.y, vx: 0, vy: 0, angle: s.angle || 0,
-        type: artillery ? 'artillery' : tank ? 'tank' : 'humvee', fixed: artillery && !!s.fixed, r: def.radius, hp: def.hp, maxHp: def.hp, wreck: false, armed: tank || (!artillery && self.teams && i < 2),
+        type: artillery ? 'artillery' : tank ? 'tank' : 'humvee', fixed: artillery && !!s.fixed, r: def.radius, hp: def.hp, maxHp: def.hp, wreck: false, armed: tank || (!artillery && (s.armed === true || (self.teams && i < 2))),
+        settlement: s.settlement === undefined ? null : s.settlement,
         seats: { driver: 0, gunner: 0, rearLeft: 0, rearRight: 0 }, gunAngle: s.angle || 0,
         cannonAngle: s.angle || 0, cannonCooldown: 0, cannonAmmo: 1, cannonMaxAmmo: 1, cannonReload: 0, cannonUpgraded: false,
         cannonFlash: 0, mgAmmo: tank ? T.mgMagazine : 0, mgReload: 0,
@@ -53,6 +54,7 @@
   };
   World.prototype.vehicleTeam = function (v) {
     for (var i = 0; i < SEATS.length; i++) {
+      if (!v.seats[SEATS[i]]) continue; // an empty seat (0) would otherwise scan every player; sentries ask this for every hull, every tick
       var p = this.playerById(v.seats[SEATS[i]]);
       if (p && p.alive) return p.team;
     }
@@ -430,7 +432,7 @@
       });
       var objects = [];
       this.solids.query(x - R, y - R, x + R, y + R, function (s) {
-        if ((s.crate && s.crate.alive) || (s.struct && s.struct.alive && s.struct.maxHp && !s.struct.mounted && s.struct.team !== team)) objects.push(s);
+        if ((s.crate && s.crate.alive) || (s.struct && s.struct.alive && s.struct.maxHp && (!s.struct.mounted || s.struct.neutral) && s.struct.team !== team)) objects.push(s);
       });
       objects = objects.map(function (s) {
         var target = s.crate || s.struct;

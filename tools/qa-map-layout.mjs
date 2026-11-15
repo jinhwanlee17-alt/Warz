@@ -56,14 +56,15 @@ try {
     await browser.cmd('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: width === 390 ? 2 : 1, mobile: false });
     await sleep(170);
     const result = await evaluate(() => ({ ...mapLayoutQA.labels, marker: mapLayoutQA.full, mini: mapLayoutQA.mini, self: mapLayoutQA.self,
-      width: innerWidth, height: innerHeight, singleCanvas: document.getElementById('map-screen').children.length === 1 }));
+      width: innerWidth, height: innerHeight, expectedMarkers: Warz.debug.match().world.map.crates.filter(c => c.tier === 'legendary' && c.alive).length,
+      singleCanvas: document.getElementById('map-screen').children.length === 1 }));
     layouts.push({ mode, ...result });
     check(result.labels.length === count && result.labels.every(l => l.x - l.width / 2 >= 0 && l.x + l.width / 2 <= result.px && l.y - l.height / 2 >= 0 && l.y + l.height / 2 <= result.px),
       mode + ' ' + width + 'px: all ' + count + ' coastal drop labels fit inside the map');
     check(result.labels.every((a, i) => result.labels.slice(0, i).every(b => Math.abs(a.x - b.x) >= (a.width + b.width) / 2 || Math.abs(a.y - b.y) >= (a.height + b.height) / 2)),
       mode + ' ' + width + 'px: drop labels remain readable without overlapping each other');
-    check(result.marker.length === 1 && result.mini.length === 1 && result.singleCanvas,
-      mode + ' ' + width + 'px: one gold Legendary crate icon appears on both maps without extra panel clutter');
+    check(result.marker.length === result.expectedMarkers && result.mini.length === result.expectedMarkers && result.singleCanvas,
+      mode + ' ' + width + 'px: every live Legendary reward has a gold icon on both maps');
     check(result.self.x - result.self.width / 2 >= 0 && result.self.x + result.self.width / 2 <= result.px &&
       result.self.y - result.self.height / 2 >= 0 && result.self.y + result.self.height / 2 <= result.px,
       mode + ' ' + width + 'px: coastal You label remains entirely within the map');
@@ -72,12 +73,12 @@ try {
 
   await evaluate(() => { Warz.App.startPractice(); Warz.debug.player().dropT = 0; });
   await pressMap(); await browser.waitFor('Warz.MapScreen.isOpen()');
-  check(await evaluate(() => { const w = Warz.debug.match().world; return w.map.drops.length === 50 && w.map.crates.length === 211; }),
-    'Practice uses fifty coastal drops and 210 regular crates plus the center Legendary');
+  check(await evaluate(() => { const w = Warz.debug.match().world; return w.map.drops.length === 50 && w.map.crates.filter(c => c.tier !== 'legendary').length === 210; }),
+    'Practice uses fifty coastal drops and 210 regular crates alongside Legendary rewards');
   await layout('practice', 50, 1440, 900); await layout('practice', 50, 390, 844);
-  await evaluate(() => { const w = Warz.debug.match().world, c = w.map.crates.find(c => c.tier === 'legendary'); w.damageCrate(c, c.hp, null, c.x, c.y); });
-  await browser.waitFor('mapLayoutQA.full.length===0 && mapLayoutQA.mini.length===0');
-  check(true, 'Breaking the Practice Legendary removes both live map markers immediately');
+  await evaluate(() => { const w = Warz.debug.match().world, c = w.map.crates.find(c => c.tier === 'legendary' && c.legendaryDrops !== 1); w.damageCrate(c, c.hp, null, c.x, c.y); });
+  await browser.waitFor('mapLayoutQA.full.length===Warz.debug.match().world.map.crates.filter(c=>c.tier==="legendary"&&c.alive).length && mapLayoutQA.mini.length===mapLayoutQA.full.length');
+  check(true, 'Breaking the Practice center Legendary removes its marker from both maps');
 
   let finalLive, finalOwner;
   for (const [mode, teamSize, count] of [['solo', 1, 50], ['duo', 2, 25], ['trio', 3, 16], ['squad', 4, 12]]) {
@@ -90,7 +91,7 @@ try {
     const state = await evaluate(() => {
       const w = Warz.debug.match().world, m = w.map, S = m.size;
       const extent = v => Math.max(Math.abs(v.x - S / 2), Math.abs(v.y - S / 2)) / S;
-      return { teamSize: m.teamSize, dropCount: m.drops.length, crates: m.crates.length,
+      return { teamSize: m.teamSize, dropCount: m.drops.length, crates: m.crates.filter(c => c.tier !== 'legendary').length,
         drops: m.drops.map(d => [d.x, d.y]), vehicles: m.vehicles.map(v => [v.x, v.y]),
         tanks: m.tanks.map(v => [v.x, v.y]), artillery: m.artillery.map(v => [v.x, v.y]),
         ring: m.vehicles.length === 8 && m.tanks.length === 4 && m.artillery.length === 4 &&
@@ -104,17 +105,18 @@ try {
       drops: samePoints(state.drops, live.world.map.drops), vehicles: samePoints(state.vehicles, live.world.map.vehicles),
       tanks: samePoints(state.tanks, live.world.map.tanks), artillery: samePoints(state.artillery, live.world.map.artillery) };
     layouts.push({ mode, state, agreement });
-    check(state.teamSize === teamSize && state.dropCount === count && state.crates === 211 && state.ring && agreement.drops && agreement.vehicles && agreement.tanks && agreement.artillery,
+    check(state.teamSize === teamSize && state.dropCount === count && state.crates === 210 && state.ring && agreement.drops && agreement.vehicles && agreement.tanks && agreement.artillery,
       mode + ': client and server agree on outer Humvees, middle artillery, inner tanks, coastal drops and crates');
     await pressMap(); await browser.waitFor('Warz.MapScreen.isOpen()');
     await layout(mode, count, 1440, 900); await layout(mode, count, 390, 844);
     finalLive = live; finalOwner = owner;
   }
-  const legendary = finalLive.world.map.crates.find(c => c.tier === 'legendary');
+  const legendary = finalLive.world.map.crates.find(c => c.tier === 'legendary' && c.legendaryDrops !== 1);
   const breaker = finalLive.players.find(p => p !== finalOwner);
   check(Math.hypot(finalOwner.x - legendary.x, finalOwner.y - legendary.y) > 3000, 'Viewer is far outside the center crate interest area');
   finalLive.world.damageCrate(legendary, legendary.hp, breaker.id, legendary.x, legendary.y);
-  await browser.waitFor('!Warz.debug.match().world.map.crates.find(c=>c.tier==="legendary").alive && mapLayoutQA.full.length===0 && mapLayoutQA.mini.length===0');
+  const remainingLegendary = finalLive.world.map.crates.filter(c => c.tier === 'legendary' && c.alive).length;
+  await browser.waitFor('!Warz.debug.match().world.map.crates.find(c=>c.tier==="legendary"&&c.legendaryDrops!==1).alive && mapLayoutQA.full.length===' + remainingLegendary + ' && mapLayoutQA.mini.length===' + remainingLegendary);
   check(true, 'Another player breaking the Legendary removes full-map and minimap markers through the real socket');
   await browser.shot('online-legendary-broken.png');
   const ticket = finalLive.slots.find(s => s.player === finalOwner).ticket;
@@ -122,7 +124,7 @@ try {
   await browser.waitFor('Warz.debug.online().info.rejoin && Warz.debug.online().snapCount>2');
   await pressMap(); await browser.waitFor('Warz.MapScreen.isOpen()');
   await sleep(150);
-  check(await evaluate(() => mapLayoutQA.full.length === 0 && mapLayoutQA.mini.length === 0 && mapLayoutQA.markerHistory.every(n => n === 0)),
+  check(await evaluate(count => mapLayoutQA.full.length === count && mapLayoutQA.mini.length === count && mapLayoutQA.markerHistory.every(n => n === count), remainingLegendary),
     'Reconnect preserves the broken crate state without flashing a seeded marker');
   await browser.shot('online-rejoin-marker-absent.png');
   check(browser.errors.length === 0, 'No browser exceptions across all map modes, marker destruction or reconnect');

@@ -39,6 +39,7 @@
     this.buildSolids();
     this.vehicles = [];
     if (this.initVehicles) this.initVehicles();
+    if (!this.demo && this.initSettlementStructures) this.initSettlementStructures();
     if (this.remote) this.storm = { remote: true, x: C.worldSize / 2, y: C.worldSize / 2, r: C.worldSize, next: null, state: 'waiting', timeLeft: 0, dps: 0, phase: 0 };
     else this.storm = (this.demo || opts.storm === false) ? null : new Storm(this);
   }
@@ -723,6 +724,7 @@
     this.solids.query(Math.min(x1, x2) - br, Math.min(y1, y2) - br, Math.max(x1, x2) + br, Math.max(y1, y2) + br, function (s) {
       if (s.crate && !s.crate.alive) return;
       if (s.rock && !s.rock.alive) return;
+      if (s.struct && s.struct.mounted && s.struct.mounted === ownerId) return;
       if (s.struct && (!s.struct.alive || (teamed && s.struct.team === ownerTeam && s.struct.kind !== 'rock'))) return; // rocks block everyone
       var t = s.shape === 'circle'
         ? U.segCircle(x1, y1, x2, y2, s.x, s.y, s.r + br)
@@ -984,7 +986,7 @@
         if (dmg2 > 0) self.damageCrate(s.crate, dmg2, ownerId, s.crate.x, s.crate.y - s.h / 2);
       });
       structs.forEach(function (s) {
-        if (hitMounts[s.id]) return;
+        if (hitMounts[s.id] && !s.neutral) return;
         var d3 = Math.hypot(x - s.x, y - s.y) - s.r;
         if (d3 >= R || !self.lineClear(x, y, s.x, s.y, s)) return;
         var dmg3 = Rules.explosionDamage(ex.maxDamage, R, Math.max(0, d3));

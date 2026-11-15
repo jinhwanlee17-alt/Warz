@@ -108,7 +108,7 @@
       this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
         if (plant.alive !== false && inFlame(plant, plant.hitRadius)) self.damageFoliage(plant, stage.damage, p.id, def.id);
       });
-      this.structures.forEach(function (s) { if (s.alive && s.maxHp && !s.mounted && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, stage.damage, p.id, s.x, s.y, def.id); });
+      this.structures.forEach(function (s) { if (s.alive && s.maxHp && (!s.mounted || s.neutral) && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, stage.damage, p.id, s.x, s.y, def.id); });
       this.flameFx(p.x, p.y, p.angle, def.range);
       this.emit({ type: 'flame', weapon: def.id, player: p, x: p.x, y: p.y, angle: p.angle, range: def.range, halfAngle: def.halfAngle, damage: stage.damage });
     } while (w.cooldown <= EPS && pulses < 8);

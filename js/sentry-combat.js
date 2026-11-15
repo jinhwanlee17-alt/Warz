@@ -245,7 +245,7 @@
     var objects = [];
     this.solids.query(x - radius, y - radius, x + radius, y + radius, function (s) {
       var o = s.crate || s.struct;
-      if (!o || !o.alive || (s.struct && (s.struct.kind === 'rock' || s.struct.mounted || s.struct.team === g.team))) return;
+      if (!o || !o.alive || (s.struct && (s.struct.kind === 'rock' || (s.struct.mounted && !s.struct.neutral) || s.struct.team === g.team))) return;
       var d = s.crate ? Math.hypot(x - U.clamp(x, s.x, s.x + s.w), y - U.clamp(y, s.y, s.y + s.h)) : Math.max(0, Math.hypot(x - o.x, y - o.y) - o.r);
       var direct = solid && (solid.crate === o || solid.struct === o);
       if (direct || (d < radius && self.lineClear(x, y, o.x, o.y, o))) objects.push({ s: s, o: o, damage: damage(d, direct) });
@@ -263,7 +263,7 @@
     var def = IV[g.kind], cause = 'sentry-' + g.kind, solid = hit && hit.solid, target = hit && hit.player;
     if (g.kind === 'grenades' || g.kind === 'rockets') this.sentryBlast(g, hit, x, y);
     else {
-      if (solid && solid.struct && solid.struct.mounted) target = this.playerById(solid.struct.mounted);
+      if (solid && solid.struct && solid.struct.mounted && !solid.struct.neutral) target = this.playerById(solid.struct.mounted);
       if (target) {
         var from = { x: x - g.dx * 40, y: y - g.dy * 40 }, bypass = g.kind === 'cannons' || g.kind === 'fireballs';
         var blocked = target.fx.immune > 0 || (!bypass && this.shieldBlocks(target, from.x, from.y, cause));

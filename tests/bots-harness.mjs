@@ -10,6 +10,7 @@ export const TICK = 1 / 20;
 export function emptyMap(seed = 5, extra = {}) {
   const map = W.MapGen.generate(seed);
   map.biomes = []; map.cacti = [];
+  map.settlementStructures = []; map.settlementVehicles = []; map.artillery = []; map.groundArtillery = [];
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = []; map.stations = []; map.vehicles = []; map.tanks = [];
   return Object.assign(map, extra);
 }

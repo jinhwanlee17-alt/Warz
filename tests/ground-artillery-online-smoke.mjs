@@ -26,7 +26,7 @@ try {
   for(const it of match.players){it.dropT=0;it.net.conn={open:true,sendText(){},sendJson(){},close(){}};}
   p.x=v.x-v.r-30;p.y=v.y;ally.x=p.x;ally.y=p.y+10;enemy.x=11000;enemy.y=5000;enemy.hp=enemy.maxHp=10000;
   let replica=connect();
-  t.equal(last.vehicles.length,22,'all mobile hulls and six fixed cannons reach snapshots');
+  t.equal(last.vehicles.length,world.vehicles.length,'all ring hulls, town Humvees and six fixed cannons reach snapshots');
   t.equal(last.vehicles.filter(v=>v.fixed).length,6,'snapshots identify exactly six fixed cannons');
   t.check(replica.fixed&&replica.type==='artillery','client keeps fixed identity and artillery weapon family');
   t.equal(state.world.vehicleMaxSpeed(replica),0,'replica uses immovable cannon definition');

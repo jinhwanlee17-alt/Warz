@@ -19,7 +19,7 @@ for (const seed of [1, 42, 9001, 123456, 777777]) {
   }
   t.check(minGap >= C.stationMinGap, 'seed ' + seed + ': stations spread out (closest pair ' + Math.round(minGap) + ')');
   t.check(m.buildings.length >= 18, 'seed ' + seed + ': towns have buildings (' + m.buildings.length + ')');
-  t.equal(m.crates.length, C.regularCrateCount + 1, 'seed ' + seed + ': regular crate quota plus one legendary crate');
+  t.equal(m.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': regular crate quota alongside legendary rewards');
   const tokens = m.pickups.filter((p) => p.type === 'token').length;
   t.check(tokens >= C.tokenLoose && tokens <= C.tokenLoose + m.buildings.length, 'seed ' + seed + ': loose tokens plus at most one per building (' + tokens + ')');
   t.check(m.pickups.filter((p) => p.type === 'key').length >= 3, 'seed ' + seed + ': a few station keys');
@@ -37,6 +37,7 @@ function range(extra) {
   const map = MapGen.generate(5);
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = [];
   map.stations = []; map.biomes = []; map.cacti = [];
+  map.settlementStructures = []; map.settlementVehicles = [];
   Object.assign(map, extra || {});
   return map;
 }

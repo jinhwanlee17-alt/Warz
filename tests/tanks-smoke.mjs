@@ -28,7 +28,7 @@ function impact(a, x, y, hit = null) { a.w.tankShellImpact({ id: 99, owner: a.p.
 for (const seed of [1, 57, 9001]) {
   const map = W.MapGen.generate(seed), w = new W.World({ map, storm: false });
   t.equal(map.tanks.length, 4, seed + ': four tanks spawn');
-  t.equal(w.vehicles.length, W.VEHICLE.count + W.TANK.count + W.ARTILLERY.count + W.GROUND_ARTILLERY.count, seed + ': tanks coexist with Humvees and artillery');
+  t.equal(w.vehicles.length, W.VEHICLE.count + W.TANK.count + W.ARTILLERY.count + W.GROUND_ARTILLERY.count + (map.settlementVehicles || []).length, seed + ': tanks coexist with ring and settlement vehicles');
   t.equal(JSON.stringify(map.tanks), JSON.stringify(W.MapGen.generate(seed).tanks), seed + ': deterministic tank spawns');
   for (const v of w.vehicles.filter(v => v.type === 'tank')) {
     const extent = Math.max(Math.abs(v.x-map.size/2), Math.abs(v.y-map.size/2))/map.size;

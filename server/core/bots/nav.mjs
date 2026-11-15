@@ -3,7 +3,7 @@
 // simulation will let a player walk through; crates breaking and rocks being placed just invalidate a few cells.
 const CELL = 32;          // door gaps are 86 wide: with CLEAR = 25 every doorway keeps at least one free column
 const CLEAR = 25;         // a path's centre line stays this far from solids (players are 24 wide)
-const WALK = 21;          // swept-circle radius for "can I walk straight there" (smaller than a player, so touching a wall is fine)
+const WALK = 23.9;        // match a 24-unit player's footprint without treating tangential wall contact as penetration
 const UNKNOWN = 0, FREE = 1, BLOCKED = 2, POND = 3;
 const POND_COST = 1.7;    // ponds slow you to 62%
 const WEIGHT = 1.25;      // weighted A*: slightly greedy, far fewer expansions on an open island
@@ -112,7 +112,11 @@ export class Nav {
     if (opts.avoid) {
       for (const a of opts.avoid) {
         // Leaving a zone you are already in is always allowed; cutting into or through one is not.
-        if (Math.hypot(x1 - a.x, y1 - a.y) < a.r) continue;
+        const start = Math.hypot(x1 - a.x, y1 - a.y);
+        if (start < a.r) {
+          if (a.hard && Math.hypot(x2 - a.x, y2 - a.y) < start - 1e-6) return false;
+          continue;
+        }
         if (U.segCircle(x1, y1, x2, y2, a.x, a.y, a.r) >= 0) return false;
       }
     }
@@ -127,16 +131,18 @@ export class Nav {
   }
 
   // Index of a free cell at or next to a point, or -1. `from` prefers cells the point can actually walk to.
-  freeCellNear(x, y, rings, reach) {
+  freeCellNear(x, y, rings, reach, avoid) {
     const n = this.n, cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
-    if (this.state(cx, cy) !== BLOCKED) return cy * n + cx;
+    const usable = (ix, iy) => this.state(ix, iy) !== BLOCKED &&
+      !(avoid && avoid.some(zone => zone.hard && Math.hypot((ix + .5) * CELL - zone.x, (iy + .5) * CELL - zone.y) < zone.r));
+    if (usable(cx, cy)) return cy * n + cx;
     let best = -1, bestD = Infinity;
     for (let ring = 1; ring <= rings && best < 0; ring++) {
       for (let dy = -ring; dy <= ring; dy++) {
         for (let dx = -ring; dx <= ring; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
           const ix = cx + dx, iy = cy + dy;
-          if (this.state(ix, iy) === BLOCKED) continue;
+          if (!usable(ix, iy)) continue;
           const px = (ix + 0.5) * CELL, py = (iy + 0.5) * CELL, d = Math.hypot(px - x, py - y);
           if (d >= bestD || (reach && !this.segmentClear(x, y, px, py))) continue;
           bestD = d; best = iy * n + ix;
@@ -189,10 +195,11 @@ export class Nav {
     this.budget--;
     this.stats.searches++;
     const n = this.n, maxNodes = opts.maxNodes || 2600, avoid = opts.avoid && opts.avoid.length ? opts.avoid : null;
-    const start = this.freeCellNear(sx, sy, 2, true), goal = this.freeCellNear(gx, gy, opts.goalRings === undefined ? 4 : opts.goalRings, false);
+    const start = this.freeCellNear(sx, sy, 2, true), goal = this.freeCellNear(gx, gy, opts.goalRings === undefined ? 4 : opts.goalRings, false, avoid);
     if (start < 0 || goal < 0) return null;
     const goalX = goal % n, goalY = (goal - goalX) / n;
-    const exact = Math.floor(gx / CELL) === goalX && Math.floor(gy / CELL) === goalY;
+    const goalPoint = this.center(goal);
+    const exact = !this.solidAt(gx, gy, CLEAR) && this.segmentClear(goalPoint.x, goalPoint.y, gx, gy, { avoid });
     if (start === goal) return { points: [exact ? { x: gx, y: gy } : this.center(goal)], partial: false };
     const id = ++this.search, g = this.g, from = this.from, seen = this.seen, done = this.done;
     const h = (ix, iy) => {
@@ -218,10 +225,20 @@ export class Nav {
         const ni = ny * n + nx;
         if (done[ni] === id) continue;
         let cost = DIRS[k][2] * (s === POND ? POND_COST : 1);
+        let forbidden = false;
         if (avoid) {
           const px = (nx + 0.5) * CELL, py = (ny + 0.5) * CELL;
-          for (let a = 0; a < avoid.length; a++) if (Math.hypot(px - avoid[a].x, py - avoid[a].y) < avoid[a].r) cost += avoid[a].cost || 12;
+          for (const zone of avoid) {
+            const nextDistance = Math.hypot(px - zone.x, py - zone.y);
+            if (nextDistance >= zone.r) continue;
+            if (zone.hard) {
+              const currentDistance = Math.hypot((cx + .5) * CELL - zone.x, (cy + .5) * CELL - zone.y);
+              if (currentDistance >= zone.r || nextDistance < currentDistance - 1e-6) { forbidden = true; break; }
+            }
+            cost += zone.cost || 12;
+          }
         }
+        if (forbidden) continue;
         const ng = base + cost;
         if (seen[ni] === id && ng >= g[ni] - 1e-4) continue;
         seen[ni] = id; g[ni] = ng; from[ni] = cur;
@@ -239,7 +256,7 @@ export class Nav {
     for (let c = best; c !== start && c >= 0; c = from[c]) cells.push(c);
     cells.reverse();
     const raw = cells.map((c) => this.center(c));
-    if (found && exact) raw[raw.length - 1] = { x: gx, y: gy };
+    if (found && exact) raw.push({ x: gx, y: gy });
     return { points: this.pull(sx, sy, raw, { avoid, dry: true }), partial: !found };
   }
 

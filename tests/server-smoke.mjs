@@ -194,7 +194,7 @@ t.check(!sharedRock.alive && !!(await waitSnap(mA, m => m.e.some(e => e.t === 's
 
 // Legendary crate announcements and all four drops reach players outside view.
 itemB.x = 1100; itemB.y = 1100; itemB.vx = itemB.vy = 0;
-const legendaryCrate = itemWorld.map.crates.find(c => c.tier === 'legendary');
+const legendaryCrate = itemWorld.map.crates.find(c => c.tier === 'legendary' && c.legendaryDrops !== 1);
 mA.drop('snap'); mB.drop('snap');
 itemWorld.damageCrate(legendaryCrate, 99999, itemA.id, legendaryCrate.x, legendaryCrate.y);
 const legendaryLocal = await waitSnap(mA, m => m.e.some(e => e.t === 'legendary-crate-broken'));

@@ -186,13 +186,31 @@ Object.assign(Bot.prototype, {
     const p = this.p, nav = this.nav, world = this.world, lob = gun.min > 0;
     const radii = lob ? [gun.min + 30, gun.range - 20] : gun.range < 120 ? [72, gun.range] : [90, 160, Math.min(240, gun.range - 20)];
     let best = null, bs = Infinity;
+    const consider = (x, y) => {
+      const distance = Math.hypot(c.x - x, c.y - y);
+      if (distance > gun.range || distance < gun.min || !nav.freeAt(x, y) || nav.solidAt(x, y, p.r + 1)) return;
+      if (this.avoid.some(zone => zone.hard && Math.hypot(x - zone.x, y - zone.y) < zone.r)) return;
+      if (!lob) { const hit = world.sweep(x, y, c.x, c.y, 5, p.id, p.team); if (!(hit && hit.solid && hit.solid.crate === c)) return; }
+      const s = Math.hypot(x - p.x, y - p.y) + (nav.pondAt(x, y) ? 150 : 0);
+      if (s < bs) { bs = s; best = { x, y }; }
+    };
+    const buildingIndex = c.building === undefined ? this.d.crateMeta[c.id]?.building : c.building;
+    const building = world.map.buildings[buildingIndex];
+    // Compact houses can have narrow strips beside their crate which a coarse
+    // navigation cell cannot enter. Shoot through the visible doorway from a
+    // reachable outside position instead of choosing that isolated interior cell.
+    if (!lob && building && !building.ruined && building.doorways) {
+      for (const door of building.doorways) {
+        const nx = door.side === 'left' ? -1 : door.side === 'right' ? 1 : 0,
+          ny = door.side === 'top' ? -1 : door.side === 'bottom' ? 1 : 0;
+        for (const offset of [50, 70, 90, 120]) consider(door.x + door.w / 2 + nx * offset, door.y + door.h / 2 + ny * offset);
+      }
+      if (best) return best;
+    }
     for (const R of radii) {
       for (let k = 0; k < 12; k++) {
         const a = k / 12 * TAU + 0.26, x = c.x + Math.cos(a) * R, y = c.y + Math.sin(a) * R;
-        if (!nav.freeAt(x, y)) continue;
-        if (!lob) { const hit = world.sweep(x, y, c.x, c.y, 5, p.id, p.team); if (!(hit && hit.solid && hit.solid.crate === c)) continue; }
-        const s = Math.hypot(x - p.x, y - p.y) + (nav.pondAt(x, y) ? 150 : 0);
-        if (s < bs) { bs = s; best = { x, y }; }
+        consider(x, y);
       }
     }
     return best;

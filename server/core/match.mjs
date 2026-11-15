@@ -421,7 +421,8 @@ export class Match {
   }
 
   encodeStruct(s) {
-    return { id: s.id, k: s.kind, it: s.item, x: r1(s.x), y: r1(s.y), r: s.r, o: s.owner || 0, tm: s.team, hp: Math.round(s.hp), mhp: s.maxHp, a: r2(s.angle), m: s.mounted || 0, pr: s.pair || 0 };
+    return { id: s.id, k: s.kind, it: s.item, x: r1(s.x), y: r1(s.y), r: s.r, o: s.owner || 0, tm: s.team, hp: Math.round(s.hp), mhp: s.maxHp, a: r2(s.angle), m: s.mounted || 0, pr: s.pair || 0,
+      nt: !!s.neutral, seeded: !!s.seeded, settlement: s.settlement };
   }
   encodeSentryProjectile(p) {
     const row = [p.id, p.kind, p.owner, p.team, p.sentry, r2(p.x), r2(p.y), p.dx, p.dy, p.r, p.speed, r2(p.traveled), p.range, r3(p.age)];

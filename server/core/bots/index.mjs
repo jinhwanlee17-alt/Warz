@@ -7,6 +7,7 @@ import { Bot } from './bot.mjs';
 import './bot-combat.mjs';
 import './bot-loot.mjs';
 import './bot-items.mjs';
+import './bot-vehicles.mjs';
 import { makeProfile, makeNames } from './profile.mjs';
 
 const HEAR = 1500;            // gunfire carries about this far (the client fades it out at the same distance)
@@ -56,10 +57,16 @@ export class BotDirector {
     this.aggro = new Map();
     this.alive = 0;
     this.heat = 0;
-    // How readily a bot picks a fight with a person who has not provoked it. At the usual level bots go for people a
-    // little more often than for each other, not several times as often: the lobby should not be harder on a
-    // player than on a bot that plays as well as they do.
-    this.humanKeen = 0.2 + this.level * 0.8;
+    // How readily a bot picks a fight with a person who has not provoked it (a multiplier on Bot.freeChoice). At the
+    // usual level an average bot that has someone on its screen strikes first about six times in ten each time it
+    // thinks about it; BOT_SKILL 0 halves that, 1 makes it half as much again.
+    this.humanKeen = 0.5 + this.level;
+    // Vehicles: who is walking to which one, and who was last shelled when (so a lobby's artillery cannot rain on one
+    // person). The cannon is not a WEAPONS entry; bots aim it like any other gun.
+    this.vehicleClaims = new Map();
+    this.shells = new Map();
+    this.boxes = new Map();
+    this.cannonDef = { id: 'tankcannon', kind: 'cannon', projectileSpeed: W.TANK.cannonSpeed, range: W.TANK.cannonRange };
     this.keen = 1;
     this.endgame = false;
     this.late = false;
@@ -161,6 +168,15 @@ export class BotDirector {
       case 'rock-gone': this.nav.invalidate(e.rock.x, e.rock.y, e.rock.r); break;
       case 'struct': if (e.op === 'add' || e.op === 'gone') this.nav.invalidate(e.struct.x, e.struct.y, e.struct.r); break;
       case 'teleport': case 'pulled': { const b = this.byId.get(e.player.id); if (b) { b.route = null; b.padWait = null; } break; }
+      case 'vehicle':
+        // Bullets on a hull never reach the people inside, so riders hear about them this way.
+        if (e.op === 'hp' && e.source && e.vehicle) {
+          for (const seat in e.vehicle.seats) { const b = e.vehicle.seats[seat] && this.byId.get(e.vehicle.seats[seat]); if (b) b.onHullHit(e); }
+        }
+        break;
+      case 'artillery-shell':
+        if (e.op === 'spawn' && e.player) { this.cover.noteShot(e.player.id, time); this.noise(e.player.id, e.x, e.y, time); }
+        break;
       default: break;
     }
   }
@@ -207,6 +223,76 @@ export class BotDirector {
   intel(team) { return this.teamSize < 2 ? null : this.teamIntel.get(team) || null; }
   setFocus(p, enemyId) { if (this.teamSize > 1) this.teamFocus.set(p.team, { id: enemyId, at: this.world.time }); }
   focus(team) { const f = this.teamFocus.get(team); return f && this.world.time - f.at < 2 ? f.id : 0; }
+  // ---------------------------------------------------------------- vehicles
+  claimVehicle(v, p) { this.vehicleClaims.set(v.id, { id: p.id, at: this.world.time }); }
+  unclaimVehicle(v, p) { const c = this.vehicleClaims.get(v.id); if (c && c.id === p.id) this.vehicleClaims.delete(v.id); }
+  vehicleClaimed(v, p) {
+    const c = this.vehicleClaims.get(v.id);
+    if (!c || c.id === p.id || this.world.time - c.at > 3) return false;
+    const o = this.byId.get(c.id);
+    return !!o && o.p.alive && !o.p.downed;
+  }
+  // Somebody was shelled a moment ago: the next shell at them can wait (people longer than bots).
+  shellOk(id, human) { const t = this.shells.get(id); return t === undefined || this.world.time - t > (human ? 18 : 8); }
+  noteShell(id) { this.shells.set(id, this.world.time); }
+  // Settlements as rectangles a hull drives round: houses, and the reach of the guards on their edges.
+  settleBoxes(pad) {
+    let list = this.boxes.get(pad);
+    if (!list) {
+      list = (this.world.map.towns || []).map((t) => ({ x0: t.x - t.halfW - pad, y0: t.y - t.halfH - pad, x1: t.x + t.halfW + pad, y1: t.y + t.halfH + pad }));
+      this.boxes.set(pad, list);
+    }
+    return list;
+  }
+  // The way for a hull of radius r from (sx, sy) to (gx, gy) that does not cross a settlement: the shortest path over
+  // the corners of their rectangles. A goal inside one is moved to its edge (`edge` says where). Small things in the
+  // open (rocks, crates, other vehicles) are left to the driver's eyes.
+  vehicleRoute(sx, sy, gx, gy, r) {
+    const U = this.W.U, C = this.W.CONFIG, inside = (x, y, b) => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1;
+    // A settlement is kept at arm's length (its guards' reach) when there is room for that; a hull that is already
+    // within that margin goes round the houses themselves, and one that is somehow among the houses just drives out.
+    const outer = this.settleBoxes(640 + Math.round(r)), inner = this.settleBoxes(60 + Math.round(r)), boxes = [];
+    for (let i = 0; i < outer.length; i++) {
+      if (!inside(sx, sy, outer[i])) boxes.push(outer[i]);
+      else if (!inside(sx, sy, inner[i])) boxes.push(inner[i]);
+    }
+    let edge = null;
+    for (const b of boxes) {
+      if (!inside(gx, gy, b)) continue;
+      const opts = [[b.x0 - 12, gy, gx - b.x0], [b.x1 + 12, gy, b.x1 - gx], [gx, b.y0 - 12, gy - b.y0], [gx, b.y1 + 12, b.y1 - gy]]
+        .filter((o) => U.insideIsland(o[0], o[1], r + 60, C.worldSize, C.cornerRadius)).sort((a, c) => a[2] - c[2]);
+      if (opts.length) { gx = opts[0][0]; gy = opts[0][1]; edge = { x: gx, y: gy }; }
+      break;
+    }
+    const blocked = (x1, y1, x2, y2) => boxes.some((b) => U.segRect(x1, y1, x2, y2, b.x0 + 1, b.y0 + 1, b.x1 - b.x0 - 2, b.y1 - b.y0 - 2) >= 0);
+    if (!blocked(sx, sy, gx, gy)) return { pts: [{ x: gx, y: gy }], edge };
+    const nodes = [{ x: sx, y: sy }, { x: gx, y: gy }];
+    for (const b of boxes) {
+      for (const [x, y] of [[b.x0 - 12, b.y0 - 12], [b.x1 + 12, b.y0 - 12], [b.x0 - 12, b.y1 + 12], [b.x1 + 12, b.y1 + 12]]) {
+        if (U.insideIsland(x, y, r + 60, C.worldSize, C.cornerRadius)) nodes.push({ x, y });
+      }
+    }
+    // Dijkstra over at most a few dozen corners.
+    const n = nodes.length, dist = new Array(n).fill(Infinity), prev = new Array(n).fill(-1), done = new Array(n).fill(false);
+    dist[0] = 0;
+    for (;;) {
+      let u = -1;
+      for (let i = 0; i < n; i++) if (!done[i] && dist[i] < Infinity && (u < 0 || dist[i] < dist[u])) u = i;
+      if (u < 0 || u === 1) break;
+      done[u] = true;
+      for (let w = 0; w < n; w++) {
+        if (done[w] || w === u) continue;
+        const len = Math.hypot(nodes[w].x - nodes[u].x, nodes[w].y - nodes[u].y);
+        if (dist[u] + len >= dist[w] || blocked(nodes[u].x, nodes[u].y, nodes[w].x, nodes[w].y)) continue;
+        dist[w] = dist[u] + len; prev[w] = u;
+      }
+    }
+    if (prev[1] < 0) return { pts: [{ x: gx, y: gy }], edge };
+    const pts = [];
+    for (let i = 1; i > 0; i = prev[i]) pts.unshift(nodes[i]);
+    return { pts, edge };
+  }
+
   claim(crateId, p) { this.claims.set(crateId, p.id); }
   unclaim(crateId, p) { if (this.claims.get(crateId) === p.id) this.claims.delete(crateId); }
   claimedByMate(crateId, p) {

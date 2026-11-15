@@ -23,4 +23,15 @@ for (const kind of ['trees', 'cacti']) {
     kind + ': bots clear the foliage or move to a usable firing lane and engage');
   t.equal(a.dir.errors, 0, kind + ': clearing cover does not throw');
 }
+{
+  const house = { x: 10000, y: 10000, w: 240, h: 220, walls: [], ruined: false };
+  const a = arena({ extra: { buildings: [house] } });
+  const viewer = a.human(9700, 10100), occupant = a.human(10120, 10100);
+  a.dir.cover.refresh(a.world.players);
+  t.check(a.dir.cover.hidden(viewer, occupant), 'an intact house roof conceals its occupant');
+  house.ruined = true;
+  a.dir.cover.refresh(a.world.players);
+  t.check(a.dir.cover.buildingAt(occupant.x, occupant.y) === -1 && !a.dir.cover.hidden(viewer, occupant), 'open house debris does not conceal an occupant beneath a nonexistent roof');
+}
+
 t.done();

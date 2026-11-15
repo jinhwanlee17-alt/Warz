@@ -403,6 +403,7 @@
 
   // ---------------------------------------------------------------- buildings
   Renderer.prototype.drawFloor = function (ctx, b) {
+    if (b.ruined) { this.drawBuildingDebris(ctx, b); return; }
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fillRect(b.x + 6, b.y + 8, b.w, b.h);
     ctx.fillStyle = PAL.floor;
@@ -413,12 +414,55 @@
     for (var y = b.y + 28; y < b.y + b.h; y += 28) { ctx.moveTo(b.x, y); ctx.lineTo(b.x + b.w, y); }
     ctx.stroke();
   };
+  Renderer.prototype.drawBuildingDebris = function (ctx, b) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(75,61,49,0.18)'; ctx.fillRect(b.x + 8, b.y + 8, b.w - 16, b.h - 16);
+    ctx.strokeStyle = '#a69b85'; ctx.lineWidth = 5; ctx.setLineDash([22, 16]);
+    ctx.strokeRect(b.x + 12, b.y + 12, b.w - 24, b.h - 24); ctx.setLineDash([]);
+    // Seeded scatter keeps the rubble stable while the match is running.
+    for (var i = 0; i < 15; i++) {
+      var a = (b.id || 0) * 1.71 + i * 2.39;
+      var x = b.x + 22 + (0.5 + Math.sin(a) * 0.43) * (b.w - 44);
+      var y = b.y + 22 + (0.5 + Math.cos(a * 1.37) * 0.43) * (b.h - 44);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+      ctx.fillStyle = i % 3 ? '#8e897e' : '#a0734d';
+      ctx.strokeStyle = i % 3 ? '#67665f' : '#6e5039'; ctx.lineWidth = 2;
+      var w = i % 3 ? 13 + i % 5 * 3 : 42, h = i % 3 ? 11 + i % 4 * 3 : 9;
+      ctx.fillRect(-w / 2, -h / 2, w, h); ctx.strokeRect(-w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+    ctx.restore();
+  };
+  Renderer.prototype.drawDoorways = function (ctx, b) {
+    if (b.ruined) return;
+    (b.doorways || []).forEach(function (door) {
+      var horizontal = door.side === 'top' || door.side === 'bottom';
+      var width = horizontal ? door.w : door.h, depth = horizontal ? door.h : door.w;
+      var angle = door.side === 'top' ? Math.PI : door.side === 'left' ? Math.PI / 2 : door.side === 'right' ? -Math.PI / 2 : 0;
+      ctx.save(); ctx.globalAlpha = 1;
+      ctx.translate(door.x + door.w / 2, door.y + door.h / 2); ctx.rotate(angle);
+      // The path extends outside the wall, so the entrance is readable with an opaque roof.
+      ctx.fillStyle = '#c6b18a'; ctx.fillRect(-width * .46, depth / 2, width * .92, 44);
+      ctx.strokeStyle = '#aa9470'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (var step = 12; step < 44; step += 12) { ctx.moveTo(-width * .46, depth / 2 + step); ctx.lineTo(width * .46, depth / 2 + step); }
+      ctx.stroke();
+      ctx.fillStyle = '#f1d69b'; ctx.fillRect(-width / 2, -depth / 2, width, depth);
+      ctx.fillStyle = '#62462f';
+      ctx.fillRect(-width / 2 - 4, -depth / 2 - 4, 8, depth + 8);
+      ctx.fillRect(width / 2 - 4, -depth / 2 - 4, 8, depth + 8);
+      // An open door leaf sits along the jamb rather than across the walkable opening.
+      ctx.fillStyle = '#986b40'; ctx.fillRect(-width / 2 + 4, -depth / 2 - 30, 8, 30);
+      ctx.restore();
+    });
+  };
   Renderer.prototype.drawWalls = function (ctx, map, v) {
     ctx.fillStyle = PAL.wall;
     ctx.strokeStyle = PAL.wallEdge;
     ctx.lineWidth = 4;
     for (var i = 0; i < map.buildings.length; i++) {
       var b = map.buildings[i];
+      if (b.ruined) continue;
       if (!visible(v, b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, b.h))) continue;
       for (var j = 0; j < b.walls.length; j++) {
         var wl = b.walls[j];
@@ -430,13 +474,15 @@
   Renderer.prototype.drawRoofs = function (ctx, map, v, viewer, dt) {
     for (var i = 0; i < map.buildings.length; i++) {
       var b = map.buildings[i];
+      if (b.ruined || !visible(v, b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, b.h) + 44)) continue;
       var inside = viewer && viewer.alive && viewer.x > b.x - 6 && viewer.x < b.x + b.w + 6 && viewer.y > b.y - 6 && viewer.y < b.y + b.h + 6;
+      if (!Number.isFinite(b.fade)) b.fade = 1;
       b.fade += ((inside ? 0 : 1) - b.fade) * Math.min(1, dt * 9);
-      if (b.fade < 0.02 || !visible(v, b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, b.h))) continue;
-      var o = 8, x = b.x - o, y = b.y - o, w = b.w + o * 2, h = b.h + o * 2;
+      if (b.fade < 0.02) { this.drawDoorways(ctx, b); continue; }
+      var x = b.x + 2, y = b.y + 2, w = b.w - 4, h = b.h - 4;
       ctx.globalAlpha = b.fade;
       ctx.fillStyle = 'rgba(0,0,0,0.22)';
-      ctx.fillRect(x + 10, y + 12, w, h);
+      ctx.fillRect(x + 4, y + 5, w, h);
       ctx.fillStyle = b.roof;
       ctx.fillRect(x, y, w, h);
       ctx.fillStyle = 'rgba(0,0,0,0.13)';
@@ -449,7 +495,7 @@
       else for (k = y + 22; k < y + h; k += 22) { ctx.moveTo(x, k); ctx.lineTo(x + w, k); }
       ctx.stroke();
       ctx.strokeStyle = U.shade(b.roof, -0.35);
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 4;
       ctx.strokeRect(x, y, w, h);
       ctx.beginPath();
       if (b.ridgeVertical) { ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w / 2, y + h); } else { ctx.moveTo(x, y + h / 2); ctx.lineTo(x + w, y + h / 2); }
@@ -476,6 +522,7 @@
         ctx.fillRect(x + w * .2, y + h * .55, w * .55, 28); ctx.strokeRect(x + w * .2, y + h * .55, w * .55, 28);
       }
       ctx.globalAlpha = 1;
+      this.drawDoorways(ctx, b);
     }
   };
 
@@ -1231,7 +1278,7 @@
   Renderer.prototype.drawEmplacement = function (ctx, s, tier, mine) {
     var r = s.r, sentry = s.kind === 'sentry', item = W.ITEMS[s.item], variant = item && item.sentryVariant;
     var iv = variant && W.SENTRY_IV && W.SENTRY_IV[variant], level = iv ? 4 : /3$/.test(s.item) ? 3 : /2$/.test(s.item) ? 2 : 1;
-    var teamColor = mine ? '#8cff6a' : '#ff5a4f', edge = '#172130';
+    var teamColor = mine ? '#8cff6a' : s.neutral && !sentry ? '#f2c230' : '#ff5a4f', edge = '#172130';
     var visualScale = iv && iv.visualScale || 1;
     if (visualScale !== 1) { ctx.save(); ctx.scale(visualScale, visualScale); }
     ctx.fillStyle = 'rgba(0,0,0,0.24)'; ctx.beginPath(); ctx.ellipse(4, 7, r + 10, r + 6, 0, 0, TAU); ctx.fill();
@@ -1589,7 +1636,8 @@
     var list = world.structures;
     for (var i = 0; i < list.length; i++) {
       var s = list[i];
-      var it = W.ITEMS[s.item], tier = it ? W.TIERS[it.tier] : W.TIERS.epic, mine = !!viewer && s.team === viewer.team;
+      var it = W.ITEMS[s.item], tier = it ? W.TIERS[it.tier] : W.TIERS.epic,
+        mine = !!viewer && (viewer.mount === s.id || (!s.neutral && s.team === viewer.team));
       var iv = it && W.SENTRY_IV && W.SENTRY_IV[it.sentryVariant], visualScale = iv && iv.visualScale || 1;
       if (!s.alive || !visible(v, s.x, s.y, (s.r + 40) * visualScale)) continue;
       var shake = s.shake > 0 ? Math.sin(t * 90) * s.shake * 2 : 0;
@@ -1626,9 +1674,10 @@
         ctx.fillStyle = k > 0.5 ? '#7ee05c' : k > 0.25 ? '#ffd23f' : '#ff5a4f'; roundRect(ctx, s.x - bw / 2, barY + 2, Math.max(2, bw * k), 5, 2.5); ctx.fill();
       }
       if (it && s.kind !== 'rock' && s.kind !== 'teleporter') {
+        var label = s.neutral && s.kind === 'turret' ? 'Neutral ' + it.name : it.name;
         ctx.font = '13px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,22,30,0.8)'; ctx.strokeText(it.name, s.x, s.y + (s.r + 24) * visualScale);
-        ctx.fillStyle = mine ? '#8cff6a' : '#ffb3ad'; ctx.fillText(it.name, s.x, s.y + (s.r + 24) * visualScale);
+        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,22,30,0.8)'; ctx.strokeText(label, s.x, s.y + (s.r + 24) * visualScale);
+        ctx.fillStyle = mine ? '#8cff6a' : s.neutral && s.kind === 'turret' ? '#f2c230' : '#ffb3ad'; ctx.fillText(label, s.x, s.y + (s.r + 24) * visualScale);
       }
     }
   };

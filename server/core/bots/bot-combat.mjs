@@ -67,14 +67,24 @@ Object.assign(Bot.prototype, {
   stance(e) {
     const p = this.p, now = this.now, prof = this.prof, d = this.dist(e), hp = this.hpFrac(), human = !e.ref.bot;
     const early = now - this.landAt < 45 && this.W.CLASSES[p.classId].tier === 0;        // nothing to win yet: most people loot first
-    // They hit us, their bullets are flying past us, or they are right in our face: within arm's reach, or in the
-    // same room (nobody loots a house with an armed stranger standing in it). Right after landing two bots that
-    // bump into each other just walk on, and while the lobby is thinning too fast it takes a closer brush.
+    const fresh = human && now - this.landAt < LANDING_GRACE;
+    const provoked = now - e.hurtMeAt < 3 || now - e.shotAtMeAt < 1.5;
+    // A tank (or a self-propelled gun's armour) shrugs off bullets: on foot that is a fight to stay out of, unless it
+    // has started one with us. A gun crew sitting in an unarmoured artillery piece is the opposite: easy pickings.
+    const ride = e.ref.vehicle ? this.world.vehicleById(e.ref.vehicle) : null;
+    if (ride && !ride.wreck && !p.vehicle && this.W.vehicleHasTankArmor(ride)) {
+      if (!e.visible || d > 1450) return 'ignore';
+      if (provoked) return this.escapePlan(e, d) ? 'flee' : 'fight';
+      return ride.type === 'tank' && !this.d.endgame ? 'avoid' : 'ignore';
+    }
+    // They hit us, their bullets are flying past us, or they are right in our face: close enough to touch, or in the
+    // same room (nobody loots a house with an armed stranger standing in it). A person who walks up to a bot gets shot
+    // at once the landing grace is over; two bots that bump into each other right after landing just walk on, and
+    // while the lobby is thinning too fast it takes a closer brush.
     const here = this.cover.info.get(p.id), there = e.visible ? this.cover.info.get(e.id) : null;
     const sameRoom = !!here && !!there && here.building >= 0 && here.building === there.building;
-    const inFace = human ? d < (early ? 80 : 115) || (sameRoom && !early) : !early && (d < (this.d.heat > -0.4 ? 120 : 85) || sameRoom);
+    const inFace = human ? !fresh && (d < (early ? 170 : 270) || sameRoom) : !early && (d < (this.d.heat > -0.4 ? 120 : 85) || sameRoom);
     let teamFight = this.mates.length > 0 && d < 950 && this.d.focus(p.team) === e.id;     // a teammate is already shooting at them
-    const provoked = now - e.hurtMeAt < 3 || now - e.shotAtMeAt < 1.5;
     if (teamFight && human && !provoked && !this.mates.some((m) => !m.bot)) {
       // A team of bots does not land on a person all at once: the second gun takes a moment to turn up, so the
       // first seconds of that fight are one against one (and the person's own teammates have time to turn round).
@@ -99,23 +109,32 @@ Object.assign(Bot.prototype, {
     // In no state to start anything. Hurt, with one of them in plain view: back off somewhere quiet (and patch up there).
     if (losing || swamped) return losing && e.visible && d < 520 && !e.downed && !this.d.endgame && now >= (this.fleeTired || 0) ? 'avoid' : 'ignore';
     if (e.downed) return prof.aggression > 0.35 && d < 600 && foes <= 1 ? 'fight' : 'ignore';   // finish them when it is cheap
-    // A free choice: pick this fight or leave them be. It is remembered, so a bot does not dither at the edge of
-    // a fight; it thinks again when the other one turns up hurt.
+    if (ride && !ride.wreck && ride.type === 'artillery' && ride.fixed && e.visible && d < 900 && !fresh) return 'fight';   // a gun crew cannot shoot back
+    return this.freeChoice(e, d, human, eHp, hp) ? 'fight' : 'ignore';
+  },
+  // A free choice: pick this fight or leave them be. A "yes" is remembered for a few seconds so a bot does not dither
+  // at the edge of a fight. A "no" to a person is short-lived (and thought over again when they come closer); a "no"
+  // to another bot lasts longer, and is thought over again when the other one turns up hurt.
+  freeChoice(e, d, human, eHp, hp) {
+    const p = this.p, now = this.now, prof = this.prof;
+    const early = now - this.landAt < 45 && this.W.CLASSES[p.classId].tier === 0;
     let c = this.engage.get(e.id);
-    if (!c || now > c.until || (!c.fight && !human && eHp < c.hp - 0.3)) {
+    if (!c || now > c.until || (!c.fight && !human && eHp < c.hp - 0.3) || (!c.fight && human && c.d !== undefined && d < c.d - 220)) {
       const a = prof.aggression, storm = this.world.storm;
       const phase = storm ? storm.phase : 0, endgame = this.d.endgame || phase >= 4;
+      const reach = p.vehicle ? this.W.TANK.cannonRange - 50 : this.band()[2];
       let want;
       if (human) {
-        // Toward a person: keener than toward another bot, but still a choice, and one that follows the arc of a
-        // match. Nearly everyone loots first after landing; through the middle of the match a bot picks this fight
-        // about one time in ten that it thinks about it (a bold one one time in four, a timid one hardly ever); once
-        // the circle is small, most do. Whoever shoots at a bot gets a fight regardless.
-        want = (early ? 0.01 + a * a * a * 0.1 : 0.02 + a * a * 0.3 + (phase >= 3 ? 0.2 : phase >= 2 ? 0.09 : 0)) * this.d.humanKeen;
-        want += (1 - eHp) * 0.1 + (endgame ? 0.3 : 0);
-        // No ganging up: while some other bot is on this person, the rest mostly stay out of it.
+        // Toward a person a bot strikes first more often than not: about three times in four for an average bot (about
+        // half in its first 45 seconds as a Soldier), more for a bold one, more again once the circle is small or the
+        // person is hurt. It thinks it over again every few seconds, so a bot that keeps someone on its screen opens
+        // fire sooner or later. The landing grace (below) still gives everyone their first seconds.
+        want = (0.45 + a * 0.6) * (early ? 0.65 : 1) * this.d.humanKeen;
+        want += (phase >= 3 ? 0.2 : phase >= 2 ? 0.1 : 0) + (1 - eHp) * 0.3 + (endgame ? 0.3 : 0);
+        if (d > (p.vehicle ? 900 : this.band()[1])) want *= 0.75;                          // further off than this gun likes
+        // Some restraint about ganging up: while another bot is already on this person, fewer join in.
         const others = this.d.aggressors(e.id, p.id);
-        if (others > 0) want *= endgame ? 0.5 : 0.15;
+        if (others > 0) want *= endgame ? 0.8 : 0.35;
       } else {
         // Toward each other bots are choosier, and how choosy follows the match's pace (see the director): it keeps
         // the island populated for the whole match instead of settling everything in the first three minutes.
@@ -126,18 +145,20 @@ Object.assign(Bot.prototype, {
         const busyWith = this.d.attackerOf(e.id, 3);
         if (busyWith && busyWith !== p.id && this.d.teamOf(busyWith) !== p.team) want *= 1.3;
       }
-      if (d > this.band()[2]) want -= 0.3;
+      if (d > reach) want -= 0.3;
       if (this.storm.must) want -= 0.25;
       if (this.mode === 'fight' && this.target === e) want += 0.25;
+      const hull = p.vehicle ? this.world.vehicleById(p.vehicle) : null;
+      if (hull && hull.type === 'tank') want += 0.2;                                   // in a tank everybody is a fair fight
       // Everyone has only just landed: nobody opens fire on a person who has not done anything yet (it thinks again in a moment).
       const fresh = human && now - this.landAt < LANDING_GRACE;
       const fight = !fresh && this.rng.next() < want;
-      c = { fight, hp: eHp, until: fresh ? this.landAt + LANDING_GRACE + this.rng.range(0, 6)
-        : now + (fight ? this.rng.range(4, 8) : endgame ? this.rng.range(4, 9) : human ? this.rng.range(25, 50) : this.rng.range(45, 90)) };
+      c = { fight, hp: eHp, d, until: fresh ? this.landAt + LANDING_GRACE + this.rng.range(0, 6)
+        : now + (fight ? this.rng.range(4, 8) : endgame ? this.rng.range(4, 9) : human ? this.rng.range(5, 10) : this.rng.range(45, 90)) };
       this.engage.set(e.id, c);
       if (this.engage.size > 40) this.engage.delete(this.engage.keys().next().value);
     }
-    return c.fight ? 'fight' : 'ignore';
+    return c.fight;
   },
 
   // ---------------------------------------------------------------- weapons
@@ -254,7 +275,7 @@ Object.assign(Bot.prototype, {
       // Lost them: push to where they were, or let it go.
       this.look = { x: e.x, y: e.y };
       if (now - e.seenAt > lerp(1.5, 5, prof.aggression)) { e.lost = true; this.engage.set(e.id, { fight: false, until: now + 4 }); this.target = null; this.redecide = true; return; }   // (lost: until they show themselves again)
-      if (prof.aggression > 0.4 || e.hp < 0.45) this.moveGoal = { x: e.x, y: e.y, tol: 70 };
+      if (prof.aggression > 0.4 || e.hp < 0.45) { this.moveGoal = { x: e.x, y: e.y, tol: 70 }; this.sprint = prof.aggression > 0.55; }
       return;
     }
     const clear = lob ? true : this.shotClear(e);
@@ -280,6 +301,8 @@ Object.assign(Bot.prototype, {
         let v = this.safeDir(ux * radial - uy * strafe * k, uy * radial + ux * strafe * k);
         if (!v && strafe) { this.strafeDir = -strafe; v = radial ? this.safeDir(ux * radial, uy * radial) : null; }
         this.moveDir = v;
+        // Run the gap down (or open it against a shotgun); strafing itself stays at walking pace.
+        if ((radial > 0 && dist > band[1] + 100) || (radial < 0 && CLOSE[theirs] && dist < 300)) this.sprint = true;
       }
     }
     if (clear && dist <= band[2] && !(lob && dist < 190)) { this.shoot = { rec: e, def }; this.d.setFocus(p, e.id); } // "on this one": teammates pile in
@@ -429,6 +452,7 @@ Object.assign(Bot.prototype, {
       f.restAt = 0;
       if (!f.spot || now >= f.pickAt || this.arrivedAt(f.spot, 44) || (safe && !f.far)) { f.spot = this.fleeSpot(e, safe); f.far = !!safe; f.pickAt = now + 2.2; }
       if (f.spot) this.moveGoal = { x: f.spot.x, y: f.spot.y, tol: 30 };
+      if (!f.calm || f.exposed) this.sprint = true;
     }
     // Movement and aim are independent: shoot back on the run, but only at whoever is actually after us.
     if (e && e.visible && !this.still && (now - e.hurtMeAt < 4 || now - e.shotAtMeAt < 2)) this.fireBack(e);
@@ -548,7 +572,8 @@ Object.assign(Bot.prototype, {
     // Got there and whoever it was has gone: look around for a moment before chasing the next noise.
     if (this.arrivedAt(h, 170)) { this.heard = null; this.huntAt = null; this.huntHold = now + this.rng.range(2, 5); this.redecide = true; return; }
     this.moveGoal = { x: h.x, y: h.y, tol: 150 };
+    if (!this.arrivedAt(h, 800)) this.sprint = true;
   }
 });
 
-export { BANDS, TOO_CLOSE };
+export { BANDS, TOO_CLOSE, LANDING_GRACE };

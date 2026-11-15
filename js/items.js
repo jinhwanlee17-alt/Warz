@@ -466,6 +466,16 @@
   };
 
   // ---------------------------------------------------------------- structures: rock, turret, sentry, teleporter
+  World.prototype.initSettlementStructures = function () {
+    var self = this;
+    (this.map.settlementStructures || []).forEach(function (seed, index) {
+      var item = ITEMS[seed.item];
+      if (!item || (item.struct !== 'sentry' && item.struct !== 'turret')) return;
+      self.addStruct({ id: index + 1, kind: item.struct, item: item.id, x: seed.x, y: seed.y,
+        r: item.radius || W.STRUCT_RADIUS[item.struct], owner: 0, team: null, hp: item.hp, maxHp: item.hp,
+        angle: seed.angle || 0, neutral: true, seeded: true, settlement: seed.settlement });
+    });
+  };
   World.prototype.structById = function (id) {
     for (var i = 0; i < this.structures.length; i++) if (this.structures[i].id === id) return this.structures[i];
     return null;
@@ -522,14 +532,18 @@
       hp: portableRock ? (Number.isFinite(o.hp) && o.hp > 0 ? Math.min(rockHp, o.hp) : rockHp) : o.hp || 0,
       maxHp: portableRock ? rockHp : o.maxHp || 0, alive: true, angle: o.angle || 0, cooldown: 0, mounted: o.mounted || 0, target: 0, pair: o.pair || 0, age: 0, shake: 0, flash: 0
     };
+    s.neutral = !!o.neutral; s.seeded = !!o.seeded;
+    s.settlement = o.settlement === undefined ? null : o.settlement;
     if (o.id) this.nextStructId = Math.max(this.nextStructId, o.id + 1);
     this.structures.push(s);
     if (s.kind !== 'teleporter') {
       this.solids.insert({ type: 'struct', shape: 'circle', x: s.x, y: s.y, r: s.r, struct: s }, s.x - s.r, s.y - s.r, s.x + s.r, s.y + s.r);
     }
-    this.explosions.push({ x: s.x, y: s.y, r: s.r * 2.2, t: 0, dur: 0.4, ring: true, color: '#ffffff' });
-    this.smoke(s.x, s.y, 8, '#d8d2c4', 14, 0.6, 120);
-    if (!this.remote) this.emit({ type: 'struct', op: 'add', struct: s });
+    if (!s.seeded) {
+      this.explosions.push({ x: s.x, y: s.y, r: s.r * 2.2, t: 0, dur: 0.4, ring: true, color: '#ffffff' });
+      this.smoke(s.x, s.y, 8, '#d8d2c4', 14, 0.6, 120);
+      if (!this.remote) this.emit({ type: 'struct', op: 'add', struct: s });
+    }
     return s;
   };
   // A full-speed tank impact chips portable rocks, including the driver's own or a teammate's cover.
@@ -550,7 +564,7 @@
   };
   World.prototype.damageStruct = function (s, amount, sourceId, hx, hy, cause) {
     if (!s.alive || s.kind === 'rock' || amount <= 0 || !s.maxHp) return;
-    if (s.mounted) {
+    if (s.mounted && !s.neutral) {
       // Whoever is on the turret takes the hit: a turret is not a shield.
       var m = this.playerById(s.mounted);
       if (m && m.alive) { this.damagePlayer(m, amount, sourceId, cause || 'turret', hx, hy); return; }
@@ -580,9 +594,13 @@
   World.prototype.structFromServer = function (m) {
     var s = this.structById(m.id);
     if (m.op === 'add' && !s) {
-      return this.addStruct({ id: m.id, kind: m.k, item: m.it, x: m.x, y: m.y, r: m.r, owner: m.o, team: m.tm, hp: m.hp, maxHp: m.mhp, angle: m.a, mounted: m.m, pair: m.pr });
+      return this.addStruct({ id: m.id, kind: m.k, item: m.it, x: m.x, y: m.y, r: m.r, owner: m.o, team: m.tm, hp: m.hp, maxHp: m.mhp, angle: m.a, mounted: m.m, pair: m.pr,
+        neutral: m.nt, seeded: m.seeded, settlement: m.settlement });
     }
     if (!s) return null;
+    if (m.nt !== undefined) s.neutral = !!m.nt;
+    if (m.seeded !== undefined) s.seeded = !!m.seeded;
+    if (m.settlement !== undefined) s.settlement = m.settlement;
     if (m.op === 'hp') { s.hp = m.hp; s.shake = 1; if (m.n) this.text(m.x === undefined ? s.x : m.x, (m.y === undefined ? s.y - s.r : m.y) - 6, String(Math.round(m.n)), '#ffd84a', 18); }
     else if (m.op === 'repair' || m.op === 'upgrade' || m.op === 'state') { s.hp = m.hp; s.maxHp = m.mhp; s.item = m.it; s.angle = m.a; if (m.op === 'state') { s.mounted = m.m || 0; s.pair = m.pr || 0; } }
     else if (m.op === 'gone') this.destroyStruct(s, m.src, m.reason);
@@ -720,7 +738,7 @@
       var p = this.players[i];
       if (!p.alive || p.vehicle || p.dropT > 0 || p.fx.invisible > 0 || (s.team !== null && p.team === s.team)) continue;
       var d = Math.hypot(p.x - s.x, p.y - s.y) || 1;
-      if (d < bd && this.sentryLineClear(s, p.x, p.y)) { bd = d; target = p; }
+      if (d < bd && this.sentryLineClear(s, p.x, p.y, null, null, p.mount ? this.structById(p.mount) : null)) { bd = d; target = p; }
     }
     // Vehicle hulls protect their occupants, so target the occupied hull itself.
     // A passenger's invisibility does not hide a tank or Humvee.
@@ -731,7 +749,7 @@
       if (dv < bd && this.sentryLineClear(s, v.x, v.y, null, v.id)) { bd = dv; target = v; targetVehicle = true; }
     }
     // Enemies always take priority. When no enemy is visible, open nearby crates.
-    if (!target) for (var j = 0; j < this.map.crates.length; j++) {
+    if (!target && !s.neutral) for (var j = 0; j < this.map.crates.length; j++) {
       var c = this.map.crates[j];
       if (!c.alive) continue;
       var dc = Math.hypot(c.x - s.x, c.y - s.y);
@@ -750,10 +768,10 @@
     else this.damagePlayer(target, it.damage, s.owner, 'sentry', target.x, target.y - target.r, { x: s.x, y: s.y });
     this.emit({ type: 'sentry-shot', struct: s, x: s.x, y: s.y, tx: target.x, ty: target.y });
   };
-  World.prototype.sentryLineClear = function (s, tx, ty, targetCrate, vehicleId) {
+  World.prototype.sentryLineClear = function (s, tx, ty, targetCrate, vehicleId, targetMount) {
     var distance = Math.hypot(tx - s.x, ty - s.y) || 1;
     var x = s.x + (tx - s.x) / distance * (s.r + 2), y = s.y + (ty - s.y) / distance * (s.r + 2);
-    if (!this.lineClear(x, y, tx, ty, s, false, vehicleId && this.vehicleById ? this.vehicleById(vehicleId) : null)) return false;
+    if (!this.lineClear(x, y, tx, ty, targetMount || s, false, vehicleId && this.vehicleById ? this.vehicleById(vehicleId) : null)) return false;
     for (var i = 0; i < this.map.crates.length; i++) {
       var c = this.map.crates[i];
       if (!c.alive || c === targetCrate) continue;
@@ -862,7 +880,7 @@
           if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && (team === null || s.struct.team !== team)) structs.push(s.struct);
         });
         crates.forEach(function (c) { if (Math.hypot(c.x - st.x, c.y - st.y) < R + c.size / 2) self.damageCrate(c, st.damage, st.owner, c.x, c.y - c.size / 2); });
-        structs.forEach(function (s) { if (!hitMounts[s.id] && Math.hypot(s.x - st.x, s.y - st.y) < R + s.r) self.damageStruct(s, st.damage, st.owner, s.x, s.y - s.r, 'meteor'); });
+        structs.forEach(function (s) { if ((!hitMounts[s.id] || s.neutral) && Math.hypot(s.x - st.x, s.y - st.y) < R + s.r) self.damageStruct(s, st.damage, st.owner, s.x, s.y - s.r, 'meteor'); });
         if (this.damageVehiclesInArea) this.damageVehiclesInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', { team: team });
         this.damageFoliageInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', true);
       }
@@ -933,7 +951,9 @@
     if (rng.next() < tier.armor) this.spawnPickup('armor', c.x, c.y, 1, true);
     if (rng.next() < tier.key) this.spawnPickup('key', c.x, c.y, 1, true);
     if (tier.id === 'legendary') {
-      Rules.itemsOfTier('legendary').forEach(function (id) { this.spawnPickup('item', c.x, c.y, 1, true, id); }, this);
+      var legendaryItems = Rules.itemsOfTier('legendary');
+      if (c.legendaryDrops === 1) legendaryItems = [rng.pick(legendaryItems)];
+      legendaryItems.forEach(function (id) { this.spawnPickup('item', c.x, c.y, 1, true, id); }, this);
       this.emit({ type: 'legendary-crate-broken', crate: c, player: src || null });
       return { tokens: tokens, item: 'legendary' };
     }

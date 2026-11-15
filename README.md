@@ -120,7 +120,13 @@ Offline Practice has a **Movement speed** button under **Esc → Practice tools*
 
 Each seeded island chooses two of four tundra regions, one of three forest regions, one of two grassland regions, and one of two desert regions from the annotated layout. Unselected land retains the original terrain. Forest plus tundra becomes Tundra Forest; forest plus grassland returns to ordinary terrain; desert plus grassland becomes Savannah.
 
-Forests have more trees and three times the normal bush density. Grasslands have one-third the normal rock density and no bushes. Deserts have half the normal rock density, no bushes, and 50-HP cacti that deal 8 damage on contact, repeating once per second while touching them. Savannah has yellow bushes, sparse concealing trees and very few rocks. Leafy bushes and tree canopies conceal players but have no hitboxes, health pools or HP bars; shots pass through them. Villages contain 7–12 houses, alongside larger small towns, cities, castles and military bases.
+Forests have more trees and three times the normal bush density. Grasslands have one-third the normal rock density and no bushes. Deserts have half the normal rock density, no bushes, and 50-HP cacti that deal 8 damage on contact, repeating once per second while touching them. Savannah has yellow bushes, sparse concealing trees and very few rocks. Leafy bushes and tree canopies conceal players but have no hitboxes, health pools or HP bars; shots pass through them.
+
+Each island has **4–6 villages and two towns** with separated footprints. Compact houses have clear outside entrances facing their streets. A village has **6–12 houses**, one crate per house: all common except one epic, replaced by a mythic above ten houses. Four sentries guard north, east, south and west around a neutral turret. Above eight houses, one sentry becomes Sentry II; at twelve houses, two become Sentry II.
+
+A town has **20–30 house plots**, each with a 5% chance of appearing as rubble. Ruined plots still hold their crate. The first twenty plots have eleven common, five rare, three epic and one mythic crate; each extra plot rolls 75% common, 20% rare and 5% epic. Thirty-house towns also have a separate Legendary crate that drops one random Legendary item. The island-center Legendary crate still drops all four. House loot is part of the 210 ordinary-crate budget; outdoor crates retain the original rarity shares.
+
+Towns have eight Sentry II guards on the compass directions, upgraded to Sentry III at thirty houses, and a neutral Turret III in the middle. Duos and larger modes also put an armed Humvee beside it, in addition to the existing vehicle rings. Sentries attack players of every team in range. Neutral turrets remain idle until ridden; anyone may ride or destroy them. Cities, castles and military bases are not generated in this version.
 
 The former fire grenade is named **Molotov**. Its base fire remains 25 damage per second for 5 seconds. Tundra and Tundra Forest reduce that damage by 75% and duration by 50%; Desert and Savannah double both. Snowbombs normally slow by 50% for 20 seconds. In tundra they slow by 62.5%, freeze a player after five continuous seconds inside, and deal 4 cold damage per second after the unchanged four-second grace period. Desert and Savannah halve normal snow damage and slowdown, and reduce the cloud lifetime to 10 seconds. The biome at the impact point determines a cloud's modifiers.
 
@@ -133,9 +139,12 @@ that applies to a player applies to a bot. Offline Practice starts without bots.
 - **The lobby**: in team modes bots first fill the open spots on teams that have Fill switched on, then make up
   whole teams until there are 50 players. A party with Fill off keeps its empty spots. Bots have ordinary names
   and no special labels in the menus or match; the lobby shows one combined player count and fill bar.
-- **What they know**: only what a player's screen would show. No seeing under tree canopies or roofs, into smoke,
-  beyond the edge of the view, or invisible players; a muzzle flash, a bullet going past, radar and the drone give
-  people away exactly as they do to a player. Noticing takes a reaction time, aiming lags and wobbles.
+- **What they know**: only what a player's screen would show. No seeing under roofs, into smoke, beyond the edge
+  of the view, or invisible players. Leaves only hide you from afar: a bot picks out a player in a bush from about
+  700 units and one under a tree from about 380, and a bot that was already watching you keeps watching when you
+  duck into foliage. A muzzle flash, a bullet going past, radar and the drone give people away exactly as they do
+  to a player. An artillery crew sees what its targeting map shows: every dot on the island. Noticing takes a
+  reaction time, aiming lags and wobbles.
 - **How good they are**: skill is rolled per bot. About a fifth are clearly weak, a bit over half average, a
   fifth clearly better and one in twenty sharp. Clear, in-range shots target roughly 60-90% accuracy by skill,
   including close targets; movement, distance and cover can reduce actual hits. Aim errors change the firing
@@ -148,11 +157,20 @@ that applies to a player applies to a bot. Offline Practice starts without bots.
   sentries (and shoot those down from outside their reach). In a fight they pick the right gun for the distance,
   strafe, reload behind cover, back off and heal when it goes badly, and use what they carry with a purpose: a
   boulder between them and the shooter and a snowbomb on the chaser to get away, smoke or a riot shield to revive
-  under fire, flashbang before a shotgun push, black hole then grenade, a teleporter pad left somewhere safe.
-- **Toward players**: nobody opens fire on a player in the first seconds after landing, bots do not gang up on
-  one player (a second bot team-mate joins a fight a moment after the first), and through the middle of a match
-  most bots leave a player alone unless shot at, crowded or met in the same room. As the circle shrinks they go
-  looking. A bot on your team follows you, fights who you fight and revives you.
+  under fire, flashbang before a shotgun push, black hole then grenade, a teleporter pad left somewhere safe. They
+  sprint to close in, to get away and to beat the storm.
+- **Vehicles**: bots that like them take tanks, Humvees and artillery (`server/core/bots/bot-vehicles.mjs`). A tank
+  circles its target at cannon range, fires the cannon when it is loaded and the machine gun while it reloads; an
+  unarmed Humvee runs people down, or is a quick lift ahead of the storm; an artillery crew (ground guns, or
+  self-propelled ones it parks and sets up) shells whoever keeps still for a while, at most once every 18 seconds
+  at the same person. Drivers go round settlements, wait for teammates to climb in, and get out when the hull is
+  nearly gone. A bot on your team rides in your vehicle and works its gun. On foot, bots stay out of an enemy tank's
+  sight unless it shoots at them, and they dodge artillery shells they see coming.
+- **Toward players**: bots strike first. Nobody opens fire on a player in the first 14 seconds after landing; after
+  that an average bot that has you on its screen opens fire about three times in four (a bold one more, a timid
+  one less), and thinks it over again every few seconds and whenever you come closer. Walk up close to a bot or into
+  the house it is in and it shoots. Bots still show some restraint about piling on one player, and a second bot
+  team-mate joins a fight a moment after the first. A bot on your team follows you, fights who you fight and revives you.
 - **Pacing**: how readily bots fight *each other* follows a target curve for the number of players left, so a
   match is still populated when the storm closes in (about 35 left at 2:30, 17 at 5:00, a winner at about 7:30).
 

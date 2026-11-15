@@ -4,12 +4,17 @@
 // whether a bullet can get there is a separate question (see Bot.shotClear).
 const HALF_W = 880, HALF_H = 492;   // a 16:9 screen shows 1800 x 1013 world units; things at the very edge go unnoticed
 const SHOT_REVEAL = 0.5;            // seconds a muzzle flash keeps giving a hidden shooter away
+// Leaves are not a cloak. A bush is barely wider than the player crouching in it, so a bot picks that out from most
+// of a screen away; a tree's canopy is bigger and only gives its guest away from close by. And whoever a bot was
+// already looking at when they stepped under leaves stays seen (Bot.sense keeps its eyes on them).
+const BUSH_SPOT = 700, TREE_SPOT = 380;
 
 export class Cover {
   constructor(W, world) {
     this.W = W;
     this.world = world;
     this.map = world.map;
+    this.bushes = new Set(this.map.bushes || []);
     this.trees = new W.U.SpatialHash(256);
     for (const t of [...this.map.trees, ...(this.map.bushes || [])]) this.trees.insert(t, t.x - t.r, t.y - t.r, t.x + t.r, t.y + t.r);
     this.info = new Map();    // player id -> { trees, building, smoke }
@@ -23,7 +28,7 @@ export class Cover {
   }
   buildingAt(x, y) {
     const list = this.map.buildings;
-    for (let i = 0; i < list.length; i++) { const b = list[i]; if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) return i; }
+    for (let i = 0; i < list.length; i++) { const b = list[i]; if (!b.ruined && x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) return i; }
     return -1;
   }
   smokeAt(x, y) {
@@ -47,8 +52,10 @@ export class Cover {
   noteShot(id, time) { this.fired.set(id, time); }
   firedLately(id) { const t = this.fired.get(id); return t !== undefined && this.world.time - t < SHOT_REVEAL; }
 
-  // Is `target` drawn on `viewer`'s screen (given that it is inside the view rectangle)?
-  hidden(viewer, target) {
+  // Is `target` out of `viewer`'s sight (given that it is inside the view rectangle)?
+  hidden(viewer, target) { return this.solidCover(viewer, target) || this.underLeaves(viewer, target); }
+  // Behind something no amount of looking gets through: a roof, or smoke.
+  solidCover(viewer, target) {
     const t = this.info.get(target.id), v = this.info.get(viewer.id);
     if (!t) return false;
     if (t.building >= 0) {
@@ -56,13 +63,21 @@ export class Cover {
       const b = this.map.buildings[t.building];
       if (!(viewer.x > b.x - 6 && viewer.x < b.x + b.w + 6 && viewer.y > b.y - 6 && viewer.y < b.y + b.h + 6)) return true;
     }
-    for (let i = 0; i < t.trees.length; i++) {
-      const tree = t.trees[i];
-      if (Math.hypot(viewer.x - tree.x, viewer.y - tree.y) >= tree.r * 0.9) return true; // leaves only thin out for someone under the same tree
-    }
     if (t.smoke) {
       if (!v || v.smoke !== t.smoke) return true;
       if (Math.hypot(viewer.x - target.x, viewer.y - target.y) > 260) return true; // inside the cloud you see a little
+    }
+    return false;
+  }
+  // Under leaves, and too far off to be picked out among them.
+  underLeaves(viewer, target) {
+    const t = this.info.get(target.id);
+    if (!t || !t.trees.length) return false;
+    const d = Math.hypot(viewer.x - target.x, viewer.y - target.y);
+    for (let i = 0; i < t.trees.length; i++) {
+      const tree = t.trees[i];
+      if (Math.hypot(viewer.x - tree.x, viewer.y - tree.y) < tree.r * 0.9) continue;   // leaves thin out for someone under the same tree
+      if (d > (this.bushes.has(tree) ? BUSH_SPOT : TREE_SPOT)) return true;
     }
     return false;
   }
@@ -85,4 +100,11 @@ export function canSee(W, cover, viewer, target, half, revealed) {
   return !cover.hidden(viewer, target);
 }
 
-export const VIEW = { HALF_W, HALF_H };
+// On screen with nothing but leaves in the way: someone who was being watched as they went in is still being watched.
+export function onlyLeaves(W, cover, viewer, target, half) {
+  const dx = Math.abs(target.x - viewer.x), dy = Math.abs(target.y - viewer.y);
+  if (dx > half.w || dy > half.h || (target.fx && target.fx.invisible > 0)) return false;
+  return !cover.solidCover(viewer, target);
+}
+
+export const VIEW = { HALF_W, HALF_H, BUSH_SPOT, TREE_SPOT };

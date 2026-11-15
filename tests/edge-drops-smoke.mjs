@@ -64,9 +64,10 @@ for (const [mode, teamSize, count] of modes) for (const seed of seeds) {
     if (!dryOpen(world, p.x, p.y, 60)) reserved = false;
   }
   t.check(reserved, tag + ': even maximum no-fill sharing has dry, unobstructed team footprints');
-  t.equal(map.crates.length, 211, tag + ': 210 regular crates and one legendary');
-  t.equal(W.CRATE_ORDER.map(tier => map.crates.filter(c => c.tier === tier).length).join(), '168,21,17,4,1', tag + ': crate rarity quotas retain the same odds');
-  const legendary = map.crates.find(c => c.tier === 'legendary');
+  t.equal(map.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, tag + ': 210 regular crates alongside legendary rewards');
+  const outdoor = map.crates.filter(c => c.settlement === undefined && c.id !== map.legendaryCrateId), outdoorQuota = W.Rules.crateQuota(outdoor.length + 1);
+  t.check(W.CRATE_ORDER.filter(tier => tier !== 'legendary').every(tier => outdoor.filter(c => c.tier === tier).length === outdoorQuota[tier]), tag + ': outdoor rarity quotas retain the same odds');
+  const legendary = map.crates.find(c => c.id === map.legendaryCrateId);
   t.check(legendary.x === S / 2 && legendary.y === S / 2 && map.legendaryCrateId === legendary.id, tag + ': the reserved legendary stays at the center');
   const cars = map.vehicles, sectors = new Set(cars.map(v => (Math.round(Math.atan2(v.y - S / 2, v.x - S / 2) / (TAU / 8)) + 8) % 8));
   t.check(cars.length === 8 && sectors.size === 8, tag + ': one Humvee occupies each of eight outer-lane sectors');
@@ -136,7 +137,7 @@ for (const [mode, teamSize, count] of modes) {
       if (scenario === 'filled' && seed === 1) {
         const state = ClientW.Online.start(match.startMessage(match.players[0], false));
         t.equal(hash(state.world.map), hash(match.map), mode + ': a real match-start rebuilds identical client/server terrain, drops, crates and vehicles');
-        t.check(state.info.teamSize === teamSize && state.world.vehicles.filter(v => v.type === 'humvee' && v.armed).length === (teamSize > 1 ? 2 : 0)
+        t.check(state.info.teamSize === teamSize && state.world.vehicles.filter(v => v.type === 'humvee' && v.armed).length === (teamSize > 1 ? 2 + match.world.map.settlementVehicles.length : 0)
           && state.world.vehicles.filter(v => v.type === 'tank').length === 4, mode + ': client mode, armed Humvees and tank count agree with the server');
       }
     } finally { match.destroy(); }

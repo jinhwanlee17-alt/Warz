@@ -185,6 +185,15 @@
     map.ponds.forEach(function (p) { if (!visible(p.x, p.y, p.r)) return; g.beginPath(); g.arc(p.x, p.y, p.r, 0, U.TAU); g.fill(); });
     map.buildings.forEach(function (b) {
       if (!visible(b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, b.h))) return;
+      if (b.ruined) {
+        g.fillStyle = '#a69b85'; g.fillRect(b.x + 8, b.y + 8, b.w - 16, b.h - 16);
+        g.fillStyle = '#6f7068';
+        for (var rubble = 0; rubble < 7; rubble++) {
+          var phase = (b.id || 0) * 1.71 + rubble * 2.39;
+          g.fillRect(b.x + b.w * (.18 + (Math.sin(phase) + 1) * .3), b.y + b.h * (.18 + (Math.cos(phase) + 1) * .3), 20, 14);
+        }
+        return;
+      }
       g.fillStyle = b.roof;
       g.fillRect(b.x, b.y, b.w, b.h);
       if (big) { g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 8; g.strokeRect(b.x, b.y, b.w, b.h); }
