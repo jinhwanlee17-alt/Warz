@@ -133,13 +133,17 @@ Object.assign(Bot.prototype, {
   medkitPlay(S) {
     const p = this.p;
     if (this.gearKind() !== 'medkit' || p.medkitCd > 0 || this.now < this.gearAt) return false;
-    const kit = this.W.WEAPONS[p.classId === 'medic2' ? 'medkit2' : 'medkit'];
-    let want = S.miss >= kit.heal - 4 || (S.frac < 0.5 && !S.exposed);
+    const magic = p.classId === 'magicmedic', kit = this.W.WEAPONS[magic ? 'magicmedkit' : p.classId === 'medic2' ? 'medkit2' : 'medkit'];
+    // The Magic Medic's kit is 300 HP for one player, on top of whatever they have: for itself once it is hurt, or
+    // for a teammate within reach who is worse off (it goes to whoever the cursor is on).
+    let want = magic ? S.frac < 0.7 : S.miss >= kit.heal - 4 || (S.frac < 0.5 && !S.exposed), patient = null;
     for (const m of this.mates) {
-      if (this.dist(m) > 150) continue;
-      if ((m.downed && kit.reviveFraction) || (!m.downed && m.maxHp - m.hp >= kit.heal - 4)) want = true;
+      if (this.dist(m) > (magic ? kit.range - 10 : 150)) continue;
+      if (magic) { if (!m.downed && m.hp / m.maxHp < Math.min(0.6, S.frac) && this.world.lineClear(p.x, p.y, m.x, m.y)) { want = true; patient = m; } }
+      else if ((m.downed && kit.reviveFraction) || (!m.downed && m.maxHp - m.hp >= kit.heal - 4)) want = true;
     }
     if (!want || !this.ready('medkit', true)) return false;
+    if (patient) this.clickAt = { x: patient.x, y: patient.y };
     this.out.utility = true; this.hes.delete('medkit');
     this.gearAt = this.now + 1;
     return true;

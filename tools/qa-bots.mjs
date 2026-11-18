@@ -173,6 +173,10 @@ async function main() {
     const sa = live.byId.get(await A.evaluate('Warz.debug.player().id')), sb = live.byId.get(await B.evaluate('Warz.debug.player().id'));
     const nearest = (to) => live.players.filter((p) => p.bot && p.alive && p.dropT <= 0).sort((p, q) => Math.hypot(p.x - to.x, p.y - to.y) - Math.hypot(q.x - to.x, q.y - to.y))[0];
     let bot = nearest(sa);
+    // Bots open fire on a player they can see, so the one who is here to watch is made too sturdy to be eliminated
+    // before the script gets to that step (and is frail again for it).
+    const frail = { hp: sa.hp, maxHp: sa.maxHp };
+    sa.maxHp = sa.hp = 1e6;
     sa.x = bot.x + 230; sa.y = bot.y + 40; sa.vx = 0; sa.vy = 0; live.world.collide(sa);
     await A.waitFor(`Warz.debug.match().world.players.some((o) => o.id === ${bot.id} && o.alive && Math.hypot(o.x - Warz.debug.player().x, o.y - Warz.debug.player().y) < 600)`, 'the bot in A\'s world', 5000);
     const first = (await A.evaluate(AROUND)).find((o) => o.id === bot.id);
@@ -203,6 +207,7 @@ async function main() {
     check(frames.n >= 30 && frames.ms < 2500, 'the client keeps its frame rate with 50 players in the match (30 frames in ' + Math.round(frames.ms) + ' ms)');
 
     // Eliminated by a bot: placement out of 50, the bot's name, and spectating it.
+    sa.maxHp = frail.maxHp; sa.hp = frail.hp;
     const killer = nearest(sa), aliveNow = live.players.filter((p) => p.alive).length;
     live.world.damagePlayer(sa, 500, killer.id, 'ar');
     await A.waitFor('!document.getElementById("death-screen").hidden', 'A eliminated', 8000);

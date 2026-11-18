@@ -117,8 +117,8 @@ Object.assign(Bot.prototype, {
     // Pressing the interact key for something else next to a vehicle can put a bot in a seat it never wanted.
     const why = r && r.v === v ? r.why : 'oops';
     this.drive = { id: v.id, why, since: now, route: null, routeGoal: null, routeAt: -9, edge: null, side: 1, dir: null, dirAt: 0,
-      sx: v.x, sy: v.y, stuckAt: now, stuckN: 0, unstick: null, wedges: [], hullHitAt: -99, hullBy: 0, exitAt: 0, exitTries: 0, leave: false, foe: null,
-      orbit: this.vrng.next() < 0.5 ? 1 : -1, orbitAt: now + 5, passUntil: 0, patrol: null, parkUntil: 0, lastFightAt: now,
+      sx: v.x, sy: v.y, stuckAt: now, stuckN: 0, turnAt: now, unstick: null, wedges: [], tried: [], hullHitAt: -99, hullBy: 0, exitAt: 0, exitTries: 0, leave: false, foe: null, openAt: -99,
+      orbit: this.vrng.next() < 0.5 ? 1 : -1, orbitAt: now + 5, passUntil: 0, passDir: 0, passSide: 0, patrol: null, parkUntil: 0, lastFightAt: now,
       lastShotAt: now, scanAt: 0, pick: null, aimAt: null, relocate: null, lineFor: 0, lineAt: -9, lineOk: false };
     if (r) this.d.unclaimVehicle(r.v, this.p);
     this.ride = null; this.watch.clear();
@@ -239,28 +239,42 @@ Object.assign(Bot.prototype, {
     if (!e || !e.ref.alive || e.dropping || now - e.seenAt > 2.5) return null;
     const d = this.dist(e), human = !e.ref.bot, theirs = e.ref.vehicle ? this.world.vehicleById(e.ref.vehicle) : null;
     const provoked = now - e.hurtMeAt < 4 || now - e.shotAtMeAt < 2 || (dr.hullBy === e.id && now - dr.hullHitAt < 4);
-    if (!this.armed(v) && (theirs || !e.visible || d > 950 || !this.world.lineClear(v.x, v.y, e.ref.x, e.ref.y, v))) return null;
+    if (!this.armed(v)) {
+      // (Somebody it was already bearing down on is not forgotten the moment a rock gets in the way or they leave the
+      // edge of the screen, say while the hull backs out of a tight spot: it has a few seconds to come round.)
+      const keep = dr.foe === e && now - dr.openAt < 4;
+      if (theirs || d > (keep ? 1300 : 950)) return null;
+      if (e.visible && this.world.lineClear(v.x, v.y, e.ref.x, e.ref.y, v)) dr.openAt = now;
+      else if (!keep) return null;
+    }
     if (theirs && !theirs.wreck && theirs.type === 'tank' && v.type !== 'tank') return null;   // nothing to win against a tank
     if (provoked || (d < 320 && !(human && now - this.landAt < LANDING_GRACE))) return e;
     if (this.mates.length && this.d.focus(this.p.team) === e.id) return e;
     if (!e.visible) return dr.foe === e ? e : null;                 // still after someone who has just slipped out of sight
-    return this.freeChoice(e, d, human, e.downed ? 0.2 : e.hp, 1) ? e : null;
+    if (human) return now - this.landAt < LANDING_GRACE ? null : e;  // a person in view is a target, as on foot
+    return this.freeChoice(e, d, e.downed ? 0.2 : e.hp, 1) ? e : null;
   },
   fightDrive(v, e) {
     const now = this.now, dr = this.drive, o = e.visible ? e.ref : e;
     const dx = o.x - v.x, dy = o.y - v.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
     if (!this.armed(v)) {
-      // Run them down: aim where they will be, carry on past, come round again.
-      if (now < dr.passUntil) return this.driveToward(v, { x: v.x + Math.cos(v.angle) * 400, y: v.y + Math.sin(v.angle) * 400, tol: 10 }, 1, true);
-      if (d < 110) dr.passUntil = now + 0.55;
+      // Run them down: aim where they will be, carry on past, come round again. The pass veers off to one side: a
+      // ram only counts again once the hull has let go of them, and somebody standing still would otherwise be pushed
+      // along in front of it for the length of the island.
+      if (now < dr.passUntil) return this.driveToward(v, { x: v.x + Math.cos(dr.passDir) * 400, y: v.y + Math.sin(dr.passDir) * 400, tol: 10 }, 1, true);
+      if (d < 110) { dr.passUntil = now + 0.8; dr.passSide = -(dr.passSide || dr.orbit); dr.passDir = v.angle + dr.passSide * 0.6; }
       const sp = Math.max(150, Math.hypot(v.vx, v.vy)), t = Math.min(1.2, d / sp) * (0.4 + this.prof.lead * 0.6);
       return this.driveToward(v, { x: o.x + (o.vx || 0) * t, y: o.y + (o.vy || 0) * t, tol: 0 }, 1, true);
     }
     const theirs = e.ref.vehicle ? this.world.vehicleById(e.ref.vehicle) : null;
     const lo = theirs && this.W.vehicleHasTankArmor(theirs) ? 650 : 420, hi = theirs ? 1050 : 820;
-    if (!e.visible || !this.gunLine(v, e)) return this.driveToward(v, { x: o.x, y: o.y, tol: 300 }, 1);   // go and find a line on them
-    if (d > hi) return this.driveToward(v, { x: o.x, y: o.y, tol: hi - 50 }, 1);
-    if (d < lo) return this.driveToward(v, { x: v.x - ux * 500, y: v.y - uy * 500, tol: 20 }, 1, true);
+    // No line on them: go and find one. Already close with something in the way (a rock they stand behind, a cactus
+    // between two hulls), coming closer finds nothing and stopping there is how two tanks sat side by side for
+    // minutes: round them it goes, like below.
+    const line = e.visible && this.gunLine(v, e);
+    if (!line && d > 340) return this.driveToward(v, { x: o.x, y: o.y, tol: 300 }, 1);
+    if (line && d > hi) return this.driveToward(v, { x: o.x, y: o.y, tol: hi - 50 }, 1);
+    if (line && d < lo) return this.driveToward(v, { x: v.x - ux * 500, y: v.y - uy * 500, tol: 20 }, 1, true);
     // In range: circle them, now one way, now the other, never sitting still for their rockets (and never round into
     // a street of houses).
     if (now > dr.orbitAt) { dr.orbit = -dr.orbit; dr.orbitAt = now + this.vrng.range(3, 7); }
@@ -331,7 +345,9 @@ Object.assign(Bot.prototype, {
     let k = throttle * (turn > 1.5 ? 0.35 : turn > 0.8 ? 0.65 : 1);
     if (final && tol > 0) k *= clamp(d / 350, 0.3, 1);              // ease in
     out.mx = dir.x * k; out.my = dir.y * k;
-    this.hullStuck(v, k > 0.25);
+    // (Swinging round to a new heading it barely rolls: that is not being stuck, for as long as a full turn takes.)
+    if (turn < 0.8) dr.turnAt = now;
+    this.hullStuck(v, k > 0.25 && (turn < 0.8 || now - dr.turnAt >= 1.5));
   },
   // The heading nearest the wanted one along which the hull fits for the next few hundred units (null: none).
   hullSteer(v, ux, uy, far) {
@@ -350,8 +366,9 @@ Object.assign(Bot.prototype, {
   },
   // Can a hull of radius r roll straight from (x1, y1) to (x2, y2)? Walls, rocks, crates, stations, structures, other
   // vehicles and the coast; a Humvee also keeps out of big sentries' reach. A hull already scraping something may
-  // always pull away from it.
-  hullClear(v, x1, y1, x2, y2, r) {
+  // pull away from it or slide along it, never press further in: two rocks it is touching make a gap it does not fit.
+  // `free` leaves out the memory of gaps it got wedged in.
+  hullClear(v, x1, y1, x2, y2, r, free) {
     const U = this.W.U, C = this.W.CONFIG, world = this.world;
     if (!U.insideIsland(x2, y2, r + 8, C.worldSize, C.cornerRadius)) return false;
     let clear = true;
@@ -359,8 +376,7 @@ Object.assign(Bot.prototype, {
       if (!clear || (s.crate && !s.crate.alive) || (s.rock && !s.rock.alive) || (s.struct && !s.struct.alive)) return;
       if (s.shape === 'circle') {
         const d0 = Math.hypot(s.x - x1, s.y - y1);
-        if (d0 - s.r < r) { if (Math.hypot(s.x - x2, s.y - y2) < d0) clear = false; return; }
-        if (U.segCircle(x1, y1, x2, y2, s.x, s.y, s.r + r) >= 0) clear = false;
+        if (U.segCircle(x1, y1, x2, y2, s.x, s.y, Math.max(0, Math.min(s.r + r, d0 - 2))) >= 0) clear = false;
         return;
       }
       const d0 = Math.hypot(x1 - clamp(x1, s.x, s.x + s.w), y1 - clamp(y1, s.y, s.y + s.h));
@@ -371,8 +387,7 @@ Object.assign(Bot.prototype, {
     for (const o of world.vehicles) {
       if (o === v) continue;
       const d0 = Math.hypot(o.x - x1, o.y - y1);
-      if (d0 < o.r + r) { if (Math.hypot(o.x - x2, o.y - y2) < d0) return false; continue; }
-      if (U.segCircle(x1, y1, x2, y2, o.x, o.y, o.r + r) >= 0) return false;
+      if (U.segCircle(x1, y1, x2, y2, o.x, o.y, Math.max(0, Math.min(o.r + r, d0 - 2))) >= 0) return false;
     }
     if (v.type !== 'tank') {
       for (const h of this.hazards) {
@@ -380,7 +395,7 @@ Object.assign(Bot.prototype, {
       }
     }
     // A gap this hull got wedged in a moment ago is not tried again straight away.
-    const wedges = this.drive && this.drive.wedges;
+    const wedges = !free && this.drive && this.drive.wedges;
     if (wedges) for (const w of wedges) if (w.until > this.now && Math.hypot(x1 - w.x, y1 - w.y) >= w.r && U.segCircle(x1, y1, x2, y2, w.x, w.y, w.r) >= 0) return false;
     return true;
   },
@@ -403,16 +418,40 @@ Object.assign(Bot.prototype, {
   // The way out of a wedge: of the headings with room to roll, the one nearest to where we are going. (Any of them
   // can be reached: a hull turns on the spot, it just cannot push through what it is up against.)
   openHeading(v) {
-    const dr = this.drive, g = dr.routeGoal, want = g ? Math.atan2(g.y - v.y, g.x - v.x) : v.angle;
+    const dr = this.drive, U = this.W.U, now = this.now, g = dr.routeGoal, want = g ? Math.atan2(g.y - v.y, g.x - v.x) : v.angle;
+    // A heading already tried from this very spot evidently did not get the hull out of it.
+    dr.tried = dr.tried.filter((t) => t.until > now && Math.hypot(t.x - v.x, t.y - v.y) < 60).slice(-12);
+    const stale = (a) => dr.tried.some((t) => Math.abs(U.angleDiff(t.a, a)) < 0.3);
     let best = null, bd = Infinity;
-    for (let k = 0; k < 16; k++) {
-      const a = k / 16 * TAU;
-      if (!this.hullClear(v, v.x, v.y, v.x + Math.cos(a) * 150, v.y + Math.sin(a) * 150, v.r + 2)) continue;
-      const d = Math.abs(this.W.U.angleDiff(want, a)) + this.vrng.next() * 0.4;
-      if (d < bd) { bd = d; best = a; }
+    for (const free of [false, true]) {                             // boxed in by its own memory of bad gaps: forget them
+      for (let k = 0; k < 16; k++) {
+        const a = k / 16 * TAU;
+        if (stale(a) || !this.hullClear(v, v.x, v.y, v.x + Math.cos(a) * 150, v.y + Math.sin(a) * 150, v.r + 2, free)) continue;
+        const d = Math.abs(U.angleDiff(want, a)) + this.vrng.next() * 0.4;
+        if (d < bd) { bd = d; best = a; }
+      }
+      if (best !== null) break;
     }
-    if (best === null) best = v.angle + Math.PI * (0.5 + this.vrng.next());
+    if (best === null) best = this.pushOff(v, stale);
+    dr.tried.push({ a: best, x: v.x, y: v.y, until: now + 15 });
     return { x: Math.cos(best), y: Math.sin(best), until: 0 };
+  },
+  // Nothing looks open: straight away from whatever the hull is up against, and failing that anywhere not tried yet.
+  pushOff(v, stale) {
+    const reach = v.r + 14, seen = new Set();
+    let ax = 0, ay = 0;
+    const add = (dx, dy) => { const d = Math.hypot(dx, dy) || 1; ax += dx / d; ay += dy / d; };
+    this.world.solids.query(v.x - reach, v.y - reach, v.x + reach, v.y + reach, (s) => {
+      if (seen.has(s) || (s.crate && !s.crate.alive) || (s.rock && !s.rock.alive) || (s.struct && !s.struct.alive)) return;
+      seen.add(s);
+      if (s.shape === 'circle') { if (Math.hypot(s.x - v.x, s.y - v.y) - s.r < reach) add(v.x - s.x, v.y - s.y); return; }
+      const cx = clamp(v.x, s.x, s.x + s.w), cy = clamp(v.y, s.y, s.y + s.h);
+      if (Math.hypot(v.x - cx, v.y - cy) < reach) add(v.x - cx, v.y - cy);
+    });
+    for (const o of this.world.vehicles) if (o !== v && Math.hypot(o.x - v.x, o.y - v.y) - o.r < reach) add(v.x - o.x, v.y - o.y);
+    if (Math.hypot(ax, ay) > 0.2) { const a = Math.atan2(ay, ax); if (!stale(a)) return a; }
+    for (let i = 0; i < 8; i++) { const a = this.vrng.next() * TAU; if (!stale(a)) return a; }
+    return this.vrng.next() * TAU;
   },
 
   // ---------------------------------------------------------------- guns
@@ -455,8 +494,8 @@ Object.assign(Bot.prototype, {
     if (!e || !e.ref.alive || e.dropping || !e.visible) return null;
     const human = !e.ref.bot;
     if (now - e.hurtMeAt < 4 || now - e.shotAtMeAt < 2 || (dr.hullBy === e.id && now - dr.hullHitAt < 4) || this.d.focus(this.p.team) === e.id) return e;
-    if (human && now - this.landAt < LANDING_GRACE) return null;
-    return this.freeChoice(e, this.dist(e), human, e.downed ? 0.2 : e.hp, 1) ? e : null;
+    if (human) return now - this.landAt < LANDING_GRACE ? null : e;
+    return this.freeChoice(e, this.dist(e), e.downed ? 0.2 : e.hp, 1) ? e : null;
   },
   // Does a shot from the hull's centre reach them (or the vehicle they are in)?
   gunLine(v, e) {
@@ -542,13 +581,13 @@ Object.assign(Bot.prototype, {
       if (w.hull) {
         const hv = world.vehicleById(w.hull);
         if (!hv || hv.wreck) continue;
-        s += hv.fixed ? 3 : this.W.vehicleHasTankArmor(hv) ? -4 : 2;  // a gun crew cannot drive away; a tank hardly notices
+        s += hv.type === 'tank' ? -4 : hv.type === 'artillery' ? 3 : 2;   // a gun crew is going nowhere; a tank hardly notices
       }
       if (s > bs) { bs = s; best = { id, human, at: 0, until: 0 }; }
     }
     if (!best) return { none: true, until: now + this.vrng.range(1.5, 3) };
     // Whether to fire at all: a person is fair game; other bots follow the lobby's pace, like every other fight between them.
-    const keen = best.human ? this.d.humanKeen * (0.4 + prof.aggression * 0.5) : clamp(this.d.keen, 0, 2.5) * 0.35;
+    const keen = best.human ? this.d.humanKeen : clamp(this.d.keen, 0, 2.5) * 0.35;
     if (this.vrng.next() >= keen) return { none: true, until: now + this.vrng.range(2, 4) };
     best.at = now + this.vrng.range(0.3, 1.2) * prof.hesitation; best.until = now + 4;
     return best;

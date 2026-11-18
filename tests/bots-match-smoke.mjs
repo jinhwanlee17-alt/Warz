@@ -46,9 +46,10 @@ function play(seed, teamSize, o = {}) {
     if (marks.length && world.time >= marks[0]) s.alive[marks.shift()] = match.players.filter((p) => p.alive).length;
     if (s.ticks % 20 === 0) {
       for (const p of match.players) {
-        if (!p.alive || !p.bot || p.downed || p.mount) continue;
-        if (p.vehicle && (world.vehicleById(p.vehicle) || {}).type === 'artillery') continue;   // an artillery crew sits still on purpose, like a turret gunner
         const at = spots.get(p.id);
+        // Knocked down, on a turret or crewing an artillery piece a bot sits still on purpose; the clock starts
+        // again when it is back on its feet (it may well get out next to where it got in).
+        if (!p.alive || !p.bot || p.downed || p.mount || (p.vehicle && (world.vehicleById(p.vehicle) || {}).type === 'artillery')) { if (at) at.t = world.time; continue; }
         if (Math.hypot(p.x - at.x, p.y - at.y) > 60) { at.x = p.x; at.y = p.y; at.t = world.time; }
         else if (world.time - at.t > 40 && world.storm.phase < 4) { s.frozen++; at.t = world.time; }   // late on, holding a spot in a tiny circle is the right thing to do
       }
@@ -77,7 +78,7 @@ function play(seed, teamSize, o = {}) {
   const avg = (s) => s.match.players.reduce((n, p) => n + p.ai.prof.skill, 0) / 50;
   const easy = play(7, 1, { until: 1, botSkill: 0 }), hard = play(7, 1, { until: 1, botSkill: 1 });
   t.check(avg(easy) < 0.3 && avg(hard) > 0.66 && avg(s) > 0.4 && avg(s) < 0.55, 'the server\'s bot skill setting makes the lobby weaker (' + avg(easy).toFixed(2) + ') or stronger (' + avg(hard).toFixed(2) + ') than the usual ' + avg(s).toFixed(2));
-  t.check(easy.dir.humanKeen < s.dir.humanKeen && hard.dir.humanKeen > s.dir.humanKeen, 'and bots that go looking for players less often, or more');
+  t.check(easy.dir.humanKeen < s.dir.humanKeen && hard.dir.humanKeen > s.dir.humanKeen, 'and gun crews that shell players less readily, or more');
   m.destroy(); again.match.destroy(); easy.match.destroy(); hard.match.destroy();
 }
 {

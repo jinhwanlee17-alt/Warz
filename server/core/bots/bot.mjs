@@ -3,7 +3,7 @@
 // The layers, top to bottom: senses -> a goal ("mode") -> feet (path following), eyes (aim with lag and wobble),
 // trigger -> item plays. Combat, looting and items live in bot-combat.mjs, bot-loot.mjs and bot-items.mjs.
 import { canSee, viewHalf, onlyLeaves, VIEW } from './sense.mjs';
-import { classPlan } from './profile.mjs';
+import { classPlan, thirdClass } from './profile.mjs';
 
 const TAU = Math.PI * 2;
 export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -58,6 +58,11 @@ export class Bot {
     this.vrng = W.U.rng((director.seed ^ Math.imul(player.id, 0x85ebca6b) ^ 0x2c1b3c6d) >>> 0);
     this.wheels = this.vrng.next();                                                        // keen on vehicles at all
     this.gunnerish = clamp(this.vrng.next() * 0.8 + profile.caution * 0.4 - 0.1, 0, 1);    // keen on artillery
+    this.plan[2] = thirdClass(this.vrng, profile, this.plan[1]);                           // the level-three class it saves for
+    // Upgrade credit (see BotDirector). Each bot earns it at its own pace and starts a little way in, so the lobby
+    // does not become able to afford a class in the same second and stampede to the nine stations together.
+    this.credit = this.vrng.range(0, 3); this.creditRate = this.vrng.range(0.6, 1.4);
+    this.build = null; this.buildAt = 0;
     this.ride = null; this.drive = null; this.badVehicle = new Map(); this.vehicleAt = 0; this.watch = new Map();
   }
 
@@ -467,9 +472,16 @@ export class Bot {
     if (this.storm.must) return this.pickVehicle(true) ? this.setMode('board') : this.setMode('storm');   // a car parked right here gets there sooner
     if (this.pickRevive()) return this.setMode('revive');
     if (stance === 'avoid') return this.startFlee(e, true);   // hurt (or facing a tank), a stranger in plain view: somewhere quiet first
-    if (this.pickStation()) return this.setMode('upgrade');
+    if (this.pickHunt(true)) return this.setMode('hunt');     // a person was right here a moment ago: after them
+    if (this.pickStation()) {
+      // Something worth having a few steps away comes first: the station will still be there in a moment.
+      if (this.pickLoot() && this.dist(this.loot.ref) < 520) return this.setMode('loot');
+      if (this.loot) { if (this.loot.kind === 'crate') this.d.unclaim(this.loot.ref.id, this.p); this.loot = null; }
+      return this.setMode('upgrade');
+    }
     if (this.pickVehicle(false)) return this.setMode('board');   // a tank, a Humvee or a gun worth the walk (or our teammate's ride)
     if (this.needRegroup()) return this.setMode('regroup');
+    if (this.pickBuild()) return this.setMode('build');       // an Engineer with a quiet moment puts a sentry up
     if (this.pickLoot()) return this.setMode('loot');
     if (this.following()) return this.setMode('escort');   // nothing to pick up here: stay with whoever leads the team
     if (this.pickHunt()) return this.setMode('hunt');
@@ -491,6 +503,7 @@ export class Bot {
       case 'siege': this.doSiege(); break;
       case 'escort': this.doEscort(); break;
       case 'board': this.doBoard(); break;
+      case 'build': this.doBuild(); break;
       default: this.doRoam();
     }
     // Feet may be busy with something else; the gun still answers whoever is shooting at us.
@@ -499,6 +512,7 @@ export class Bot {
     // A basic enemy sentry that can see us: shoot it down (it has 50 HP) unless a player needs the bullets more.
     const s = this.sentryFoe;
     if (s && s.alive && (!this.shoot || !this.shoot.rec || this.now - this.sentryHurtAt < 1.5)) this.shootStruct(s);
+    this.classPlay();
     this.handleWeapon();
   }
   shootStruct(s) {
@@ -527,7 +541,7 @@ export class Bot {
   // Nothing in sight worth having: look inside the nearest building we have not been in (that is where crates hide).
   pickExplore() {
     const p = this.p, now = this.now, list = this.world.map.buildings;
-    if (this.tokenNeed() <= 0 && this.W.CLASSES[p.classId].tier >= 2) return false;
+    if (this.tokenNeed() <= 0 && this.W.CLASSES[p.classId].tier >= 3) return false;
     const cur = this.explore;
     if (cur && !this.visited.has(cur.index) && now < cur.until && !this.occupied(cur.index)) return true;
     let best = -1, bd = 1700;
@@ -634,9 +648,16 @@ export class Bot {
   doEscort() {
     const lead = this.lead, p = this.p;
     if (!lead || !lead.alive || lead.downed) { this.redecide = true; return; }
-    if (!this.escortAt || this.now > this.escortAt.until) this.escortAt = { a: this.rng.range(0, TAU), r: this.rng.range(110, 230), until: this.now + this.rng.range(4, 9) };
+    if (!this.escortAt || this.now > this.escortAt.until) {
+      // Another side of them every few seconds: next to somebody who is staying put (crewing a gun, say) an escort
+      // walks its rounds instead of standing there.
+      const a = this.escortAt ? this.escortAt.a + (this.rng.next() < 0.5 ? 1 : -1) * this.rng.range(1.2, 2.6) : this.rng.range(0, TAU);
+      this.escortAt = { a, r: this.rng.range(110, 230), until: this.now + this.rng.range(4, 9) };
+    }
     const x = lead.x + Math.cos(this.escortAt.a) * this.escortAt.r, y = lead.y + Math.sin(this.escortAt.a) * this.escortAt.r;
-    if (Math.hypot(x - p.x, y - p.y) > 70 && this.nav.freeAt(x, y)) this.moveGoal = { x, y, tol: 50 };
+    const free = this.nav.freeAt(x, y);
+    if (!free) this.escortAt.until = 0;                             // inside a wall or their vehicle: another spot
+    if (free && Math.hypot(x - p.x, y - p.y) > 70) this.moveGoal = { x, y, tol: 50 };
     else if (this.dist(lead) > 300) this.moveGoal = { x: lead.x, y: lead.y, tol: 180 };
   }
   doRegroup() {
@@ -930,7 +951,7 @@ export class Bot {
   // Keep that error between shots, rather than shaking the muzzle anew on cooldown/reload/charge ticks.
   shotAim(s, mount, angle, distance, trackingSigma) {
     const p = this.p, out = this.out, def = s && s.def, rec = s && s.rec;
-    if (!rec || !def || (def.kind !== 'gun' && def.kind !== 'launcher' && def.kind !== 'turret')) {
+    if (!rec || !def || (def.kind !== 'gun' && def.kind !== 'launcher' && def.kind !== 'turret' && def.kind !== 'rocket')) {
       this.shotError = 0; this.shotAimId = 0; this.shotAimWeapon = '';
       return angle;
     }
@@ -945,7 +966,8 @@ export class Bot {
         // and distance from the shooter; the ordinary projectile/cover/splash rules still decide the outcome.
         aperture = 2 * Math.asin(clamp((radius + def.explosion.radius) / Math.max(1, 2 * distance), 0, 0.98));
       } else {
-        const silhouette = Math.asin(clamp((radius + def.bulletRadius) / Math.max(1, distance), 0, 0.98));
+        // (A rocket bursts on contact, so it has to hit like a bullet: one that goes wide flies on across the island.)
+        const silhouette = Math.asin(clamp((radius + (def.bulletRadius || def.projectileRadius || 5)) / Math.max(1, distance), 0, 0.98));
         // Shotguns count a blast that lands any pellet. The cone is wider, but the hand can still miss it.
         aperture = silhouette + (def.pellets > 1 ? def.spread : 0);
       }
@@ -987,6 +1009,12 @@ export class Bot {
     if (def.kind === 'cannon') {
       // A tank shell is three seconds of reload: wait until the barrel is on them (the blast forgives a little).
       if (err < Math.atan2((s.rec ? p.r : s.r || 20) + 25, Math.max(60, dist)) * Math.min(1.3, prof.sprayLoose)) out.fire = true;
+      return;
+    }
+    if (def.kind === 'rocket') {
+      // One rocket every three seconds, and it only bursts on what it touches: line it up like a rifle shot.
+      this.aimHold = (this.aimHold || 0) + this.dt;
+      if (this.aimHold >= lerp(0.7, 0.25, prof.skill) && err < Math.atan2((s.rec ? p.r : s.r || 20) + 8, Math.max(60, dist))) { out.fire = true; this.aimHold = 0; }
       return;
     }
     if (on) this.sprayUntil = now + (1.1 - prof.skill) * 0.3;

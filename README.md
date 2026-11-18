@@ -151,26 +151,43 @@ that applies to a player applies to a bot. Offline Practice starts without bots.
   direction, and ordinary projectile collision determines hits. The best bot still takes about a fifth of a
   second to react. Each also has its
   own aggression, caution and class plan. `BOT_SKILL` (`"0"` easy … `"1"` hard, default `"0.5"`) slides the whole
-  lobby down or up and also sets how readily bots go after players who have left them alone.
+  lobby's skill down or up. It does not change when bots attack players: that is the health rule below.
 - **What they do**: land, open crates (indoor ones have to be found), pick up and swap items, save tokens for the
   class they want and walk to an Upgrade Station, rotate ahead of the storm, keep out of fire, airstrikes and big
   sentries (and shoot those down from outside their reach). In a fight they pick the right gun for the distance,
   strafe, reload behind cover, back off and heal when it goes badly, and use what they carry with a purpose: a
   boulder between them and the shooter and a snowbomb on the chaser to get away, smoke or a riot shield to revive
   under fire, flashbang before a shotgun push, black hole then grenade, a teleporter pad left somewhere safe. They
-  sprint to close in, to get away and to beat the storm.
+  sprint to close in, to get away and to beat the storm, walk round cacti, and in a fight sit down at a free turret
+  that is a few steps away (their own, a teammate's, or a settlement's neutral one).
+- **Classes**: every bot plans a level-one, a level-two and a level-three class and upgrades at Upgrade Stations
+  like a player. The island holds only a few hundred tokens for fifty players and bots are poor looters (a typical
+  one finds six or seven in a match), so on tokens alone almost none would get past level one. Each living bot
+  therefore earns **upgrade credit**, about one point every 12 seconds, each at its own pace (`UPGRADE_CREDIT` in
+  `server/core/bots/index.mjs`; 0 turns it off). Credit only counts toward a class at a station: it is never a token, cannot be dropped or
+  picked up, and the station still has to be reached and still goes on cooldown (a bot heading for one counts as
+  having taken it, so they do not queue up). In a typical match about a quarter of the bots are level one by 2:30,
+  about half of the survivors are level two by 7:30, and five to nine reach level three from about seven or eight
+  minutes in. Level-three bots use what the class carries: Shotgun III up close, the Pyromaniac's flamethrower
+  or dual revolvers, lined-up rockets from range (also at tanks), the Magic Medic's 300 HP kit, the riot shield
+  kept toward the shooter (and the red one toward a blast), and an Engineer builds a sentry when things are quiet
+  and hammers it up a level when it has tokens to spare.
 - **Vehicles**: bots that like them take tanks, Humvees and artillery (`server/core/bots/bot-vehicles.mjs`). A tank
-  circles its target at cannon range, fires the cannon when it is loaded and the machine gun while it reloads; an
-  unarmed Humvee runs people down, or is a quick lift ahead of the storm; an artillery crew (ground guns, or
-  self-propelled ones it parks and sets up) shells whoever keeps still for a while, at most once every 18 seconds
-  at the same person. Drivers go round settlements, wait for teammates to climb in, and get out when the hull is
-  nearly gone. A bot on your team rides in your vehicle and works its gun. On foot, bots stay out of an enemy tank's
-  sight unless it shoots at them, and they dodge artillery shells they see coming.
-- **Toward players**: bots strike first. Nobody opens fire on a player in the first 14 seconds after landing; after
-  that an average bot that has you on its screen opens fire about three times in four (a bold one more, a timid
-  one less), and thinks it over again every few seconds and whenever you come closer. Walk up close to a bot or into
-  the house it is in and it shoots. Bots still show some restraint about piling on one player, and a second bot
-  team-mate joins a fight a moment after the first. A bot on your team follows you, fights who you fight and revives you.
+  circles its target at cannon range (and goes round a rock or cactus that blocks its guns up close), fires the cannon when it is loaded and the machine gun while it reloads; an
+  unarmed Humvee runs people down pass after pass, or is a quick lift ahead of the storm; an artillery crew (ground guns, or
+  self-propelled ones it parks and sets up) shells whoever keeps still for a moment, at most once every 18 seconds
+  at the same person. Drivers go round settlements, back out of a gap between rocks the hull does not fit through,
+  wait for teammates to climb in, and get out when the hull is nearly gone. A bot on your team rides in your vehicle and works its gun. On foot, bots stay out of an enemy tank's
+  sight unless it shoots at them or they carry something that dents armour (rockets, Shotgun III); anything else you
+  sit in (a Humvee, a self-propelled gun, a gun emplacement) gets shot at. They dodge artillery shells they see coming.
+- **Toward players**: a bot's own health decides it (armour counts), whatever its temperament. At **90-100%** it
+  strikes first, always. From **31-89%** it strikes first too, with two exceptions under 60%: a bot carrying a heal
+  backs off to use it first when you look healthier than it is (then comes back), and one that is clearly losing
+  the exchange breaks off if it has a way out. At **0-30%** it runs from you, sprinting, and only shoots back when
+  cornered; the one exception is a player in even worse shape, whom it finishes. A healthy bot that loses sight of
+  you comes looking where it last saw you. The only other things that hold a bot back are the first 6 seconds after
+  landing, a tank it cannot hurt, and a storm it has to outrun. On a team of bots the second one joins a fight a
+  moment after the first. A bot on your team follows you, fights who you fight and revives you.
 - **Pacing**: how readily bots fight *each other* follows a target curve for the number of players left, so a
   match is still populated when the storm closes in (about 35 left at 2:30, 17 at 5:00, a winner at about 7:30).
 

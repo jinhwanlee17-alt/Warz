@@ -79,6 +79,15 @@ export function classPlan(rng, prof, teamSize) {
 }
 export const LEVEL_ONE = LVL1;
 
+// The level-three class a bot saves for after its level-two one: usually the one its own line leads to (Shotgunner
+// III, Magic Medic, Rocketeer, Pyromaniac), otherwise one of the two that every level-two class can take.
+export function thirdClass(rng, prof, second) {
+  const own = { shotgunner2: 'shotgunner3', medic2: 'magicmedic', grenadier2: 'rocketeer', pyromancer: 'pyromaniac' }[second];
+  const table = { engineer: 0.5 + prof.caution * 0.9, shieldoperator: 0.6 + (1 - prof.aggression) * 0.5 };
+  if (own) table[own] = 3.2;
+  return weighted(rng, table);
+}
+
 // ---------------------------------------------------------------- items
 // How much a hotbar slot of each item is worth to a bot (it has three slots, so it has to choose).
 export const ITEM_VALUE = {

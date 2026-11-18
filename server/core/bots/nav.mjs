@@ -48,6 +48,10 @@ export class Nav {
       if (s.shape === 'circle') { if (Math.hypot(s.x - x, s.y - y) < s.r + r) hit = true; }
       else if (U.circleRectPush(x, y, r, s.x, s.y, s.w, s.h)) hit = true;
     });
+    // A cactus is not a wall (you can walk into one), but it costs 8 HP a second to stand against: to a path it is one.
+    if (!hit && this.world.foliage) {
+      this.world.foliage.query(x - r, y - r, x + r, y + r, (plant) => { if (!hit && plant.alive !== false && Math.hypot(plant.x - x, plant.y - y) < plant.r + r) hit = true; });
+    }
     return hit || (!staticOnly && this.vehicleAt(x, y, r));
   }
 
@@ -103,6 +107,15 @@ export class Nav {
         || U.segCircle(x1, y1, x2, y2, s.x, s.y, r) >= 0 || U.segCircle(x1, y1, x2, y2, s.x + s.w, s.y, r) >= 0
         || U.segCircle(x1, y1, x2, y2, s.x, s.y + s.h, r) >= 0 || U.segCircle(x1, y1, x2, y2, s.x + s.w, s.y + s.h, r) >= 0) clear = false;
     });
+    if (clear && this.world.foliage) {
+      const reach = WALK + 1.5;        // (touching one is what hurts, so pass a little wider than past a wall)
+      this.world.foliage.query(Math.min(x1, x2) - reach, Math.min(y1, y2) - reach, Math.max(x1, x2) + reach, Math.max(y1, y2) + reach, (plant) => {
+        if (!clear || plant.alive === false) return;
+        const d0 = Math.hypot(plant.x - x1, plant.y - y1) - plant.r, r = d0 < reach ? d0 - 0.5 : reach;
+        if (r <= 0) { if (Math.hypot(plant.x - x2, plant.y - y2) < Math.hypot(plant.x - x1, plant.y - y1)) clear = false; return; }
+        if (U.segCircle(x1, y1, x2, y2, plant.x, plant.y, plant.r + r) >= 0) clear = false;
+      });
+    }
     if (!clear) return false;
     for (const v of this.world.vehicles || []) {
       const d0 = Math.hypot(v.x - x1, v.y - y1), radius = Math.min(v.r + WALK, d0 - 0.5);

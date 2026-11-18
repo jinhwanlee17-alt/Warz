@@ -302,18 +302,17 @@ function accuracy(skill, strafe, d = 300) {
     const b = a.bot(9000, 9000, {}), h = a.human(9450, 9000, still, { hp: 1e6 });
     b.landAt = 0; b.prof.aggression = 0.5;
     b.pauseUntil = 1e9;                                          // busy where it landed (looting, say), so the player stays on its screen
-    const first = a.until(() => h.hp < 1e6, 40);
-    if (first >= 0 && first < 14) grace++;
+    const first = a.until(() => h.hp < 1e6, 15);
+    if (first >= 0 && first < 6) grace++;
     if (first >= 0) early++;
     const a2 = arena({ seed: 300 + k });
     const b2 = a2.bot(9000, 9000, {}), h2 = a2.human(9450, 9000, still, { hp: 1e6 });
     b2.prof.aggression = 0.5;
     if (a2.until(() => h2.hp < 1e6, 18) >= 0) late++;       // no crowd: these two are the last ones standing
   }
-  t.equal(grace, 0, 'nobody gets shot in their first fourteen seconds on the ground');
-  t.check(early >= N * 0.6, 'fresh off the parachute, most bots still strike first at a player in plain view soon after that (' + early + ' of ' + N + ' within 40 s)');
-  // (One look decides it, and one that says "not now" walks on out of sight: hence well over half, not all.)
-  t.check(mid > N, 'in the middle of a match most average bots open fire on a player they can see within seconds (' + mid + ' of ' + N * 2 + ' within 12 s)');
+  t.equal(grace, 0, 'nobody gets shot in their first six seconds on the ground');
+  t.check(early >= N - 1, 'fresh off the parachute, a healthy bot strikes first at a player in plain view as soon as that grace is over (' + early + ' of ' + N + ' within 15 s)');
+  t.check(mid >= N * 2 - 2, 'in the middle of a match a healthy bot that sees a player opens fire: no waiting to be shot at first (' + mid + ' of ' + N * 2 + ' within 12 s)');
   t.check(late >= N * 0.6, 'with only two left on the island, most do (' + late + ' of ' + N + ')');
 }
 {
@@ -327,7 +326,7 @@ function accuracy(skill, strafe, d = 300) {
     a.crowd();
     const h = a.human(9000, 9000, still, { hp: 1e6, team: 2 });
     for (const [x, y] of [[9330, 9000], [8670, 9000], [9000, 9330], [9000, 8670]]) { const b = a.bot(x, y, { aggression: 0.95, skill: 0.8 }, { team: 1 }); b.landAt = 0; b.pauseUntil = 1e9; }
-    if (a.until(() => h.hp < 1e6, 12) >= 0) unprovoked++;
+    if (a.until(() => h.hp < 1e6, 5.5) >= 0) unprovoked++;
   }
   for (let k = 0; k < N; k++) {
     const a2 = arena({ seed: 500 + k });
@@ -337,7 +336,7 @@ function accuracy(skill, strafe, d = 300) {
     h2.controller = shootAt(b2.p);
     if (a2.until(() => h2.hp < 1e6, 4) >= 0) answered++;
   }
-  t.equal(unprovoked, 0, 'for the first twelve seconds after landing no bot, however aggressive, shoots a player who has done nothing (' + M + ' landings with four such bots around)');
+  t.equal(unprovoked, 0, 'for the first seconds after landing (a six-second grace) no bot, however aggressive, shoots a player who has done nothing (' + M + ' landings with four such bots around)');
   t.check(answered >= N - 1, 'a player who opens fire in those seconds gets fire back all the same (' + answered + ' of ' + N + ' within 4 s)');
 }
 {
@@ -762,6 +761,7 @@ function escape(items, k, o = {}) {
   const a = arena({ extra: { buildings: [b0], crates: [crate(0, 9200, 9110)] } });
   a.crowd();
   const b = a.bot(9160, 8500, { aggression: 0.2 }), h = a.human(9160, 9350, still);
+  h.bot = true;                                                  // (another bot, as far as this one can tell: a person at the door gets shot at)
   b.engage.set(h.id, { fight: false, hp: 1, until: 1e9 });
   let nearest = Infinity, inside = false;
   for (let i = 0; i < 20 / TICK; i++) { a.tick(); nearest = Math.min(nearest, dist(b.p, h)); if (a.dir.cover.buildingAt(b.p.x, b.p.y) >= 0) inside = true; }
@@ -772,6 +772,7 @@ function escape(items, k, o = {}) {
   const a = arena({ teams: true, extra: { stations: [{ id: 0, number: 1, x: 9500, y: 9000, cooldown: 80 }] } });
   a.crowd();
   const lead = a.bot(9000, 9000, {}, { team: 1 }), tail = a.bot(9080, 9000, {}, { team: 1, tokens: 8, plan: ['shotgunner', 'juggernaut'] });
+  lead.credit = 0; lead.creditRate = 0;                           // only the teammate is shopping (the leader would race it to the station on its upgrade credit)
   let waiting = 0;
   for (let i = 0; i < 40 / TICK; i++) { a.tick(); if (lead.mode === 'upgrade' && lead.still) waiting += TICK; }
   t.check(waiting < 14 && tail.p.classId === 'soldier', 'a teammate has the tokens but the station was just used: the leader does not park there (' + waiting.toFixed(0) + ' s of 40 spent waiting at it)');
@@ -977,18 +978,16 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
     a.crowd();
     const x = a.bot(9000, 9000, { aggression: 0.6 }, { team: 1 }), y = a.bot(9000, 9120, { aggression: 0.6 }, { team: 1 });
     const h = a.human(9420, 9060, still, { team: 2, hp: 1e6 });
-    x.engage.set(h.id, { fight: true, hp: 1, until: 1e9 });     // one of the two has made up its mind
-    y.engage.set(h.id, { fight: false, hp: 1, until: 1e9 });    // the other had not
     const first = { x: -1, y: -1 };
     for (let i = 0; i < 10 / TICK && (first.x < 0 || first.y < 0); i++) {
       a.tick();
       for (const e of a.events) if (e.type === 'damage' && e.target === h) { if (e.source === x.p && first.x < 0) first.x = a.world.time; if (e.source === y.p && first.y < 0) first.y = a.world.time; }
       a.clear();
     }
-    gaps.push(first.x < 0 ? -99 : first.y < 0 ? 99 : first.y - first.x);
+    gaps.push(first.x < 0 || first.y < 0 ? 99 : Math.abs(first.y - first.x));
   }
   const lo = Math.min(...gaps), hi = Math.max(...gaps);
-  t.check(lo >= 0.8 && hi < 8, 'two bots going for a lone player: the second joins ' + lo.toFixed(1) + ' to ' + hi.toFixed(1) + ' s after the first has started hitting, never in the same instant');
+  t.check(lo >= 0.8 && hi < 8, 'two bots going for a lone player: whichever opens up, the other joins ' + lo.toFixed(1) + ' to ' + hi.toFixed(1) + ' s after it has started hitting, never in the same instant');
 }
 {
   // Knocked down: crawl to a teammate.

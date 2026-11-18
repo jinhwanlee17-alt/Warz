@@ -145,6 +145,68 @@ const entered = (a, p) => a.events.find((e) => e.type === 'vehicle' && e.op === 
   t.check(dist(b.p, v) > 800 || !a.world.lineClear(b.p.x, b.p.y, v.x, v.y, v), 'it gets out of the tank\'s sight instead (' + Math.round(dist(b.p, v)) + ' units away)');
 }
 
+// ---------------------------------------------------------------- no line of fire at close range
+{
+  // Somebody right next to the tank with a rock between them and its guns: coming closer finds no line, so the
+  // driver goes round. (Two tanks with a cactus between their hulls once sat like that for minutes.)
+  const a = arena({ extra: { tanks: [tank(9000, 9000)], rocks: [{ x: 9150, y: 9000, r: 40, pts: [], shine: 0 }] } });
+  a.crowd();
+  const b = a.bot(9000, 9180, { skill: 0.6, aggression: 0.7 });
+  b.wheels = 1;
+  const v = a.world.vehicles[0], h = a.human(9262, 9000, still, { hp: 5000 });
+  const boarded = a.until(() => b.p.vehicle === v.id && !!b.drive, 6) >= 0;
+  const blocked = boarded && !b.gunLine(v, { id: h.id, ref: h });
+  const hurt = a.until(() => dmg(a, h) > 0, 20);
+  t.check(blocked && hurt >= 0, 'a tank with a rock between its guns and a player beside it drives round for a line instead of parking there (' + hurt.toFixed(1) + ' s)');
+  t.equal(a.dir.errors, 0, 'finding a line at close range does not throw');
+}
+
+// ---------------------------------------------------------------- wedged
+{
+  // Two rocks the hull is touching, one either side of its nose: a gap it does not fit through. The left one also
+  // covers the driver's door, so the game will not let the driver out there.
+  const rock = (deg, r) => ({ x: 9000 + Math.cos(deg * Math.PI / 180) * (80 + r), y: 9000 + Math.sin(deg * Math.PI / 180) * (80 + r), r, pts: [], shine: 0 });
+  const setup = () => {
+    const a = arena({ extra: { rocks: [rock(-68, 50), rock(68, 40)], vehicles: [{ id: 1, type: 'humvee', x: 8300, y: 9000, angle: 0 }] } });
+    a.crowd();
+    const b = a.bot(8300, 9150, { skill: 0.6, aggression: 0.9 });
+    b.wheels = 0.9;
+    const h = a.human(9700, 9000, still, { hp: 1e6 }), v = a.world.vehicles[0];   // in the driver's sight, through the gap
+    const boarded = a.until(() => b.p.vehicle === v.id && !!b.drive, 6) >= 0;
+    const wedge = () => {
+      v.x = 9000; v.y = 9000; v.angle = 0; v.vx = v.vy = 0;
+      Object.assign(b.drive, { route: null, dir: null, unstick: null, sx: v.x, sy: v.y, stuckAt: a.world.time });
+    };
+    return { a, b, h, v, boarded, wedge };
+  };
+  {
+    const { a, b, h, v, boarded, wedge } = setup();
+    wedge();
+    t.check(boarded && !b.hullClear(v, v.x, v.y, v.x + 150, v.y, v.r + 2) && b.hullClear(v, v.x, v.y, v.x - 150, v.y, v.r + 2),
+      'a hull touching a rock either side of its nose reads the gap as shut and the way back as open');
+    const loose = a.until(() => dist(v, { x: 9000, y: 9000 }) > 200, 8);
+    t.check(loose >= 0 && b.p.vehicle === v.id, 'wedged between them, the driver backs the hull out instead of pushing on (' + loose.toFixed(1) + ' s)');
+    const ram = a.until(() => dmg(a, h, 'ram') > 0, 25);
+    t.check(ram >= 0, 'and goes round the rocks to the player behind them (rammed ' + ram.toFixed(1) + ' s later)');
+    a.step(15);
+    const hits = a.count('damage', (e) => e.target === h && e.cause === 'ram');
+    t.check(hits >= 4 && dist(h, { x: 9700, y: 9000 }) < 600, 'then comes round for pass after pass instead of pushing them along in front of it (' + hits + ' hits in 15 s)');
+    t.equal(a.dir.errors, 0, 'working a hull loose does not throw');
+  }
+  {
+    // Giving the vehicle up in the same spot: the door is blocked, so the hull has to move before anybody gets out.
+    const { a, b, v, boarded, wedge } = setup();
+    wedge();
+    b.drive.stuckN = 4; b.redecide = true;
+    a.step(0.3);
+    t.check(boarded && a.world.exitVehicle(b.p, false) === false && b.p.vehicle === v.id, 'with a rock over the driver\'s door the game refuses to let the driver out');
+    const out = a.until(() => !b.p.vehicle, 12);
+    const shifted = dist(v, { x: 9000, y: 9000 }) > 5 || Math.abs(W.U.angleDiff(0, v.angle)) > 0.1;
+    t.check(out >= 0 && b.p.alive && shifted, 'so the driver works the hull round until there is room to step down, and gets out (' + out.toFixed(1) + ' s)');
+    t.equal(a.dir.errors, 0, 'leaving a wedged hull does not throw');
+  }
+}
+
 // ---------------------------------------------------------------- routes
 {
   const town = { id: 0, x: 20000, y: 20000, halfW: 1800, halfH: 1800, kind: 'town' };

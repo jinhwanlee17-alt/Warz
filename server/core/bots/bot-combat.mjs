@@ -6,13 +6,18 @@ import { Bot, clamp, lerp, TAU } from './bot.mjs';
 const BANDS = {
   ar: [240, 520, 900], pistol: [200, 430, 760], commandpistol: [200, 430, 760], sniper: [620, 1050, 1700], sniper2: [700, 1300, 2600],
   shotgun: [0, 150, 420], shotgun2: [0, 170, 440], deagle: [240, 560, 900], revolver: [260, 600, 900],
-  launcher: [300, 560, 660], launcher2: [320, 600, 700], flamethrower: [0, 190, 290], minigun: [200, 480, 820], turret: [0, 900, 1050]
+  launcher: [300, 560, 660], launcher2: [320, 600, 700], flamethrower: [0, 190, 290], minigun: [200, 480, 820], turret: [0, 900, 1050],
+  // Level three.
+  shotgun3: [0, 170, 440], dualrevolver: [260, 600, 900], pyroflamethrower: [0, 190, 290], pyrodualrevolver: [260, 600, 900], firegun: [200, 520, 900],
+  rpg: [330, 900, 1700], shieldpistol: [200, 430, 760]
 };
-const TOO_CLOSE = { sniper: 260, sniper2: 260, launcher: 210, launcher2: 210 };   // step back (or swap) inside this
-const CLOSE = { shotgun: 1, shotgun2: 1, flamethrower: 1 };
-const LANDING_GRACE = 14;   // seconds after landing in which no bot picks a fight with a person unprovoked
+const TOO_CLOSE = { sniper: 260, sniper2: 260, launcher: 210, launcher2: 210, rpg: 230 };   // step back (or swap) inside this
+const CLOSE = { shotgun: 1, shotgun2: 1, flamethrower: 1, shotgun3: 1, pyroflamethrower: 1 };
+const LANDING_GRACE = 6;    // seconds after landing in which no bot picks a fight with a person unprovoked
+const RUN_HP = 0.3;         // at or under this share of its health a bot runs from a person instead of fighting
 const POWER = { ar: 1, pistol: 0.6, commandpistol: 0.9, sniper: 1.3, sniper2: 1.5, shotgun: 1.5, shotgun2: 1.8, deagle: 1, revolver: 1,
-  launcher: 0.9, launcher2: 1.2, flamethrower: 1.6, minigun: 1.3 };
+  launcher: 0.9, launcher2: 1.2, flamethrower: 1.6, minigun: 1.3,
+  shotgun3: 2.2, dualrevolver: 1.3, pyroflamethrower: 1.7, pyrodualrevolver: 1.5, firegun: 1.6, rpg: 1.3, shieldpistol: 0.7 };
 
 function fit(id, dist, band) {
   const b = band || BANDS[id];
@@ -55,6 +60,7 @@ Object.assign(Bot.prototype, {
       if (c && c.fight && now < c.until) score += 250;      // the one we made up our mind to fight
       if (rec.downed) score -= 450;
       if (focus === rec.id) score += 140;
+      if (!rec.ref.bot && !rec.downed) score += 300;        // a person in view is never passed over for a bot we are leaving alone
       if (score > bestScore) { bestScore = score; best = rec; }
     }
     if (best !== this.target) { this.target = best; this.coverSpot = null; }
@@ -66,95 +72,114 @@ Object.assign(Bot.prototype, {
   // 'fight' | 'flee' | 'avoid' | 'ignore' toward the current target.
   stance(e) {
     const p = this.p, now = this.now, prof = this.prof, d = this.dist(e), hp = this.hpFrac(), human = !e.ref.bot;
+    if (human) return this.stancePerson(e, d, hp);
     const early = now - this.landAt < 45 && this.W.CLASSES[p.classId].tier === 0;        // nothing to win yet: most people loot first
-    const fresh = human && now - this.landAt < LANDING_GRACE;
     const provoked = now - e.hurtMeAt < 3 || now - e.shotAtMeAt < 1.5;
-    // A tank (or a self-propelled gun's armour) shrugs off bullets: on foot that is a fight to stay out of, unless it
-    // has started one with us. A gun crew sitting in an unarmoured artillery piece is the opposite: easy pickings.
+    // A tank shrugs off bullets: on foot that is a fight to stay out of, unless it has started one with us.
     const ride = e.ref.vehicle ? this.world.vehicleById(e.ref.vehicle) : null;
-    if (ride && !ride.wreck && !p.vehicle && this.W.vehicleHasTankArmor(ride)) {
+    if (ride && !ride.wreck && !p.vehicle && ride.type === 'tank' && !this.antiArmor()) {
       if (!e.visible || d > 1450) return 'ignore';
       if (provoked) return this.escapePlan(e, d) ? 'flee' : 'fight';
-      return ride.type === 'tank' && !this.d.endgame ? 'avoid' : 'ignore';
+      return this.d.endgame ? 'ignore' : 'avoid';
     }
-    // They hit us, their bullets are flying past us, or they are right in our face: close enough to touch, or in the
-    // same room (nobody loots a house with an armed stranger standing in it). A person who walks up to a bot gets shot
-    // at once the landing grace is over; two bots that bump into each other right after landing just walk on, and
-    // while the lobby is thinning too fast it takes a closer brush.
+    // They hit us, their bullets are flying past us, or they are right in our face: within arm's reach, or in the
+    // same room (nobody loots a house with an armed stranger standing in it). Right after landing two bots that
+    // bump into each other just walk on, and while the lobby is thinning too fast it takes a closer brush.
     const here = this.cover.info.get(p.id), there = e.visible ? this.cover.info.get(e.id) : null;
     const sameRoom = !!here && !!there && here.building >= 0 && here.building === there.building;
-    const inFace = human ? !fresh && (d < (early ? 170 : 270) || sameRoom) : !early && (d < (this.d.heat > -0.4 ? 120 : 85) || sameRoom);
-    let teamFight = this.mates.length > 0 && d < 950 && this.d.focus(p.team) === e.id;     // a teammate is already shooting at them
-    if (teamFight && human && !provoked && !this.mates.some((m) => !m.bot)) {
-      // A team of bots does not land on a person all at once: the second gun takes a moment to turn up, so the
-      // first seconds of that fight are one against one (and the person's own teammates have time to turn round).
-      let j = this.joinFor;
-      if (!j || j.id !== e.id || now - j.at > 15) j = this.joinFor = { id: e.id, at: now + this.rng.range(1.5, 3.5) };
-      if (now < j.at) teamFight = false;
-    }
+    const inFace = !early && (d < (this.d.heat > -0.4 ? 120 : 85) || sameRoom);
+    const teamFight = this.mates.length > 0 && d < 950 && this.d.focus(p.team) === e.id;   // a teammate is already shooting at them
     const threatened = provoked || inFace || teamFight;
     const foes = this.foesNear(), friends = this.friendsNear();
     const eHp = e.downed ? 0.2 : e.hp;
-    // Losing: health is low, or the exchange is going so badly that it will be over in a couple of seconds
-    // (health bars are visible, so both sides of that sum are things a player can see).
-    // (Before any of our own bullets have landed, assume we will hit about as well as usual.)
-    const inRate = Math.max(this.inHeat / 1.5, this.inBurst * 1.4), outRate = Math.max(this.outHeat / 1.5, e.visible ? 18 : 4);
-    const myLife = (p.hp + p.armor) / Math.max(4, inRate), theirLife = (e.visible ? e.ref.hp : e.hp * e.ref.maxHp) / outRate;
-    // With a way out in the hotbar (a boulder, a potion) a bot bails sooner: there is no point holding it until it is too late.
-    const outs = this.slotOf('rock', 'invisibility', 'snowbomb', 'smoke') >= 0 ? 0.8 : 0;
-    const dying = inRate > 12 && myLife < 1.4 + prof.caution * 2.6 + outs && myLife < theirLife * 0.65;
-    const losing = (hp < prof.fleeHp && eHp > hp * 0.8) || dying, swamped = foes >= friends + 2 && hp < 0.85;
+    const losing = (hp < prof.fleeHp && eHp > hp * 0.8) || this.dying(e), swamped = foes >= friends + 2 && hp < 0.85;
     // Turning your back in the open just gets you shot in it: only run when there is somewhere (or something) to run with.
     if (threatened) return (losing || swamped) && this.escapePlan(e, d) ? 'flee' : 'fight';
     // In no state to start anything. Hurt, with one of them in plain view: back off somewhere quiet (and patch up there).
     if (losing || swamped) return losing && e.visible && d < 520 && !e.downed && !this.d.endgame && now >= (this.fleeTired || 0) ? 'avoid' : 'ignore';
     if (e.downed) return prof.aggression > 0.35 && d < 600 && foes <= 1 ? 'fight' : 'ignore';   // finish them when it is cheap
-    if (ride && !ride.wreck && ride.type === 'artillery' && ride.fixed && e.visible && d < 900 && !fresh) return 'fight';   // a gun crew cannot shoot back
-    return this.freeChoice(e, d, human, eHp, hp) ? 'fight' : 'ignore';
+    if (ride && !ride.wreck && ride.type === 'artillery' && e.visible && d < 900) return 'fight';   // a gun crew cannot shoot back
+    return this.freeChoice(e, d, eHp, hp) ? 'fight' : 'ignore';
   },
-  // A free choice: pick this fight or leave them be. A "yes" is remembered for a few seconds so a bot does not dither
-  // at the edge of a fight. A "no" to a person is short-lived (and thought over again when they come closer); a "no"
-  // to another bot lasts longer, and is thought over again when the other one turns up hurt.
-  freeChoice(e, d, human, eHp, hp) {
+  // The exchange is going so badly that it will be over in a couple of seconds (health bars are visible, so both
+  // sides of that sum are things a player can see; before any of our own bullets have landed, assume we will hit
+  // about as well as usual). With a way out in the hotbar (a boulder, a potion) a bot calls it sooner.
+  dying(e) {
+    const p = this.p, prof = this.prof;
+    const inRate = Math.max(this.inHeat / 1.5, this.inBurst * 1.4), outRate = Math.max(this.outHeat / 1.5, e.visible ? 18 : 4);
+    const myLife = (p.hp + p.armor) / Math.max(4, inRate), theirLife = (e.visible ? e.ref.hp : e.hp * e.ref.maxHp) / outRate;
+    const outs = this.slotOf('rock', 'invisibility', 'snowbomb', 'smoke') >= 0 ? 0.8 : 0;
+    return inRate > 12 && myLife < 1.4 + prof.caution * 2.6 + outs && myLife < theirLife * 0.65;
+  },
+  // Something that dents tank armour (rockets; Shotgun III's penetrating shells).
+  antiArmor() { return this.p.weapons.some((w) => w.id === 'rpg' || w.id === 'shotgun3'); },
+  // Toward a person the rule is fixed by how healthy the bot is (armour counts):
+  //   90-100%  strike first, always;
+  //   31-89%   strike first too, except that under 60% a bot carrying a heal backs off to use it first when the
+  //            person looks healthier than it is (bold ones do not bother), and one that is clearly losing the
+  //            exchange breaks off when it has a way out;
+  //   0-30%    run, unless cornered or the person is in even worse shape.
+  // The only other exceptions: the first seconds after landing, a tank it has nothing to hurt, racing the storm, and a
+  // teammate's head start (a second bot joins a moment after the first).
+  stancePerson(e, d, hp) {
+    const p = this.p, now = this.now, prof = this.prof;
+    const provoked = now - e.hurtMeAt < 3 || now - e.shotAtMeAt < 1.5;
+    if (now - this.landAt < LANDING_GRACE && !provoked) return 'ignore';
+    const ride = !p.vehicle && e.ref.vehicle ? this.world.vehicleById(e.ref.vehicle) : null, hull = ride && !ride.wreck ? ride : null;
+    if (hull && hull.type === 'tank' && !this.antiArmor()) {
+      if (!e.visible || d > 1450) return 'ignore';
+      if (provoked) return this.escapePlan(e, d, true) ? 'flee' : 'fight';
+      return this.d.endgame ? 'ignore' : 'avoid';
+    }
+    const here = this.cover.info.get(p.id), there = e.visible ? this.cover.info.get(e.id) : null;
+    const inFace = d < 270 || (!!here && !!there && here.building >= 0 && here.building === there.building);
+    const eHp = hull ? hull.hp / hull.maxHp : e.downed ? 0.2 : e.hp;
+    if (hp <= RUN_HP && !(e.visible && !hull && eHp < hp - 0.05 && eHp <= RUN_HP + 0.1)) {
+      if (!e.visible && !provoked) return 'ignore';                              // nobody in sight to run from
+      if (this.escapePlan(e, d, true)) return provoked ? 'flee' : 'avoid';     // (shot at: everything it has goes into getting away)
+      return provoked || inFace ? 'fight' : 'avoid';                             // cornered: shoot back
+    }
+    if (provoked && hp < 0.6 && (this.dying(e) || this.foesNear() >= this.friendsNear() + 2) && this.escapePlan(e, d, true)) return 'flee';
+    if (e.downed) return d < 600 && this.foesNear() <= 1 ? 'fight' : 'ignore';  // finish them when it is cheap
+    if (this.storm.must && !provoked && !inFace && d > this.band()[1] + 100) return 'ignore';   // the storm will not wait
+    if (hp < 0.6 && !provoked && !inFace && eHp > hp + 0.15 && prof.aggression < 0.75 && (this.hasHeal() || p.regen > 0)) return e.visible && d < 700 ? 'avoid' : 'ignore';
+    // A team of bots does not land on a person all in the same instant: the first to go for them gets a moment's
+    // head start, so the person (and whoever is on their side) has a second to turn round.
+    if (this.mates.length && !provoked && !this.mates.some((m) => !m.bot)) {
+      const began = this.d.openFight(p, e.id);
+      if (began) {
+        let j = this.joinFor;
+        if (!j || j.id !== e.id || j.began !== began) j = this.joinFor = { id: e.id, began, wait: this.rng.range(1.5, 3.5) };
+        if (now < began + j.wait) return 'ignore';
+      }
+    }
+    return 'fight';
+  },
+  // Between bots a fight is a free choice: pick it or leave them be. It is remembered, so a bot does not dither at
+  // the edge of a fight; it thinks again when the other one turns up hurt. How choosy bots are with each other
+  // follows the match's pace (see the director): it keeps the island populated for the whole match instead of
+  // settling everything in the first three minutes. (People get no such choice: see stancePerson.)
+  freeChoice(e, d, eHp, hp) {
     const p = this.p, now = this.now, prof = this.prof;
     const early = now - this.landAt < 45 && this.W.CLASSES[p.classId].tier === 0;
     let c = this.engage.get(e.id);
-    if (!c || now > c.until || (!c.fight && !human && eHp < c.hp - 0.3) || (!c.fight && human && c.d !== undefined && d < c.d - 220)) {
+    if (!c || now > c.until || (!c.fight && eHp < c.hp - 0.3)) {
       const a = prof.aggression, storm = this.world.storm;
       const phase = storm ? storm.phase : 0, endgame = this.d.endgame || phase >= 4;
       const reach = p.vehicle ? this.W.TANK.cannonRange - 50 : this.band()[2];
-      let want;
-      if (human) {
-        // Toward a person a bot strikes first more often than not: about three times in four for an average bot (about
-        // half in its first 45 seconds as a Soldier), more for a bold one, more again once the circle is small or the
-        // person is hurt. It thinks it over again every few seconds, so a bot that keeps someone on its screen opens
-        // fire sooner or later. The landing grace (below) still gives everyone their first seconds.
-        want = (0.45 + a * 0.6) * (early ? 0.65 : 1) * this.d.humanKeen;
-        want += (phase >= 3 ? 0.2 : phase >= 2 ? 0.1 : 0) + (1 - eHp) * 0.3 + (endgame ? 0.3 : 0);
-        if (d > (p.vehicle ? 900 : this.band()[1])) want *= 0.75;                          // further off than this gun likes
-        // Some restraint about ganging up: while another bot is already on this person, fewer join in.
-        const others = this.d.aggressors(e.id, p.id);
-        if (others > 0) want *= endgame ? 0.8 : 0.35;
-      } else {
-        // Toward each other bots are choosier, and how choosy follows the match's pace (see the director): it keeps
-        // the island populated for the whole match instead of settling everything in the first three minutes.
-        want = early ? 0.003 + Math.pow(a, 4) * 0.07 : (0.04 + a * a * a * 0.25 + (phase >= 3 ? 0.2 : phase >= 2 ? 0.08 : 0)) * (0.6 + hp * 0.5);
-        want += (1 - eHp) * (0.1 + a * 0.25) + (endgame ? 0.3 : 0);                        // easy prey
-        want *= phase >= 5 ? Math.max(1, this.d.keen) : phase >= 4 ? Math.max(0.6, this.d.keen) : this.d.keen;
-        // A bot that is busy shooting someone else is worth a flank.
-        const busyWith = this.d.attackerOf(e.id, 3);
-        if (busyWith && busyWith !== p.id && this.d.teamOf(busyWith) !== p.team) want *= 1.3;
-      }
+      let want = early ? 0.003 + Math.pow(a, 4) * 0.07 : (0.04 + a * a * a * 0.25 + (phase >= 3 ? 0.2 : phase >= 2 ? 0.08 : 0)) * (0.6 + hp * 0.5);
+      want += (1 - eHp) * (0.1 + a * 0.25) + (endgame ? 0.3 : 0);                        // easy prey
+      want *= phase >= 5 ? Math.max(1, this.d.keen) : phase >= 4 ? Math.max(0.6, this.d.keen) : this.d.keen;
+      // A bot that is busy shooting someone else is worth a flank.
+      const busyWith = this.d.attackerOf(e.id, 3);
+      if (busyWith && busyWith !== p.id && this.d.teamOf(busyWith) !== p.team) want *= 1.3;
       if (d > reach) want -= 0.3;
       if (this.storm.must) want -= 0.25;
       if (this.mode === 'fight' && this.target === e) want += 0.25;
       const hull = p.vehicle ? this.world.vehicleById(p.vehicle) : null;
       if (hull && hull.type === 'tank') want += 0.2;                                   // in a tank everybody is a fair fight
-      // Everyone has only just landed: nobody opens fire on a person who has not done anything yet (it thinks again in a moment).
-      const fresh = human && now - this.landAt < LANDING_GRACE;
-      const fight = !fresh && this.rng.next() < want;
-      c = { fight, hp: eHp, d, until: fresh ? this.landAt + LANDING_GRACE + this.rng.range(0, 6)
-        : now + (fight ? this.rng.range(4, 8) : endgame ? this.rng.range(4, 9) : human ? this.rng.range(5, 10) : this.rng.range(45, 90)) };
+      const fight = this.rng.next() < want;
+      c = { fight, hp: eHp, until: now + (fight ? this.rng.range(4, 8) : endgame ? this.rng.range(4, 9) : this.rng.range(45, 90)) };
       this.engage.set(e.id, c);
       if (this.engage.size > 40) this.engage.delete(this.engage.keys().next().value);
     }
@@ -189,7 +214,7 @@ Object.assign(Bot.prototype, {
     let ok;
     if (def.kind === 'flame') ok = this.world.lineClear(ox, oy, o.x, o.y, o.vehicle ? this.world.vehicleById(o.vehicle) : null);
     else {
-      const hit = this.world.sweep(ox, oy, o.x, o.y, def.bulletRadius || 5, p.id, p.team);
+      const hit = this.world.sweep(ox, oy, o.x, o.y, def.bulletRadius || def.projectileRadius || 5, p.id, p.team);
       if (hit && hit.solid && hit.solid.plant) this.shotBlocker = hit.solid.plant;
       ok = !!hit && (!!hit.player || !!(o.vehicle && hit.solid && hit.solid.vehicle && hit.solid.vehicle.id === o.vehicle && !hit.solid.vehicle.wreck));
     }
@@ -248,9 +273,10 @@ Object.assign(Bot.prototype, {
   },
   // How would we get away from them? null when running would only mean being shot in the back: then a bot stays in
   // the fight (and uses what it has, a boulder say, as cover in it).
-  escapePlan(e, d) {
+  escapePlan(e, d, person) {
     const now = this.now;
     if (d < 110 || (this.fleeTired && now < this.fleeTired)) return null;
+    if (person && d > 220 && this.p.stamina > 45 && !this.p.sprintExhausted) return 'run';   // legs: a sprint opens the gap on anyone who is not sprinting too
     const heal = this.hasHeal() || this.p.regen > 0;
     if (this.slotOf('invisibility', 'snowbomb') >= 0) return 'item';             // they cannot follow what they cannot see, or at half speed
     const home = this.home && this.world.structById(this.home.id);
@@ -275,7 +301,7 @@ Object.assign(Bot.prototype, {
       // Lost them: push to where they were, or let it go.
       this.look = { x: e.x, y: e.y };
       if (now - e.seenAt > lerp(1.5, 5, prof.aggression)) { e.lost = true; this.engage.set(e.id, { fight: false, until: now + 4 }); this.target = null; this.redecide = true; return; }   // (lost: until they show themselves again)
-      if (prof.aggression > 0.4 || e.hp < 0.45) { this.moveGoal = { x: e.x, y: e.y, tol: 70 }; this.sprint = prof.aggression > 0.55; }
+      if (!o.bot || prof.aggression > 0.4 || e.hp < 0.45) { this.moveGoal = { x: e.x, y: e.y, tol: 70 }; this.sprint = !o.bot || prof.aggression > 0.55; }
       return;
     }
     const clear = lob ? true : this.shotClear(e);
@@ -287,6 +313,19 @@ Object.assign(Bot.prototype, {
       // Reload and bleed behind something solid, when there is something solid.
       const c = this.coverFrom(e);
       if (c) { if (this.arrivedAt(c, 20)) this.still = true; else this.moveGoal = { x: c.x, y: c.y, tol: 16 }; placed = true; }
+    }
+    const turret = placed ? null : this.turretFor(e);
+    if (turret) {
+      // A free turret a few steps away with a line on them: go and sit down at it (still shooting on the way).
+      placed = true;
+      const gap = Math.hypot(turret.x - p.x, turret.y - p.y) - turret.r - p.r;
+      if (gap > this.W.ItemRules.MOUNT_RANGE - 14 || !world.lineClear(p.x, p.y, turret.x, turret.y, turret)) { this.moveGoal = { x: turret.x, y: turret.y, tol: turret.r + p.r + 44 }; this.sprint = true; }
+      else if (now >= this.nextInteract && !this.act) {
+        // The interact key takes a loose item, a boulder or a vehicle seat first: then this turret is not worth the fuss.
+        if (world.nearestMountable(p) === turret && !world.nearestItemPickup(p) && !world.nearestRecoverableRock(p) && !(world.nearestVehicleSeat && world.nearestVehicleSeat(p))) {
+          this.out.interactPressed = true; this.nextInteract = now + 0.5; this.mountAt = now; this.mountIdle = 0;
+        } else { this.turretPick = null; this.turretAt = now + 8; }
+      }
     }
     if (!placed) {
       if (!clear) this.moveGoal = { x: tx, y: ty, tol: 70 };                               // walk around whatever is in the way (the moment there is a line, the distance rules below take over)
@@ -305,7 +344,7 @@ Object.assign(Bot.prototype, {
         if ((radial > 0 && dist > band[1] + 100) || (radial < 0 && CLOSE[theirs] && dist < 300)) this.sprint = true;
       }
     }
-    if (clear && dist <= band[2] && !(lob && dist < 190)) { this.shoot = { rec: e, def }; this.d.setFocus(p, e.id); } // "on this one": teammates pile in
+    if (clear && dist <= band[2] && !(lob && dist < 190) && !(def.kind === 'rocket' && dist < 215)) { this.shoot = { rec: e, def }; this.d.setFocus(p, e.id); } // "on this one": teammates pile in
     else this.look = { x: tx, y: ty };
     if (!o.bot) this.d.noteAggro(o.id, p);
     this.useGear(e, dist, clear);
@@ -315,7 +354,7 @@ Object.assign(Bot.prototype, {
   fireBack(e) {
     const p = this.p, def = this.weaponDef(), d = this.dist(e);
     if (!BANDS[def.id]) { this.chooseWeapon(d); return; }
-    if (d > this.band(def)[2] || (def.kind === 'launcher' && d < 190)) return;
+    if (d > this.band(def)[2] || (def.kind === 'launcher' && d < 190) || (def.kind === 'rocket' && d < 215)) return;
     if (def.kind !== 'launcher' && !this.shotClear(e)) return;
     this.shoot = { rec: e, def };
     if (p.weapons[p.slot].ammo <= 0 && this.now >= (this.swapCheck || 0)) { this.swapCheck = this.now + 0.4; this.chooseWeapon(d); }
@@ -459,6 +498,24 @@ Object.assign(Bot.prototype, {
   },
 
   // ---------------------------------------------------------------- on a turret
+  // A turret nobody is sitting at (ours, a teammate's, or a settlement's neutral one) that is a few steps away and
+  // has a line on the enemy. Not for the classes that fight up close, not when hurt, and not with the storm coming.
+  turretFor(e) {
+    const now = this.now, p = this.p, world = this.world;
+    if (now < (this.turretAt || 0)) { const s = this.turretPick; return s && s.alive && !s.mounted ? s : null; }
+    this.turretAt = now + 0.8; this.turretPick = null;
+    if (!e.visible || this.pusher() || this.hpFrac() < 0.45 || this.storm.must || this.evade || p.vehicle) return null;
+    const o = e.ref, ride = o.vehicle ? world.vehicleById(o.vehicle) : null;
+    let best = null, bd = 340;
+    for (const s of world.structures) {
+      if (s.kind !== 'turret' || !s.alive || s.mounted || (s.team !== null && s.team !== p.team)) continue;
+      const d = this.dist(s), reach = Math.hypot(o.x - s.x, o.y - s.y);
+      if (d >= bd || reach < 260 || reach > 980 || this.inHazard(s.x, s.y) || !this.inZone(s.x, s.y, 0)) continue;
+      if (!world.lineClear(s.x, s.y, o.x, o.y, s, false, ride)) continue;
+      bd = d; best = s;
+    }
+    return (this.turretPick = best);
+  },
   thinkMounted() {
     const p = this.p, now = this.now, out = this.out, s = this.world.structById(p.mount);
     if (!s) return;
@@ -472,7 +529,7 @@ Object.assign(Bot.prototype, {
     const hurt = this.hpFrac() < 0.35 && now - this.hurtAt < 1.2;
     if (now - this.mountAt > 0.8 && (this.evade || this.storm.must || hurt || close || this.mountIdle > 3.5 + this.prof.caution * 3)) {
       out.interactPressed = true;                          // get off: a grenade, the storm, too hurt, flanked, or nobody left to shoot
-      this.mountIdle = 0;
+      this.mountIdle = 0; this.turretPick = null; this.turretAt = now + 6;
       this.redecide = true;
     }
   },
@@ -540,8 +597,22 @@ Object.assign(Bot.prototype, {
   },
 
   // ---------------------------------------------------------------- looking for trouble
-  pickHunt() {
+  // `person`: only after somebody who was on the screen a moment ago and slipped away. A healthy bot goes after a
+  // person whatever stage the match is at (how readily bots look for each other follows the lobby's pace, below).
+  pickHunt(person) {
     const p = this.p, now = this.now, prof = this.prof;
+    if (person) {
+      const lead = this.following();
+      if (now < this.huntHold || this.hpFrac() < 0.6 || now - this.landAt < LANDING_GRACE || (lead && !lead.bot)) return false;
+      let at = null, near = Infinity;
+      for (const rec of this.known.values()) {
+        if (rec.ref.bot || !rec.noticed || rec.dropping || rec.downed || rec.visible || now - rec.seenAt > 6) continue;
+        const d = this.dist(rec);
+        if (d < near && this.inZone(rec.x, rec.y, 0)) { near = d; at = { x: rec.x, y: rec.y, id: rec.id }; }
+      }
+      if (at) this.huntAt = at;
+      return !!at;
+    }
     if (now < this.huntHold || this.hpFrac() < Math.max(0.5, prof.fleeHp + 0.15) || this.foesNear() >= this.friendsNear() + 2) return false;   // hurt or outnumbered: not now
     const late = this.d.late || now > 300, strong = this.W.CLASSES[p.classId].tier >= 1 && this.hpFrac() > 0.7;
     if (!(late || (strong && prof.aggression > 0.55))) return false;

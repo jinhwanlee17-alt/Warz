@@ -158,10 +158,92 @@
       path.closePath();
       return path;
     });
-    this.cache = { island: island, coast: coast, ponds: ponds, rocks: rocks, biomes: W.Biomes ? W.Biomes.cells(map) : [] };
+    this.cache = { island: island, coast: coast, ponds: ponds, rocks: rocks, biomes: W.Biomes ? W.Biomes.cells(map) : [], inland: coastReach(pts, S, R) };
   };
 
   function visible(v, x, y, r) { return x + r > v.x0 && x - r < v.x1 && y + r > v.y0 && y - r < v.y1; }
+
+  // The island holds tens of thousands of trees, tufts, patches and rocks and a frame shows a few hundred, so each
+  // of those lists is bucketed once by 512-unit cell (nothing in them moves). around() returns the indexes of
+  // the items in the cells the view touches, grown by the list's largest item radius so nothing visible is missed,
+  // in list order: walking them tests and draws exactly what a walk of the whole list did, in the same order.
+  var CELL = 512, CELLS = Math.ceil(C.worldSize / CELL), grids = new WeakMap();
+  function cellOf(a) { return Math.min(CELLS - 1, Math.max(0, Math.floor(a / CELL))); }
+  function gridOf(list, reachOf) {
+    var g = grids.get(list);
+    if (g && g.n === list.length) return g;
+    g = { n: list.length, reach: 0, cells: [], seen: new Uint8Array(list.length), hits: [], fading: [] };
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i], k = cellOf(o.x) * CELLS + cellOf(o.y), r = reachOf(o);
+      (g.cells[k] || (g.cells[k] = [])).push(i);
+      if (r > g.reach) g.reach = r;
+      if (Number.isFinite(o.fade) && o.fade !== 1) g.fading.push(i);
+    }
+    grids.set(list, g);
+    return g;
+  }
+  function gather(g, x0, y0, x1, y1) {
+    var hits = g.hits, seen = g.seen, r = g.reach, cy0 = cellOf(y0 - r), cy1 = cellOf(y1 + r);
+    for (var cx = cellOf(x0 - r), cx1 = cellOf(x1 + r); cx <= cx1; cx++) {
+      for (var cy = cy0; cy <= cy1; cy++) {
+        var cell = g.cells[cx * CELLS + cy];
+        if (cell) for (var i = 0; i < cell.length; i++) if (!seen[cell[i]]) { seen[cell[i]] = 1; hits.push(cell[i]); }
+      }
+    }
+  }
+  function byIndex(a, b) { return a - b; }
+  function sorted(g) {
+    var hits = g.hits.sort(byIndex);
+    for (var i = 0; i < hits.length; i++) g.seen[hits[i]] = 0;
+    return hits;
+  }
+  function around(list, reachOf, v) {
+    var g = gridOf(list, reachOf);
+    g.hits.length = 0;
+    gather(g, v.x0, v.y0, v.x1, v.y1);
+    return sorted(g);
+  }
+  function rockReach(r) { return r.r + 10; }
+  function patchReach(p) { return p.r; }
+  function tuftReach() { return 12; }
+  function canopyReach(o) { return o.r * 1.3; }
+
+  // The island outline, the grass edge and the storm circles are paths tens of thousands of units across, and
+  // the browser pays for each in full (about a millisecond of GPU work apiece) even when no part of it is on
+  // screen. The tests below only ever say "this outline cannot touch a pixel this frame": the view they test is
+  // v (the screen plus 60 units) grown by v.slack, with EDGE_PAD more units of safety on every distance.
+  var EDGE_PAD = 16;
+  // How far (x,y) is inside the rounded-square island outline, negative outside: U.insideIsland(x, y, m) is depth >= m.
+  function islandDepth(x, y, S, R) {
+    var d = Math.min(x, y, S - x, S - y), cx = x < R ? R : x > S - R ? S - R : x, cy = y < R ? R : y > S - R ? S - R : y;
+    return cx !== x && cy !== y ? Math.min(d, R - Math.hypot(x - cx, y - cy)) : d;
+  }
+  // The deepest the grass edge reaches into the island. Every point further in than this is grass, provided the
+  // island's centre is (Infinity otherwise, which turns the shortcut off).
+  function coastReach(pts, S, R) {
+    var n = pts.length >> 1, reach = -Infinity, wind = 0, px = S / 2, py = S / 2;
+    for (var i = 0; i < n; i++) {
+      var j = (i + 1) % n, ax = pts[i * 2], ay = pts[i * 2 + 1], bx = pts[j * 2], by = pts[j * 2 + 1];
+      // No point of a segment is deeper than its deeper end plus half its length.
+      reach = Math.max(reach, Math.max(islandDepth(ax, ay, S, R), islandDepth(bx, by, S, R)) + Math.hypot(bx - ax, by - ay) / 2);
+      var side = (bx - ax) * (py - ay) - (px - ax) * (by - ay);
+      if (ay <= py) { if (by > py && side > 0) wind++; } else if (by <= py && side < 0) wind--;
+    }
+    return wind !== 0 && isFinite(reach) ? reach : Infinity;
+  }
+  // Is the whole view at least `depth` inside the island outline? (That region is convex, so four corners decide.)
+  function viewInside(v, depth) {
+    var S = C.worldSize, R = C.cornerRadius, g = v.slack || 0, m = depth + EDGE_PAD;
+    return m < Infinity && U.insideIsland(v.x0 - g, v.y0 - g, m, S, R) && U.insideIsland(v.x1 + g, v.y0 - g, m, S, R) &&
+      U.insideIsland(v.x0 - g, v.y1 + g, m, S, R) && U.insideIsland(v.x1 + g, v.y1 + g, m, S, R);
+  }
+  // A circle outline `half` wide either side of radius r: 1 when the whole view is inside it, -1 when the whole
+  // view is outside it, 0 when it may cross the view.
+  function ringSide(v, x, y, r, half) {
+    var g = (v.slack || 0) + EDGE_PAD, x0 = v.x0 - g, y0 = v.y0 - g, x1 = v.x1 + g, y1 = v.y1 + g;
+    if (Math.hypot(Math.max(x - x0, x1 - x), Math.max(y - y0, y1 - y)) < r - half) return 1;
+    return Math.hypot(x < x0 ? x0 - x : x > x1 ? x - x1 : 0, y < y0 ? y0 - y : y > y1 ? y - y1 : 0) > r + half ? -1 : 0;
+  }
 
   Renderer.prototype.render = function (world, cam, opts) {
     opts = opts || {};
@@ -176,6 +258,8 @@
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * (w / 2 - cam.x * z + sx), dpr * (h / 2 - cam.y * z + sy));
     var v = { x0: cam.x - w / 2 / z - 60, y0: cam.y - h / 2 / z - 60, x1: cam.x + w / 2 / z + 60, y1: cam.y + h / 2 / z + 60 };
+    // Screen shake plus 2 px of edge smoothing fit inside v's 60 units except on a tiny, zoomed-out window.
+    v.slack = Math.max(0, (Math.max(Math.abs(sx), Math.abs(sy)) + 2) / z - 60);
     var map = world.map, viewer = opts.viewer || null, i;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -194,7 +278,11 @@
       if (pk.alive && visible(v, pk.x, pk.y, 30)) this.drawPickup(ctx, pk, t);
     }
     for (i = 0; i < map.crates.length; i++) if (map.crates[i].alive && visible(v, map.crates[i].x, map.crates[i].y, 60)) this.drawCrate(ctx, map.crates[i], t);
-    for (i = 0; i < map.rocks.length; i++) if (map.rocks[i].alive !== false && visible(v, map.rocks[i].x, map.rocks[i].y, map.rocks[i].r + 10)) this.drawRock(ctx, map.rocks[i], this.cache.rocks[i]);
+    var rocks = around(map.rocks, rockReach, v);
+    for (i = 0; i < rocks.length; i++) {
+      var rock = map.rocks[rocks[i]];
+      if (rock.alive !== false && visible(v, rock.x, rock.y, rock.r + 10)) this.drawRock(ctx, rock, this.cache.rocks[rocks[i]]);
+    }
     for (i = 0; i < (map.cacti || []).length; i++) if (map.cacti[i].alive !== false && visible(v, map.cacti[i].x, map.cacti[i].y, map.cacti[i].r * 2)) this.drawCactus(ctx, map.cacti[i]);
     this.drawWalls(ctx, map, v);
     for (i = 0; i < map.stations.length; i++) if (visible(v, map.stations[i].x, map.stations[i].y, 80)) this.drawStationCore(ctx, map.stations[i], t);
@@ -256,21 +344,27 @@
 
   Renderer.prototype.drawIsland = function (ctx, v, t, map) {
     var c = this.cache, i;
-    ctx.strokeStyle = PAL.shallow; ctx.lineWidth = 110; ctx.stroke(c.island);
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 50; ctx.stroke(c.island);
+    // inland: the view is grass from edge to edge (the beach and the grass edge, 6 units either side, are off screen).
+    // shore: the island outline (strokes up to 55 units either side of it) is on screen. Canvas state is set either way.
+    var inland = viewInside(v, c.inland + 6), shore = !inland && !viewInside(v, 55), g = v.slack || 0;
+    ctx.strokeStyle = PAL.shallow; ctx.lineWidth = 110; if (shore) ctx.stroke(c.island);
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 50; if (shore) ctx.stroke(c.island);
     ctx.fillStyle = PAL.sand; ctx.fill(c.island);
     ctx.setLineDash([46, 30]);
     ctx.lineDashOffset = -t * 18;
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 6; ctx.stroke(c.island);
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 6; if (shore) ctx.stroke(c.island);
     ctx.setLineDash([]);
-    ctx.fillStyle = PAL.grass; ctx.fill(c.coast);
-    ctx.strokeStyle = PAL.grassEdge; ctx.lineWidth = 12; ctx.stroke(c.coast);
+    ctx.fillStyle = PAL.grass;
+    if (inland) ctx.fillRect(v.x0 - g, v.y0 - g, v.x1 - v.x0 + g * 2, v.y1 - v.y0 + g * 2);
+    else ctx.fill(c.coast);
+    ctx.strokeStyle = PAL.grassEdge; ctx.lineWidth = 12; if (!inland) ctx.stroke(c.coast);
 
     ctx.save();
-    ctx.clip(c.coast);
+    ctx.clip(c.coast); // kept even inland: without it the edge of a biome rectangle rounds one colour level differently
     this.drawBiomes(ctx, map, v);
-    for (i = 0; i < map.patches.length; i++) {
-      var p = map.patches[i];
+    var patches = around(map.patches, patchReach, v);
+    for (i = 0; i < patches.length; i++) {
+      var p = map.patches[patches[i]];
       if (!visible(v, p.x, p.y, p.r)) continue;
       var patchBiome = W.Biomes ? W.Biomes.at(map, p.x, p.y) : 'normal';
       ctx.fillStyle = patchBiome === 'tundra' || patchBiome === 'tundra-forest'
@@ -290,9 +384,9 @@
     ctx.strokeStyle = PAL.tuft;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    var flowers = [];
-    for (i = 0; i < map.tufts.length; i++) {
-      var tf = map.tufts[i];
+    var flowers = [], tufts = around(map.tufts, tuftReach, v);
+    for (i = 0; i < tufts.length; i++) {
+      var tf = map.tufts[tufts[i]];
       if (!visible(v, tf.x, tf.y, 12)) continue;
       var biome = W.Biomes ? W.Biomes.at(map, tf.x, tf.y) : 'normal';
       if (biome === 'desert' || biome === 'savannah' || biome === 'tundra' || biome === 'tundra-forest') continue;
@@ -758,12 +852,23 @@
   Renderer.prototype.drawCanopies = function (ctx, map, v, viewer, dt) {
     var self = this, k = Math.min(1, dt * 8), vx = viewer && viewer.alive ? viewer.x : -1e9, vy = viewer && viewer.alive ? viewer.y : -1e9;
     function stamp(list, sprites, base, under) {
-      for (var i = 0; i < list.length; i++) {
-        var o = list[i];
-        if (o.alive === false) continue;
+      // Every canopy eases its fade each frame, but for one that is fully opaque (fade 1) and not over the viewer
+      // that step is exactly "no change". So only three groups are walked, in list order: canopies on screen,
+      // canopies near the viewer (the only ones it can be under) and canopies still fading back in, wherever they are.
+      var g = gridOf(list, canopyReach), fading = g.fading, n;
+      g.hits.length = 0;
+      gather(g, v.x0, v.y0, v.x1, v.y1);
+      gather(g, vx, vy, vx, vy);
+      for (n = 0; n < fading.length; n++) if (!g.seen[fading[n]]) { g.seen[fading[n]] = 1; g.hits.push(fading[n]); }
+      var hits = sorted(g);
+      fading.length = 0;
+      for (n = 0; n < hits.length; n++) {
+        var i = hits[n], o = list[i];
+        if (o.alive === false) { if (Number.isFinite(o.fade) && o.fade !== 1) fading.push(i); continue; }
         var inside = Math.hypot(vx - o.x, vy - o.y) < o.r * under;
         if (!Number.isFinite(o.fade)) o.fade = 1;
         o.fade += ((inside ? 0.4 : 1) - o.fade) * k;
+        if (o.fade !== 1) fading.push(i);
         if (!visible(v, o.x, o.y, o.r * 1.3)) continue;
         var palette = o.biome === 'tundra' || o.biome === 'tundra-forest' ? 'snow' : o.biome === 'savannah' || o.biome === 'desert' ? 'dry' : null;
         var variants = palette && self.foliagePalettes ? self.foliagePalettes[palette][base === 110 ? 'trees' : 'bushes'] : sprites;
@@ -2144,15 +2249,18 @@
     ctx.rect(v.x0 - 200, v.y0 - 200, v.x1 - v.x0 + 400, v.y1 - v.y0 + 400);
     ctx.arc(storm.x, storm.y, r, 0, TAU, true);
     ctx.fillStyle = 'rgba(118,48,196,0.33)';
-    ctx.fill('evenodd');
+    // The paths are still built (canvas state stays the same); only painting that cannot reach a pixel is skipped:
+    // no purple while the whole view is inside the safe circle, no ring while it is off screen.
+    if (ringSide(v, storm.x, storm.y, r, 0) !== 1) ctx.fill('evenodd');
     ctx.strokeStyle = 'rgba(205,150,255,0.95)';
     ctx.lineWidth = 8;
-    ctx.beginPath(); ctx.arc(storm.x, storm.y, r, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(storm.x, storm.y, r, 0, TAU); if (!ringSide(v, storm.x, storm.y, r, 4)) ctx.stroke();
     if (storm.next && storm.state !== 'final') {
       ctx.setLineDash([26, 18]);
       ctx.strokeStyle = 'rgba(255,255,255,0.8)';
       ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.arc(storm.next.x, storm.next.y, Math.max(1, storm.next.r), 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(storm.next.x, storm.next.y, Math.max(1, storm.next.r), 0, TAU);
+      if (!ringSide(v, storm.next.x, storm.next.y, Math.max(1, storm.next.r), 2.5)) ctx.stroke();
       ctx.setLineDash([]);
     }
   };

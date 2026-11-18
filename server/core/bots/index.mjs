@@ -8,11 +8,18 @@ import './bot-combat.mjs';
 import './bot-loot.mjs';
 import './bot-items.mjs';
 import './bot-vehicles.mjs';
+import './bot-classes.mjs';
 import { makeProfile, makeNames } from './profile.mjs';
 
 const HEAR = 1500;            // gunfire carries about this far (the client fades it out at the same distance)
 const SEARCHES_PER_TICK = 4;  // path searches all bots may run in one tick
 const NEAR_MISS = 75;         // a bullet this close to a bot counts as "someone is shooting at me"
+// Upgrade credit. The island holds a few hundred tokens for fifty players, and bots are poor looters (a typical one
+// finds six or seven in a whole match), so on tokens alone hardly any bot gets past level one and none reaches the
+// 63 a level-three class costs in all. Every living bot therefore earns credit at this rate (per second), which
+// counts toward a class upgrade at an Upgrade Station and nothing else: it is never a token, it cannot be dropped
+// or picked up, and the station still has to be walked to and still goes on cooldown. 0 switches it off.
+const UPGRADE_CREDIT = 1 / 12;
 // Pacing. A lobby full of bots that all fight on sight is over in three minutes, long before the storm has done
 // anything. So bots pick fights with *each other* more or less readily depending on whether the lobby is ahead of
 // or behind this curve (share of the lobby still alive, by match time). How they treat a human never changes.
@@ -57,14 +64,16 @@ export class BotDirector {
     this.aggro = new Map();
     this.alive = 0;
     this.heat = 0;
-    // How readily a bot picks a fight with a person who has not provoked it (a multiplier on Bot.freeChoice). At the
-    // usual level an average bot that has someone on its screen strikes first about six times in ten each time it
-    // thinks about it; BOT_SKILL 0 halves that, 1 makes it half as much again.
+    // Whether a bot goes for a person it can see is fixed by its own health (Bot.stancePerson), not by this. What
+    // BOT_SKILL still scales is how readily a gun crew spends a shell on a person standing still: every chance it
+    // gets at the usual level and above, about half of them at 0.
     this.humanKeen = 0.5 + this.level;
     // Vehicles: who is walking to which one, and who was last shelled when (so a lobby's artillery cannot rain on one
     // person). The cannon is not a WEAPONS entry; bots aim it like any other gun.
     this.vehicleClaims = new Map();
     this.shells = new Map();
+    this.openings = new Map();
+    this.stationClaims = new Map();
     this.boxes = new Map();
     this.cannonDef = { id: 'tankcannon', kind: 'cannon', projectileSpeed: W.TANK.cannonSpeed, range: W.TANK.cannonRange };
     this.keen = 1;
@@ -107,6 +116,7 @@ export class BotDirector {
     let n = 0;
     for (const p of this.world.players) if (p.alive) n++;
     this.alive = n;
+    if (UPGRADE_CREDIT > 0) for (const bot of this.bots) if (bot.p.alive && bot.landed) bot.credit += dt * UPGRADE_CREDIT * bot.creditRate;
     // Ahead of the pace (too many alive): keener. Behind it: bots leave each other be.
     const want = paceAt(this.world.time, this.pace) * this.world.players.length, heat = (n - want) / Math.max(2.5, want * 0.12);
     this.heat = heat < -1 ? -1 : heat > 2 ? 2 : heat;
@@ -166,6 +176,7 @@ export class BotDirector {
       case 'death': { const by = e.killer && this.byId.get(e.killer.id); if (by) by.onKill(e.victim); break; }
       case 'crate': this.nav.invalidate(e.crate.x, e.crate.y, 40); this.claims.delete(e.crate.id); break;
       case 'rock-gone': this.nav.invalidate(e.rock.x, e.rock.y, e.rock.r); break;
+      case 'foliage': if (e.plant && e.plant.alive === false) this.nav.invalidate(e.plant.x, e.plant.y, e.plant.r); break;   // a cactus shot down
       case 'struct': if (e.op === 'add' || e.op === 'gone') this.nav.invalidate(e.struct.x, e.struct.y, e.struct.r); break;
       case 'teleport': case 'pulled': { const b = this.byId.get(e.player.id); if (b) { b.route = null; b.padWait = null; } break; }
       case 'vehicle':
@@ -223,6 +234,24 @@ export class BotDirector {
   intel(team) { return this.teamSize < 2 ? null : this.teamIntel.get(team) || null; }
   setFocus(p, enemyId) { if (this.teamSize > 1) this.teamFocus.set(p.team, { id: enemyId, at: this.world.time }); }
   focus(team) { const f = this.teamFocus.get(team); return f && this.world.time - f.at < 2 ? f.id : 0; }
+  // Which bot of a team was first to go for a given person, and when (0: this one). Teammates give it a moment's
+  // head start (Bot.stancePerson), so a team of bots never opens up on somebody all in the same instant.
+  openFight(p, personId) {
+    const key = p.team + ':' + personId, o = this.openings.get(key), now = this.world.time;
+    if (!o || now - o.at > 20) { this.openings.set(key, { by: p.id, at: now }); return 0; }
+    return o.by === p.id ? 0 : o.at;
+  }
+
+  // An Upgrade Station serves one player and then recharges for a minute and a half, so a bot on its way to one
+  // says so, and the others take it as busy unless they would get there clearly sooner.
+  claimStation(st, p, travel) { this.stationClaims.set(st.id, { id: p.id, at: this.world.time, eta: this.world.time + travel }); }
+  stationTaken(st, p, travel) {
+    const c = this.stationClaims.get(st.id), now = this.world.time;
+    if (!c || c.id === p.id || now - c.at > 3) return false;
+    const o = this.byId.get(c.id);
+    return !!o && o.p.alive && !o.p.downed && c.eta <= now + travel + 3;
+  }
+
   // ---------------------------------------------------------------- vehicles
   claimVehicle(v, p) { this.vehicleClaims.set(v.id, { id: p.id, at: this.world.time }); }
   unclaimVehicle(v, p) { const c = this.vehicleClaims.get(v.id); if (c && c.id === p.id) this.vehicleClaims.delete(v.id); }
