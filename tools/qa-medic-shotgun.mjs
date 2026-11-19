@@ -45,7 +45,7 @@ try {
   await click('#ut-node-magicmedic'); await click('#ut-action');
   await b.waitFor('Warz.debug.player().classId==="magicmedic" && !Warz.UpgradeTree.isOpen()');
   check(await evaluate(() => Warz.debug.player().maxHp === 300 && Warz.debug.player().tokens === 0 && Warz.debug.player().weapons.map(w => w.id).join() === 'revolver,medicstaff,magicmedkit'), 'station menu buys Magic Medic for 40 tokens with three class items and 300 max HP');
-  await press('Digit6'); check(await evaluate(() => Warz.debug.player().held === 0 && Warz.debug.player().items[0].id === 'bandage'), 'old slot-three item is preserved in physical slot six');
+  await press('Digit4'); check(await evaluate(() => Warz.debug.player().held === 1 && Warz.debug.player().items[1].id === 'bandage' && Warz.debug.player().items[0] === null && document.querySelectorAll('#hud-slots > .slot').length === 10), 'the medkit takes slot three: the old slot-three stack moved to slot four in a ten-slot hotbar');
   await press('Digit3'); await evaluate(() => { Warz.debug.player().hp = 150; });
   await atMouse({ x: 1100, y: 450 });
   check(await evaluate(() => Warz.debug.player().hp === 450 && Warz.debug.player().medkitCd > 29 && document.getElementById('hud-hp-text').textContent.includes('Overheal')), 'clicking empty ground adds 300 HP and displays overheal with a 30-second cooldown');

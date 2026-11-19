@@ -68,7 +68,7 @@ export class BotDirector {
     // BOT_SKILL still scales is how readily a gun crew spends a shell on a person standing still: every chance it
     // gets at the usual level and above, about half of them at 0.
     this.humanKeen = 0.5 + this.level;
-    // Vehicles: who is walking to which one, and who was last shelled when (so a lobby's artillery cannot rain on one
+    // Vehicles: who is running for which one, and who was last shelled when (so a lobby's artillery cannot rain on one
     // person). The cannon is not a WEAPONS entry; bots aim it like any other gun.
     this.vehicleClaims = new Map();
     this.shells = new Map();
@@ -253,17 +253,37 @@ export class BotDirector {
   }
 
   // ---------------------------------------------------------------- vehicles
-  claimVehicle(v, p) { this.vehicleClaims.set(v.id, { id: p.id, at: this.world.time }); }
-  unclaimVehicle(v, p) { const c = this.vehicleClaims.get(v.id); if (c && c.id === p.id) this.vehicleClaims.delete(v.id); }
-  vehicleClaimed(v, p) {
-    const c = this.vehicleClaims.get(v.id);
-    if (!c || c.id === p.id || this.world.time - c.at > 3) return false;
-    const o = this.byId.get(c.id);
-    return !!o && o.p.alive && !o.p.downed;
+  // An empty tank or gun is a race. Every bot on its way to one says how soon it expects to be there (`eta`, in
+  // seconds from now); the few who would be there first keep running and the rest look for something else
+  // (Bot.vehicleUse). A teammate is never a rival: they ride together.
+  claimVehicle(v, p, eta = 0) {
+    let m = this.vehicleClaims.get(v.id);
+    if (!m) { m = new Map(); this.vehicleClaims.set(v.id, m); }
+    m.set(p.id, { at: this.world.time, eta: this.world.time + eta });
   }
-  // Somebody was shelled a moment ago: the next shell at them can wait (people longer than bots).
-  shellOk(id, human) { const t = this.shells.get(id); return t === undefined || this.world.time - t > (human ? 18 : 8); }
+  unclaimVehicle(v, p) { const m = this.vehicleClaims.get(v.id); if (m) m.delete(p.id); }
+  // How many other bots are on their way to this vehicle and would be in it clearly before `p`?
+  vehicleRivals(v, p, eta) {
+    const m = this.vehicleClaims.get(v.id), now = this.world.time;
+    if (!m) return 0;
+    let n = 0;
+    for (const [id, c] of m) {
+      const o = this.byId.get(id);
+      if (now - c.at > 3 || !o || !o.p.alive || o.p.downed) { m.delete(id); continue; }
+      if (id !== p.id && o.p.team !== p.team && c.eta < now + eta - 1.5) n++;
+    }
+    return n;
+  }
+  // Somebody was shelled a moment ago: the next shell at them can wait (people longer than bots: with every gun on
+  // the island crewed, this is what keeps a person from being shelled each time they stop).
+  shellOk(id, human) { const t = this.shells.get(id); return t === undefined || this.world.time - t > (human ? 30 : 8); }
   noteShell(id) { this.shells.set(id, this.world.time); }
+  // Close enough to an Upgrade Station that a shell landing here would catch whoever is using it?
+  atStation(x, y) {
+    const reach = this.W.CONFIG.stationInteractRadius + this.W.ARTILLERY.blastRadius;
+    for (const st of this.world.map.stations) if (Math.hypot(st.x - x, st.y - y) < reach) return true;
+    return false;
+  }
   // Settlements as rectangles a hull drives round: houses, and the reach of the guards on their edges.
   settleBoxes(pad) {
     let list = this.boxes.get(pad);

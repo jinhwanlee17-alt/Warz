@@ -50,12 +50,12 @@ try {
     return !document.getElementById('practice-items').hidden && new Set(values).size === Warz.ITEM_ORDER.length &&
       values.length === Warz.ITEM_ORDER.length && Warz.ITEM_ORDER.every(id => values.includes(id)) &&
       select.querySelectorAll('optgroup').length === Warz.CRATE_ORDER.length &&
-      document.getElementById('practice-item-slot').options.length === 3;
-  }), 'Item chooser offers every item in all five tiers and exactly three item slots');
+      document.getElementById('practice-item-slot').options.length === 8;
+  }), 'Item chooser offers every item in all five tiers and exactly eight item slots');
   const originalWeapons = await evaluate(() => ({ classId: Warz.debug.player().classId, weapons: Warz.debug.player().weapons.map(w => w.id) }));
   const items = await evaluate(() => Warz.ITEM_ORDER.map(id => ({ id, stack: Warz.ITEMS[id].stack })));
   for (let i = 0; i < items.length; i++) {
-    const item = items[i], slot = i % 3;
+    const item = items[i], slot = i % 8;
     await evaluate((id, slot) => {
       const select = document.getElementById('practice-item'); select.value = id; select.dispatchEvent(new Event('change'));
       document.getElementById('practice-item-slot').value = String(slot);

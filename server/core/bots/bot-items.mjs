@@ -1,4 +1,4 @@
-// Bot item play. A bot holds three item stacks and uses them the way a player who knows the game would:
+// Bot item play. A bot holds up to eight item stacks (seven with a three-tool class) and uses them the way a player who knows the game would:
 // heals when it is safe to, buffs before a fight rather than in the middle of one, grenades and fire for people
 // who stand still or hide, an escape (snowbomb on the chaser, a boulder in the line of fire, smoke, a teleporter
 // home) when a fight is going badly, strikes on targets that cannot dodge them, and so on. Using an item takes the

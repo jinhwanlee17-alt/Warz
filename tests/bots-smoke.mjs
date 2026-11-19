@@ -734,6 +734,7 @@ function escape(items, k, o = {}) {
   a.world.spawnPickup('item', 9250, 9000, 3, false, 'bandage');
   t.check(a.until(() => a.world.countItem(b.p, 'bandage') === 3, 8) >= 0, 'an item on the ground: walked to and picked up');
   a.world.addItem(b.p, 'smoothie', 1); a.world.addItem(b.p, 'energybar', 1);
+  for (const id of ['health', 'firstaid', 'firenade', 'grenade', 'smoke', 'shield', 'speed']) if (b.p.items.some((s) => !s)) a.world.addItem(b.p, id, 1);   // (whatever slots are left, with things worth more than an Energy Bar)
   a.world.spawnPickup('item', 9000, 9300, 5, false, 'lightning');
   const swapped = a.until(() => a.world.countItem(b.p, 'lightning') === 5, 10);
   t.check(swapped >= 0 && a.count('item-dropped', (e) => e.player === b.p) === 1, 'hotbar full and a Lightning Strike on the ground: one stack is dropped to make room');
@@ -964,10 +965,13 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   a.clear();
   t.check(a.until(() => a.count('damage', (e) => e.source === b.p && e.target === foe) > 0, 6) >= 0, 'the human opens fire on someone: so does the bot, timid as it is');
   // Two bots: one leads, the other stays within reach.
+  // (They start where a team lands, on a Drop Station, and with the whole island's vehicles to run for.)
   const a2 = arena({ teams: true, map: W.MapGen.generate(5, 2), seed: 5 });
-  const lead2 = a2.bot(9000, 9000, {}, { team: 1 }), tail = a2.bot(9080, 9000, {}, { team: 1 });
+  const pad = a2.map.drops[0];
+  const lead2 = a2.bot(pad.x, pad.y, {}, { team: 1 }), tail = a2.bot(pad.x + 80, pad.y, {}, { team: 1 });
   a2.step(45);
-  t.check(lead2.p.alive && tail.p.alive && dist(lead2.p, tail.p) < 1200, 'two bots on a team stay together while they loot (' + Math.round(dist(lead2.p, tail.p)) + ' units apart after 45 s)');
+  const moved = Math.round(dist(lead2.p, pad));
+  t.check(lead2.p.alive && tail.p.alive && dist(lead2.p, tail.p) < 1200 && moved > 2000, 'two bots on a team stay together on their way across the island (' + Math.round(dist(lead2.p, tail.p)) + ' units apart after 45 s and ' + moved + ' units from where they landed)');
 }
 {
   // A team of bots does not land on a lone player all in the same instant: one opens up, the other takes a moment
@@ -1124,6 +1128,10 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   const a = arena({ map: W.MapGen.generate(99), seed: 99, storm: true });
   const bots = [];
   for (let i = 0; i < 12; i++) { const d = a.map.drops[Math.floor(i * a.map.drops.length / 12)]; bots.push(a.bot(d.x, d.y, { skill: 0.2 + i * 0.05 })); }
+  // Twelve bots and twenty-two vehicles: left to themselves all twelve would be crewing something within a minute.
+  // Every other one stays on foot, so this still says something about looting.
+  const walkers = bots.filter((b, i) => i % 2 === 1), riders = bots.filter((b, i) => i % 2 === 0);
+  for (const b of walkers) b.rides = false;
   let bad = 0, frozen = 0;
   const last = bots.map((b) => ({ x: b.p.x, y: b.p.y, t: 0 }));
   for (let i = 0; i < 90 / TICK; i++) {
@@ -1132,6 +1140,7 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
       const o = b.out;
       if (![o.mx, o.my].every(Number.isFinite) || (o.aimX !== null && !(Number.isFinite(o.aimX) && Number.isFinite(o.aimY)))) bad++;
       if (!b.p.alive) return;
+      if (b.p.vehicle || b.p.mount) last[k].t = a.world.time;       // a gun crew or somebody at a turret sits still on purpose
       if (Math.hypot(b.p.x - last[k].x, b.p.y - last[k].y) > 40) { last[k].x = b.p.x; last[k].y = b.p.y; last[k].t = a.world.time; }
       else if (a.world.time - last[k].t > 25) frozen++;
     });
@@ -1139,13 +1148,15 @@ const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, sec
   t.equal(bad, 0, 'ninety seconds of twelve bots on a real island: every intent they return is made of finite numbers');
   t.equal(frozen, 0, 'and none of them stands in one spot for 25 seconds');
   t.equal(a.dir.errors, 0, 'and no bot throws');
+  const seated = riders.filter((b) => !b.p.alive || b.p.vehicle || b.drive !== null || b.badVehicle.size > 0).length;
+  t.check(riders.filter((b) => b.p.vehicle).length >= 4 && seated === riders.length, 'the six that may ride have run for the tanks and guns: ' + riders.filter((b) => b.p.vehicle).length + ' of 6 are in a seat after ninety seconds');
   // Guaranteed house loot moves much of the old scattered loot behind guarded
   // settlements. Keep the ninety-second movement checks, then allow three minutes
   // of exploration for the existing majority-looting requirement.
-  const lootedAt90 = bots.filter(b => b.p.tokens > 0 || W.CLASSES[b.p.classId].tier > 0).length;
+  const lootedAt90 = walkers.filter(b => b.p.tokens > 0 || W.CLASSES[b.p.classId].tier > 0).length;
   a.step(90);
-  const lootedAt180 = bots.filter(b => b.p.tokens > 0 || W.CLASSES[b.p.classId].tier > 0).length;
-  t.check(lootedAt180 >= 9 && lootedAt180 >= lootedAt90, 'most bots find tokens within three minutes and looting continues to progress (' + lootedAt90 + ' to ' + lootedAt180 + ')');
+  const lootedAt180 = walkers.filter(b => b.p.tokens > 0 || W.CLASSES[b.p.classId].tier > 0).length;
+  t.check(lootedAt180 >= 4 && lootedAt180 >= lootedAt90, 'most of the six on foot find tokens within three minutes and looting continues to progress (' + lootedAt90 + ' to ' + lootedAt180 + ' of 6)');
 }
 
 t.done();

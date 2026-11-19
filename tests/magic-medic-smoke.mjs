@@ -20,6 +20,9 @@ function tick(a, seconds) {
   const a = arena();
   t.equal(a.p.maxHp, 300, 'Magic Medic has 300 maximum HP');
   t.equal(a.p.weapons.map(w => w.id).join(','), 'revolver,medicstaff,magicmedkit', 'three class items in their requested order');
+  t.check(a.p.items.length === 8 && !a.world.itemSlotOpen(a.p, 0) && a.world.addItem(a.p, 'bandage', 1) === 0 && a.p.items[0] === null && a.p.items[1].id === 'bandage',
+    'the medkit has hotbar slot three, so items start in slot four: ten slots, no extra one');
+  a.p.items[1] = null;
   const o = ally(a, X + 100, Y, 150, 175), other = ally(a, X - 80, Y, 20);
   a.p.hp = 160; a.world.switchSlot(a.p, 2);
   t.check(a.world.trigger(a.p, { firePressed: true, aimX: o.x, aimY: o.y }), 'clicking a teammate uses the medkit');

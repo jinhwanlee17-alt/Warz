@@ -73,8 +73,8 @@ try {
 
   await evaluate(() => { Warz.App.startPractice(); Warz.debug.player().dropT = 0; });
   await pressMap(); await browser.waitFor('Warz.MapScreen.isOpen()');
-  check(await evaluate(() => { const w = Warz.debug.match().world; return w.map.drops.length === 50 && w.map.crates.filter(c => c.tier !== 'legendary').length === 210; }),
-    'Practice uses fifty coastal drops and 210 regular crates alongside Legendary rewards');
+  check(await evaluate(() => { const w = Warz.debug.match().world; return w.map.drops.length === 50 && w.map.crates.filter(c => c.tier !== 'legendary').length === 420; }),
+    'Practice uses fifty coastal drops and 420 regular crates alongside Legendary rewards');
   await layout('practice', 50, 1440, 900); await layout('practice', 50, 390, 844);
   await evaluate(() => { const w = Warz.debug.match().world, c = w.map.crates.find(c => c.tier === 'legendary' && c.legendaryDrops !== 1); w.damageCrate(c, c.hp, null, c.x, c.y); });
   await browser.waitFor('mapLayoutQA.full.length===Warz.debug.match().world.map.crates.filter(c=>c.tier==="legendary"&&c.alive).length && mapLayoutQA.mini.length===mapLayoutQA.full.length');
@@ -105,7 +105,7 @@ try {
       drops: samePoints(state.drops, live.world.map.drops), vehicles: samePoints(state.vehicles, live.world.map.vehicles),
       tanks: samePoints(state.tanks, live.world.map.tanks), artillery: samePoints(state.artillery, live.world.map.artillery) };
     layouts.push({ mode, state, agreement });
-    check(state.teamSize === teamSize && state.dropCount === count && state.crates === 210 && state.ring && agreement.drops && agreement.vehicles && agreement.tanks && agreement.artillery,
+    check(state.teamSize === teamSize && state.dropCount === count && state.crates === 420 && state.ring && agreement.drops && agreement.vehicles && agreement.tanks && agreement.artillery,
       mode + ': client and server agree on outer Humvees, middle artillery, inner tanks, coastal drops and crates');
     await pressMap(); await browser.waitFor('Warz.MapScreen.isOpen()');
     await layout(mode, count, 1440, 900); await layout(mode, count, 390, 844);

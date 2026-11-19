@@ -31,12 +31,12 @@
     stationMinGap: 520,
     tokenLoose: 40,             // tokens lying in the open
     keyLoose: 4,                // station keys lying in the open
-    regularCrateCount: 210,     // thirty extra regular crates, plus one central legendary crate
+    regularCrateCount: 420,     // twice the previous 210 regular crates, plus one central legendary crate
     legendaryClearRadius: 240,  // an open approach to the single crate at the exact map centre
     crateInBuilding: 0.56,      // chance a building holds a crate (was 0.7)
     armorPlate: 25,             // armor granted by an armor plate pickup
     armorMax: 100,
-    hotbarSize: 3,              // item slots; two class weapon/gear slots make five slots total
+    hotbarSize: 8,              // item slots; two class tools make ten hotbar slots, and a third class tool closes item slot 0
     bushes: true,
     dropStationCount: 50,      // Solo/default compatibility value
     dropStationCounts: { 1: 50, 2: 25, 3: 16, 4: 12 },
@@ -223,7 +223,7 @@
   ['pyromancer', 'juggernaut', 'commander', 'armorcrew'].forEach(function (id) { CLASSES[id].parents = ['sniper', 'shotgunner', 'medic', 'grenadier']; });
   var levelTwoParents = W.CLASS_ORDER.filter(function (id) { return CLASSES[id].tier === 2; });
   CLASSES.engineer = { id: 'engineer', name: 'Engineer', tier: 3, parent: 'sniper2', parents: levelTwoParents.slice(), hp: 100, armor: 0,
-    loadout: ['wrench', 'pistol', 'engineerhammer'], color: '#efc562', description: 'Wrench, Basic Pistol and Engineer’s Hammer. Build sentries in 10 seconds; repair or upgrade them with the hammer. Your old slot-3 item moves to slot 6.' };
+    loadout: ['wrench', 'pistol', 'engineerhammer'], color: '#efc562', description: 'Wrench, Basic Pistol and Engineer’s Hammer. Build sentries in 10 seconds; repair or upgrade them with the hammer. The hammer takes hotbar slot 3: an item there moves to a free item slot, or drops at your feet if all seven are full.' };
   CLASSES.shieldoperator = { id: 'shieldoperator', name: 'Shield Operator', tier: 3, parent: 'sniper2', parents: levelTwoParents.slice(), hp: 100, armor: 0,
     loadout: ['shieldpistol', 'explosiveshield'], color: '#82bedb', description: 'A riot shield and Basic Pistol share one slot, letting you fire while protected. Your second slot holds a red explosive shield. Available from any level-two class.' };
   W.CLASS_ORDER.push('engineer', 'shieldoperator');
@@ -235,7 +235,7 @@
     description: '175 HP, permanent 25% damage resistance and +10% damage with everything you use. Shotgun III and Dual Heavy Revolvers. Requires Shotgunner II.' };
   CLASSES.magicmedic = { id: 'magicmedic', name: 'Magic Medic', tier: 3, parent: 'medic2', hp: 300, armor: 0,
     loadout: ['revolver', 'medicstaff', 'magicmedkit'], color: '#ff9fcb', reviveSeconds: 2, reviveFraction: 1,
-    description: '300 HP, Heavy Revolver, Medic Staff and a 300-HP overhealing medkit. Heal allies with the staff or place it for stronger shared healing. Revive teammates at full health without items. Your old slot-3 item moves to slot 6.' };
+    description: '300 HP, Heavy Revolver, Medic Staff and a 300-HP overhealing medkit. Heal allies with the staff or place it for stronger shared healing. Revive teammates at full health without items. The medkit takes hotbar slot 3: an item there moves to a free item slot, or drops at your feet if all seven are full.' };
   W.CLASS_ORDER.push('shotgunner3', 'magicmedic');
   CLASSES.pyromaniac = { id: 'pyromaniac', name: 'Pyromaniac', tier: 3, parent: 'pyromancer', hp: 150, armor: 0, damageTakenMul: 0.5,
     loadout: ['pyroflamethrower', 'pyrodualrevolver'], color: '#ff783e',
@@ -479,6 +479,11 @@
     },
     itemsOfTier: function (tier) {
       return W.ITEM_ORDER.filter(function (id) { return ITEMS[id].tier === tier; });
+    },
+    // Every class has ten hotbar slots: its tools, then items. Each tool beyond the second takes the place of
+    // the first item slots, which are closed for that class. Item indices never move.
+    closedItemSlots: function (player) {
+      return Math.max(0, (player && player.weapons ? player.weapons.length : 0) - 2);
     },
     // One loot roll for a broken crate: the rarity that drops, or null, from a number in [0,1).
     crateLootTier: function (crateTier, roll) {

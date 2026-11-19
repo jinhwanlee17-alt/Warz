@@ -97,8 +97,8 @@ try {
       return { size: m.size, counts, total: m.crates.length, regular: m.crates.filter(c => c.tier !== 'legendary').length,
         bonus: legendary.filter(c => c.legendaryDrops === 1).length, center: center && center.x === m.size / 2 && center.y === m.size / 2 };
     });
-    check(map.size === 48000 && data.size === 48000 && map.regular === 210 && map.center && map.total === 211 + map.bonus,
-    label + ': 48,000-unit island has 210 regular crates, one center Legendary and eligible town bonuses');
+    check(map.size === 48000 && data.size === 48000 && map.regular === 420 && map.center && map.total === 421 + map.bonus,
+    label + ': 48,000-unit island has 420 regular crates, one center Legendary and eligible town bonuses');
     check(JSON.stringify(data.phases.map(p => p.safeArea)) === JSON.stringify(fractions) &&
       data.phases.every((p, i) => p.start - (i ? data.phases[i - 1].end : 0) === 150 + i * 30),
     label + ': all six safe-area targets and 150/180/210/240/270/300-second pauses are loaded');

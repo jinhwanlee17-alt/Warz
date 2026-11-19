@@ -150,7 +150,7 @@ async function main() {
     // ---- settings
     await click('#settings-btn');
     check(await visible('#settings-dialog') && await visible('#tab-controls'), 'Settings opens on the Controls tab');
-    check(await evaluate('document.querySelectorAll("#bindings .bind[data-bind]").length') === 38, 'every action (incl. pickup, drop and inventory) has two binding slots');
+    check(await evaluate('Warz.Controls.ACTIONS.length === 26 && document.querySelectorAll("#bindings .bind[data-bind]").length === Warz.Controls.ACTIONS.length * 2'), 'every action (incl. pickup, drop, inventory and all ten hotbar slots) has two binding slots');
     await click('[data-bind="reload"][data-slot="0"]');
     await press('KeyT');
     check(await evaluate('Warz.Controls.bindings("reload")[0]') === 'KeyT', 'pressing T rebinds Reload to T');
@@ -271,7 +271,7 @@ async function main() {
     check(await P('p.hp') === hurtHp + 30 && await P('p.medkitCd') > 49, 'medkit heals 30 and starts a 50 s cooldown');
 
     // ---- items, hotbar and inventory
-    check(await evaluate('document.querySelectorAll("#hud-slots > .slot").length') === 5, 'HUD shows one five-slot hotbar');
+    check(await evaluate('document.querySelectorAll("#hud-slots > .slot").length') === 10, 'HUD shows one ten-slot hotbar');
     check(await evaluate('!document.getElementById("hud-hotbar")'), 'the separate mini-hotbar is removed');
     const away = await evaluate(`(() => { const m = Warz.debug.match(), R = 400; for (let y = 900; y < 5500; y += 60) for (let x = 900; x < 5500; x += 60) {
       if (!Warz.U.insideIsland(x, y, 320, Warz.CONFIG.worldSize, Warz.CONFIG.cornerRadius) || m.world.inPond(x, y) || m.world.inPond(x, y + 130)) continue;
@@ -292,7 +292,7 @@ async function main() {
     await evaluate('Warz.debug.giveItem("bandage", 3); Warz.debug.giveItem("rock", 1); Warz.debug.giveItem("turret", 1); true');
     await sleep(150);
     check(await P('p.items.filter(Boolean).length') === 3 && await evaluate('document.querySelectorAll("#hud-slots .item-slot.has-item").length') === 3, 'three items join the weapons in the hotbar');
-    check(await evaluate(`(() => { const r = [...document.querySelectorAll('#hud-slots > .slot')].map(e => e.getBoundingClientRect()); return r.length === 5 && r.every(b => Math.abs(b.y - r[0].y) < 5) && r.slice(1).every((b, i) => b.left >= r[i].right); })()`), 'all five cards fit side by side without overlapping');
+    check(await evaluate(`(() => { const r = [...document.querySelectorAll('#hud-slots > .slot')].map(e => e.getBoundingClientRect()); return r.length === 10 && r.every(b => Math.abs(b.y - r[0].y) < 5) && r.slice(1).every((b, i) => b.left >= r[i].right); })()`), 'all ten cards fit side by side without overlapping');
     const classSlot = await P('p.slot');
     await press('KeyQ');
     check(await P('p.slot') === classSlot && await P('p.weapons.length') === 2, 'Q retains class weapons and does not swap them');

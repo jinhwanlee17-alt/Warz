@@ -1,5 +1,5 @@
 'use strict';
-// Real-browser regression for throwable rendering, item art, the five-slot HUD,
+// Real-browser regression for throwable rendering, item art, the ten-slot HUD,
 // and keyboard-driven dropping, manual pickup and inventory controls.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -43,8 +43,10 @@ async function main() {
       const l = await layout();
       await b.shot('hotbar-' + width + '.png');
       fs.writeFileSync(path.join(b.outDir,'layout-'+width+'.json'),JSON.stringify(l,null,2));
-      check(l.count === 5 && !l.legacy, width + 'px: exactly five slots and no second hotbar');
-      check(l.boxes.every((r,i)=>Math.abs(r.y-l.boxes[0].y)<=8 && r.x>=0 && r.right<=l.width && (!i || r.x>=l.boxes[i-1].right)), width + 'px: all five slots stay side by side inside the viewport');
+      const perRow = width > 760 ? 10 : 5; // narrow windows stack two rows of five
+      check(l.count === 10 && !l.legacy, width + 'px: exactly ten slots and no second hotbar');
+      check(l.boxes.every((r,i)=>Math.abs(r.y-l.boxes[i-i%perRow].y)<=8 && r.x>=0 && r.right<=l.width && (!(i%perRow) || r.x>=l.boxes[i-1].right) && (i<perRow || r.y>=l.boxes[i-perRow].bottom)),
+        width + 'px: all ten slots stay side by side in ' + (perRow === 10 ? 'one row' : 'two rows of five') + ' inside the viewport');
       check(l.art.every(a=>a.icon.bottom<=a.name.y+1 && a.name.bottom<=a.count.y+1 && a.icon.w>=34), width + 'px: icons, labels and counts have separate readable space');
       if(width<=600) check(l.stats.bottom<l.ammo.y, width+'px: health and ammo do not overlap');
     }
@@ -132,8 +134,8 @@ async function main() {
     // The full-bag instruction wraps further than the normal pickup prompt.
     await b.evaluate(`(() => {
       const m=Warz.debug.match(),p=m.player,pk=m.world.map.pickups.find(pk=>pk.alive&&pk.item==='bandage');
-      window.qaPromptFixture={pk,item:pk.item,amount:pk.amount,slot:p.items[0]};
-      pk.item='blackhole';pk.amount=2;p.items[0]={id:'bandage',n:9};
+      window.qaPromptFixture={pk,item:pk.item,amount:pk.amount,items:p.items};
+      pk.item='blackhole';pk.amount=2;p.items=['bandage','smoke','sentry','grenade','smoothie','energybar','flashbang','firenade'].map(id=>({id,n:Warz.ITEMS[id].stack}));
     })()`);
     const promptFrame = await b.evaluate('renderPhases.ground');
     await b.waitFor('renderPhases.ground > ' + promptFrame);
@@ -152,7 +154,7 @@ async function main() {
     })()`);
     await b.shot('full-manual-pickup-800.png');
     check(!overlaps(tabletPickupLayout.prompt,tabletPickupLayout.stats) && !overlaps(tabletPickupLayout.prompt,tabletPickupLayout.ammo) && !overlaps(tabletPickupLayout.prompt,tabletPickupLayout.slots), '800px: full-bag pickup instructions stay clear of health, ammo and slots');
-    await b.evaluate(`(() => {const f=qaPromptFixture;f.pk.item=f.item;f.pk.amount=f.amount;Warz.debug.player().items[0]=f.slot;delete window.qaPromptFixture;})()`);
+    await b.evaluate(`(() => {const f=qaPromptFixture;f.pk.item=f.item;f.pk.amount=f.amount;Warz.debug.player().items=f.items;delete window.qaPromptFixture;})()`);
     await b.cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
     await press('KeyE');
     check(await b.evaluate(`(() => {const m=Warz.debug.match(),p=m.player;return p.items[0]?.id==='bandage'&&p.items[0].n===3&&!m.world.map.pickups.some(pk=>pk.alive&&pk.item==='bandage')&&!Warz.Inventory.isOpen();})()`), 'E picks the nearby whole stack back into the free hotbar slot without opening inventory');
@@ -190,7 +192,7 @@ async function main() {
       ids.forEach((id,i)=>{ const it=W.ITEMS[id];w.addStruct({id:900+i,kind:it.struct,item:id,x:2880+i*128,y:3150,r:it.struct==='turret'?24:20,team:p.team,angle:-Math.PI/2,hp:it.hp,maxHp:it.hp}); });
       w.explosions=[];w.particles=[];
       ['firenade','flashbang','smoke','blackhole','snowbomb','poison'].forEach((id,i)=>w.spawnPickup('item',2880+i*128,3280,2,false,id));
-      p.items=[{id:'firenade',n:2},{id:'turret3',n:1},{id:'sentry3',n:1}];p.held=0;
+      w.resetItems(p);[['firenade',2],['turret3',1],['sentry3',1]].forEach(([id,n])=>w.addItem(p,id,n));p.held=0;
       W.debug.renderer().map=null;
     })()`);
     await b.sleep(200);

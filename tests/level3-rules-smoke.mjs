@@ -63,7 +63,7 @@ for (const id of released) {
   t.check(result.ok && result.usedKey && p.tokens === 0 && p.keys === 0, id + ' spends exactly 40 tokens and one key at a cooling station');
   t.equal(p.hp, Math.min(70, CLASSES[id].hp), id + ' preserves existing health capped at its new maximum');
   t.equal(p.weapons.map(slot => slot.id).join(), CLASSES[id].loadout.join(), id + ' gives the class loadout');
-  t.check(p.weapons.length === CLASSES[id].loadout.length && p.items.length === 3, id + ' has its class weapon slots and preserves all three item stacks');
+  t.check(p.weapons.length === CLASSES[id].loadout.length && p.items.length === 8 && p.weapons.length + W.CONFIG.hotbarSize - Rules.closedItemSlots(p) === 10, id + ' has its class weapon slots and ten hotbar slots in all');
   t.equal(p.upgradeFrom, second, id + ' remembers the actual level-two predecessor');
   t.check(Rules.relation(p, first) === 'owned' && Rules.relation(p, second) === 'owned' && Rules.relation(p, 'sniper') === 'branch', id + ' remembers the entire actual class path');
   w.setClass(p, id, false);

@@ -320,7 +320,7 @@ export class Match {
       case 'armor': p.armor = Math.min(C.armorMax, p.armor + C.armorPlate); return reply(true, 'Armor: ' + p.armor + '/' + C.armorMax + '.');
       case 'item': {
         const id = str(m.id, 40), item = Object.prototype.hasOwnProperty.call(this.W.ITEMS, id) ? this.W.ITEMS[id] : null, slot = m.slot;
-        if (!item || !Number.isInteger(slot) || slot < 0 || slot >= C.hotbarSize || !Number.isFinite(m.n)) return reply(false, 'Choose a valid item and slot.', 'item');
+        if (!item || !world.itemSlotOpen(p, slot) || !Number.isFinite(m.n)) return reply(false, 'Choose a valid item and slot.', 'item');
         p.items[slot] = { id: item.id, n: Math.floor(num(m.n, 1, item.stack, 1)) }; p.shieldUp = false;
         return reply(true, item.name + ' placed in item slot ' + (slot + 1) + '.');
       }
@@ -478,7 +478,7 @@ export class Match {
       ay: Number.isFinite(m.ay) ? num(m.ay, 0, this.W.CONFIG.worldSize, 0) : null,
       ch: num(m.ch, 0, this.W.CONFIG.projectileChargeTime, 0), uch: num(m.uch, 0, this.W.CONFIG.projectileChargeTime, 0),
       cy: num(m.cy, -3, 3, 0) | 0, sw: !!m.sw, u: !!m.u, iv: !!m.iv,
-      ht: Number.isInteger(m.ht) && m.ht >= -1 && m.ht < this.W.CONFIG.hotbarSize ? m.ht : null, ip: !!m.ip, dp: !!m.dp
+      ht: m.ht === -1 || this.world.itemSlotOpen(p, m.ht) ? m.ht : null, ip: !!m.ip, dp: !!m.dp
     };
     q.push(input);
     // Bound packets arriving between ticks, while retaining their button presses.

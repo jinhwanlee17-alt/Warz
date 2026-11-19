@@ -179,6 +179,7 @@
     p.grenades = c.loadout.indexOf('grenade') >= 0 ? WEAPONS.grenade.count : 0;
     p.medkitCd = 0;
     p.throwCd = 0;
+    if (this.fitItems) this.fitItems(p); // items.js: a third class tool closes the first item slot
   };
 
   World.prototype.respawn = function (p, x, y, classId) {

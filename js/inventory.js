@@ -1,5 +1,5 @@
 /* warz.io: the inventory screen (default key Tab).
-   Shows the three item slots with details. Clicking a slot holds that item; "Use now" uses food, kits and potions on
+   Shows the open item slots with details. Clicking a slot holds that item; "Use now" uses food, kits and potions on
    the spot. The match keeps running while it is open. */
 (function () {
   'use strict';

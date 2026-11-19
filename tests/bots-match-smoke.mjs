@@ -103,7 +103,9 @@ for (const [seed, size, label] of [[7, 1, 'Solo'], [2024, 1, 'Solo'], [21, 2, 'D
   // The island now has four times the area with the same fifty seats. Early
   // contacts are sparser; require continued eliminations and at least one-fifth
   // gone by five minutes without forcing the old, denser island's encounter rate.
-  t.check(s.alive[300] >= 6 && s.alive[300] <= Math.floor(W.CONFIG.lobbySize * .8) && s.alive[300] < s.alive[150], tag + 'and keeps progressing at five minutes (' + s.alive[300] + ' alive)');
+  // (With every tank and gun crewed inside the first minute, about half of a Squads lobby spends these minutes behind
+  // armour, so fewer of them are dead by now than when everybody was on foot: 30 to 43 over the runs measured.)
+  t.check(s.alive[300] >= 6 && s.alive[300] <= Math.floor(W.CONFIG.lobbySize * .9) && s.alive[300] < s.alive[150], tag + 'and keeps progressing at five minutes (' + s.alive[300] + ' alive)');
   t.check(s.crates >= 50, tag + 'crates get opened (' + s.crates + ')');
   t.check(s.upgrades >= 4, tag + 'bots spend tokens at Upgrade Stations (' + s.upgrades + ' upgrades)');
   t.check(Object.keys(s.items).length >= 8, tag + 'and use what they find (' + Object.keys(s.items).length + ' different items)');

@@ -1,4 +1,4 @@
-/* warz.io: crate loot, the three item slots in the five-slot hotbar, and every item: consumables and potions, throwables, placed structures
+/* warz.io: crate loot, the item slots of the ten-slot hotbar, and every item: consumables and potions, throwables, placed structures
    (rocks, turrets, sentries, teleporter pads), the riot shield, zones (fire, smoke, snow), lightning and meteor strikes,
    drone and radar. Extends World, so it runs in Practice, behind the menu and on the server. In a remote (mirror)
    world only the visuals run: effects, damage, zones, structures and strikes arrive from the server. No DOM access. */
@@ -41,16 +41,41 @@
   };
 
   // ---------------------------------------------------------------- hotbar
+  // Item slot `i` is hotbar slot i + 3 for every class. A class with a third tool keeps that tool in hotbar
+  // slot 3, so its item slot 0 is closed: it takes no items and cannot be selected (Rules.closedItemSlots).
+  World.prototype.itemSlotOpen = function (p, i) {
+    return Number.isInteger(i) && i >= Rules.closedItemSlots(p) && i < p.items.length;
+  };
+  // A class change can close a slot that holds a stack. The stack moves to the first open empty slot; with
+  // none free it lands at the player's feet as ordinary ground loot. A selection follows its stack.
+  // The client mirror changes nothing: the server owns the hotbar.
+  World.prototype.fitItems = function (p) {
+    if (this.remote || !p || !p.items) return;
+    for (var i = 0; i < p.items.length; i++) {
+      if (this.itemSlotOpen(p, i)) continue;
+      var stack = p.items[i], to = -1;
+      if (stack) {
+        for (var j = 0; j < p.items.length && to < 0; j++) if (!p.items[j] && this.itemSlotOpen(p, j)) to = j;
+        p.items[i] = null;
+        if (to >= 0) p.items[to] = stack;
+        else {
+          this.spawnPickup('item', p.x, p.y, stack.n, false, stack.id);
+          this.emit({ type: 'item-dropped', player: p, item: stack.id, amount: stack.n, reason: 'noroom' });
+        }
+      }
+      if (p.held === i) p.held = to;
+    }
+  };
   World.prototype.addItem = function (p, id, n) {
     var it = ITEMS[id];
     if (!it) return n;
     var left = n, i, s, take;
     for (i = 0; i < p.items.length && left > 0; i++) {
       s = p.items[i];
-      if (s && s.id === id && s.n < it.stack) { take = Math.min(it.stack - s.n, left); s.n += take; left -= take; }
+      if (s && s.id === id && s.n < it.stack && this.itemSlotOpen(p, i)) { take = Math.min(it.stack - s.n, left); s.n += take; left -= take; }
     }
     for (i = 0; i < p.items.length && left > 0; i++) {
-      if (!p.items[i]) { take = Math.min(it.stack, left); p.items[i] = { id: id, n: take }; left -= take; }
+      if (!p.items[i] && this.itemSlotOpen(p, i)) { take = Math.min(it.stack, left); p.items[i] = { id: id, n: take }; left -= take; }
     }
     return left;
   };
@@ -59,7 +84,7 @@
     if (!it) return false;
     for (var i = 0; i < p.items.length; i++) {
       var s = p.items[i];
-      if (!s || (s.id === id && s.n < it.stack)) return true;
+      if (this.itemSlotOpen(p, i) && (!s || (s.id === id && s.n < it.stack))) return true;
     }
     return false;
   };
@@ -115,7 +140,7 @@
       if (p.held >= 0) { p.held = -1; this.emit({ type: 'switch', player: p }); }
       return;
     }
-    if (!Number.isInteger(idx) || idx >= p.items.length) return;
+    if (!this.itemSlotOpen(p, idx)) return;
     p.held = idx;
     var w = p.weapons[p.slot];
     if (w && w.reloading) { w.reloading = false; w.reloadT = 0; }

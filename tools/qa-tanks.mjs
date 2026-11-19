@@ -177,7 +177,7 @@ try {
       label + ': repeated grenades leave natural rock unchanged and no health graphics appear');
     await mutate((W, w, p) => {
       p.x = p.px = 5000; p.y = p.py = 5500; p.vx = p.vy = 0; p.itemCd = 0; p.held = -1;
-      p.items = [{ id: 'turret3', n: 1 }, null, null];
+      p.items = new Array(W.CONFIG.hotbarSize).fill(null); p.items[0] = { id: 'turret3', n: 1 };
     });
     await browser.waitFor('Warz.debug.player().items[0]?.id==="turret3" && Math.abs(Warz.debug.player().y-5500)<5');
     await sleep(200); await press('Digit3');

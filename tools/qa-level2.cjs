@@ -53,8 +53,8 @@ async function main() {
       await fixture(cls);
       check(await evaluate(()=>{
         const p=Warz.debug.player(),html=document.getElementById('hud').innerHTML;
-        return document.querySelectorAll('#hud-slots>.slot').length===5&&document.querySelectorAll('#hud-slots>.slot>.slot-icon').length===2&&!/undefined|NaN/.test(html)&&Warz.Icons.classIcon(p.classId).includes('<svg');
-      }), cls + ': complete portrait and five-slot HUD without missing values');
+        return document.querySelectorAll('#hud-slots>.slot').length===10&&document.querySelectorAll('#hud-slots>.slot>.slot-icon').length===p.weapons.length&&!/undefined|NaN/.test(html)&&Warz.Icons.classIcon(p.classId).includes('<svg');
+      }), cls + ': complete portrait and ten-slot HUD without missing values');
     }
     await fixture('soldier');
     await evaluate(()=>{const m=Warz.debug.match(),p=m.player;Object.assign(qaStation,{id:0,x:p.x+75,y:p.y,cooldown:0});m.world.map.stations=[qaStation];p.tokens=23;p.keys=1;});

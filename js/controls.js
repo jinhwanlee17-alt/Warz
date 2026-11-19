@@ -27,7 +27,11 @@
     { id: 'item1', name: 'Hotbar slot 3 (item / third class tool)', group: 'Hotbar' },
     { id: 'item2', name: 'Hotbar slot 4 (item)', group: 'Hotbar' },
     { id: 'item3', name: 'Hotbar slot 5 (item)', group: 'Hotbar' },
-    { id: 'slot6', name: 'Hotbar slot 6 (with three class tools)', group: 'Hotbar' }
+    { id: 'slot6', name: 'Hotbar slot 6 (item)', group: 'Hotbar' },
+    { id: 'slot7', name: 'Hotbar slot 7 (item)', group: 'Hotbar' },
+    { id: 'slot8', name: 'Hotbar slot 8 (item)', group: 'Hotbar' },
+    { id: 'slot9', name: 'Hotbar slot 9 (item)', group: 'Hotbar' },
+    { id: 'slot10', name: 'Hotbar slot 10 (item)', group: 'Hotbar' }
   ];
   var DEFAULTS = W.DEFAULT_BINDINGS = {
     up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
@@ -35,7 +39,8 @@
     fire: ['Mouse1', null], scope: ['Mouse3', null], gear: ['KeyF', 'KeyG'], reload: ['KeyR', null],
     weapon1: ['Digit1', null], weapon2: ['Digit2', null], swap: [null, null], drop: ['KeyQ', null],
     interact: ['KeyE', null], inventory: ['Tab', null], emotes: ['KeyB', null], map: ['KeyM', null], mute: [null, null],
-    item1: ['Digit3', null], item2: ['Digit4', null], item3: ['Digit5', null], slot6: ['Digit6', null]
+    item1: ['Digit3', null], item2: ['Digit4', null], item3: ['Digit5', null], slot6: ['Digit6', null],
+    slot7: ['Digit7', null], slot8: ['Digit8', null], slot9: ['Digit9', null], slot10: ['Digit0', null]
   };
   var NAMES = {
     Mouse1: 'Left click', Mouse2: 'Middle click', Mouse3: 'Right click', Mouse4: 'Mouse 4', Mouse5: 'Mouse 5',
@@ -97,6 +102,14 @@
           settings.bindings.slot6 = [slotSixFree ? 'Digit6' : null, null];
           migrated = true;
         }
+        // Slots 7 to 10 arrived with the ten-slot hotbar: each takes its default key only if nothing uses it.
+        ['slot7', 'slot8', 'slot9', 'slot10'].forEach(function (id) {
+          if (Array.isArray(saved.bindings[id])) return;
+          var code = DEFAULTS[id][0];
+          var codeFree = !ACTIONS.some(function (a) { return a.id !== id && settings.bindings[a.id].indexOf(code) >= 0; });
+          settings.bindings[id] = [codeFree ? code : null, null];
+          migrated = true;
+        });
       }
       if (saved && typeof saved.muted === 'boolean') settings.muted = saved.muted;
     } catch (e) { /* corrupt settings fall back to defaults */ }
@@ -123,18 +136,25 @@
   function lift(input, action) { var b = bindings(action); return !!input.lift && (input.lift(b[0]) || input.lift(b[1])); }
   function primary(action) { var b = bindings(action); return label(b[0] || b[1]); }
 
-  // Item storage never moves: a third class tool displays original item 1 in slot 6.
-  function extraWeapon(p) { return !!p && !!p.weapons && p.weapons.length > 2; }
-  function itemAction(p, index) { return extraWeapon(p) && index === 0 ? 'slot6' : 'item' + (index + 1); }
-  function weaponAction(p, index) { return index === 2 ? 'item1' : 'weapon' + (index + 1); }
-  function itemOrder(p) { return extraWeapon(p) ? [1, 2, 0] : [0, 1, 2]; }
+  // Ten hotbar slots, left to right. Class tools come first and item storage never moves: item index i is
+  // always hotbar slot i + 3, so a third class tool closes item 0 instead of adding a slot.
+  var HOTBAR = ['weapon1', 'weapon2', 'item1', 'item2', 'item3', 'slot6', 'slot7', 'slot8', 'slot9', 'slot10'];
+  function closedItems(p) { return W.Rules.closedItemSlots(p); }
+  function itemAction(p, index) { return HOTBAR[index + 2]; }
+  function weaponAction(p, index) { return HOTBAR[index]; }
+  function itemOrder(p) {
+    for (var out = [], i = closedItems(p); i < W.CONFIG.hotbarSize; i++) out.push(i);
+    return out;
+  }
   function weaponSlotHit(input, p) {
     if (hit(input, 'weapon1')) return 0;
     if (hit(input, 'weapon2')) return 1;
-    return extraWeapon(p) && !p.vehicle && !p.mount && hit(input, 'item1') ? 2 : null;
+    if (!p || p.vehicle || p.mount) return null;
+    for (var i = 2; i < closedItems(p) + 2; i++) if (hit(input, HOTBAR[i])) return i;
+    return null;
   }
   function itemSlotHit(input, p) {
-    for (var i = 0; i < 3; i++) if (hit(input, itemAction(p, i))) return i;
+    for (var order = itemOrder(p), i = 0; i < order.length; i++) if (hit(input, itemAction(p, order[i]))) return order[i];
     return null;
   }
   function hotbarChanged(input, p) { return weaponSlotHit(input, p) !== null || itemSlotHit(input, p) !== null; }

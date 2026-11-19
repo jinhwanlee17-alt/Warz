@@ -64,6 +64,11 @@ export class Bot {
     this.credit = this.vrng.range(0, 3); this.creditRate = this.vrng.range(0.6, 1.4);
     this.build = null; this.buildAt = 0;
     this.ride = null; this.drive = null; this.badVehicle = new Map(); this.vehicleAt = 0; this.watch = new Map();
+    this.rides = true;                                                                     // (tests switch it off to keep a bot on foot)
+    // Nobody is off the mark the instant their feet touch the ground: a few seconds to look at the map before the
+    // run for a far-off tank or gun starts (a quicker bot needs fewer). It is what gives a person a race they can win.
+    this.raceDelay = this.vrng.range(3, 7) * (0.7 + 0.3 * profile.hesitation);
+    this.seat = null; this.seatAt = 0; this.badTurret = new Map();                         // a turret it is walking to
   }
 
   // ---------------------------------------------------------------- small helpers
@@ -466,6 +471,7 @@ export class Bot {
     // A teammate is down right here and we have something to do it behind (smoke, a boulder, a riot shield): get them up first.
     if (e && this.mates.length && this.slotOf('smoke', 'rock', 'riotshield') >= 0 && this.hpFrac() > 0.35 && this.pickRevive() && this.dist(this.reviving) < 420) return this.setMode('revive');
     const stance = e ? this.stance(e) : 'ignore';
+    if (stance !== 'ignore' && this.tankAtHand()) return this.setMode('board');   // an empty tank a few steps away settles it either way
     if (stance === 'flee') return this.startFlee(e);
     if (stance === 'fight') return this.setMode('fight');
     if (this.pickSiege() && !(this.storm.must && p.inStorm)) return this.setMode('siege');
@@ -473,13 +479,16 @@ export class Bot {
     if (this.pickRevive()) return this.setMode('revive');
     if (stance === 'avoid') return this.startFlee(e, true);   // hurt (or facing a tank), a stranger in plain view: somewhere quiet first
     if (this.pickHunt(true)) return this.setMode('hunt');     // a person was right here a moment ago: after them
+    // A seat behind something bigger than a rifle comes before loot and upgrades: a tank or a gun (the whole lobby
+    // races for those), a Humvee, our teammate's ride, or a free turret in sight.
+    if (this.pickVehicle(false)) return this.setMode('board');
+    if (this.pickTurret()) return this.setMode('mount');
     if (this.pickStation()) {
       // Something worth having a few steps away comes first: the station will still be there in a moment.
       if (this.pickLoot() && this.dist(this.loot.ref) < 520) return this.setMode('loot');
       if (this.loot) { if (this.loot.kind === 'crate') this.d.unclaim(this.loot.ref.id, this.p); this.loot = null; }
       return this.setMode('upgrade');
     }
-    if (this.pickVehicle(false)) return this.setMode('board');   // a tank, a Humvee or a gun worth the walk (or our teammate's ride)
     if (this.needRegroup()) return this.setMode('regroup');
     if (this.pickBuild()) return this.setMode('build');       // an Engineer with a quiet moment puts a sentry up
     if (this.pickLoot()) return this.setMode('loot');
@@ -503,6 +512,7 @@ export class Bot {
       case 'siege': this.doSiege(); break;
       case 'escort': this.doEscort(); break;
       case 'board': this.doBoard(); break;
+      case 'mount': this.doMount(); break;
       case 'build': this.doBuild(); break;
       default: this.doRoam();
     }
@@ -626,11 +636,19 @@ export class Bot {
     const p = this.p;
     let best = p;
     for (const o of this.mates) {
-      if (o.downed) continue;
+      if (o.downed || this.anchored(o)) continue;
       // Follow a human teammate if there is one; otherwise the lowest id leads.
       if ((best.bot && !o.bot) || (best.bot === o.bot && o.id < best.id)) best = o;
     }
     return best;
+  }
+  // A bot teammate crewing a gun (one seat) or sitting at a turret is going nowhere: the rest of the team carries on
+  // without it, behind whoever is next in line, instead of standing round the gun for the rest of the match.
+  anchored(o) {
+    if (!o.bot) return false;
+    if (o.mount) return true;
+    const v = o.vehicle ? this.world.vehicleById(o.vehicle) : null;
+    return !!v && v.type === 'artillery';
   }
   // The teammate this bot sticks with (null when it leads, or plays alone).
   following() {
@@ -884,6 +902,8 @@ export class Bot {
     if (this.mode === 'loot' && this.loot) { this.badLoot.set(this.loot.key, this.now + 25); this.loot = null; }
     if (this.mode === 'upgrade' && this.station) { this.badStation.set(this.station.st.id, this.now + 30); this.station = null; }
     if (this.mode === 'explore' && this.explore) { this.foundIn(this.explore.index); this.explore = null; }
+    if (this.mode === 'board' && this.ride) { this.badVehicle.set(this.ride.v.id, this.now + 30); this.dropRide(this.ride.v); }
+    if (this.mode === 'mount' && this.seat) { this.badTurret.set(this.seat.s.id, this.now + 30); this.seat = null; }
     this.roam = null; this.coverSpot = null; if (this.fleeing) this.fleeing.spot = null;
     this.redecide = true;
   }

@@ -89,7 +89,7 @@ export function thirdClass(rng, prof, second) {
 }
 
 // ---------------------------------------------------------------- items
-// How much a hotbar slot of each item is worth to a bot (it has three slots, so it has to choose).
+// How much a hotbar slot of each item is worth to a bot (with all eight item slots full it has to choose).
 export const ITEM_VALUE = {
   bandage: 50, flashbang: 30, grenade: 46, smoke: 36, smoothie: 34, energybar: 30,
   firenade: 58, shieldo: 60, firstaid: 62, strength: 44, speed: 40, health: 68, shield: 46, poison: 62, mystery: 28,

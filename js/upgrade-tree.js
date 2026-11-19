@@ -281,7 +281,7 @@
       '<li><strong>Armor</strong><span><b>' + cls.armor + '</b></span></li>';
     if (cls.speed && cls.speed !== 1) rows += '<li><strong>Speed</strong><span><b>' + Math.round(cls.speed * 100) + '%</b> of normal movement speed</span></li>';
     if (cls.id === 'shotgunner3') rows += '<li><strong>Protection</strong><span><b>25%</b> less incoming damage</span></li><li><strong>Damage</strong><span><b>+10%</b> with all weapons and gear</span></li>';
-    if (cls.id === 'magicmedic') rows += '<li><strong>Revive</strong><span>Revive teammates to full health without consuming a medkit.</span></li><li><strong>Hotbar</strong><span>Three class tools. Your old slot-3 item moves to slot 6.</span></li>';
+    if (cls.id === 'magicmedic') rows += '<li><strong>Revive</strong><span>Revive teammates to full health without consuming a medkit.</span></li><li><strong>Hotbar</strong><span>Three class tools in slots 1–3 and seven item slots (4–10).</span></li>';
     if (cls.id === 'pyromaniac') rows += '<li><strong>Protection</strong><span><b>50%</b> less incoming damage</span></li><li><strong>Firegun</strong><span>Use gear to spend <b>50 tokens</b> and transform the dual revolvers into one fireball gun.</span></li>';
     if (cls.id === 'armorcrew') rows += '<li><strong>Protection</strong><span><b>10%</b> less incoming damage</span></li>' +
       '<li><strong>Artillery</strong><span><b>' + (W.ARTILLERY.fireInterval - W.ARMOR_CREW.artilleryIntervalReduction) + 's</b> between shells, <b>25%</b> faster shell travel and <b>10%</b> faster SP artillery driving.</span></li>' +

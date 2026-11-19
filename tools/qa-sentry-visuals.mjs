@@ -25,7 +25,7 @@ try {
     for (const v of w.vehicles) { v.x = 15000 + v.id * 200; v.y = 15000; }
     for (const other of w.players) if (other !== p) { other.x = other.y = 16000; other.controller = () => ({}); }
     w.setClass(p, 'engineer', true); p.dropT = 0; p.x = p.px = 5000; p.y = p.py = 5000; p.held = 1;
-    p.items = [null, null, null]; p.vx = p.vy = p.ox = p.oy = 0;
+    p.items = new Array(W.CONFIG.hotbarSize).fill(null); p.vx = p.vy = p.ox = p.oy = 0;
     window.sentryVisualQA = { shots: {}, draws: {}, heights: { high: 0, low: 0 }, targets: [], structs: [], damage: 0 };
     const emit = w.emit;
     w.emit = function (e) {

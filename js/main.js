@@ -451,7 +451,7 @@
           break;
         case 'item-used': if (mine) play(itemSound(e.item)); break;
         case 'item-dropped':
-          if (mine && ITEMS[e.item]) { play('switch', 0.6); W.Hud.feed('Dropped ' + e.amount + '× ' + ITEMS[e.item].name + '. Press ' + Controls.primary('interact') + ' nearby to pick it up.', 'muted'); }
+          if (mine && ITEMS[e.item]) { play('switch', 0.6); W.Hud.feed((e.reason === 'noroom' ? 'No free item slot: dropped ' : 'Dropped ') + e.amount + '× ' + ITEMS[e.item].name + '. Press ' + Controls.primary('interact') + ' nearby to pick it up.', 'muted'); }
           break;
         case 'burst': {
           var bs = burstSound(e.item), bd = Math.hypot(e.x - p.x, e.y - p.y);
@@ -656,11 +656,14 @@
     // Defer live inventory/binding changes until focus leaves, then sync next frame.
     if (document.activeElement === slots) return;
     Array.prototype.forEach.call(slots.options, function (option, i) {
-      var item = match.player.items[i];
+      var item = match.player.items[i], open = match.world.itemSlotOpen(match.player, i);
       var label = 'Item slot ' + (i + 1) + ' (' + Controls.primary(Controls.itemAction(match.player, i)) + ')' +
-        (item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
+        (!open ? ' · Third class tool' : item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
       if (option.textContent !== label) option.textContent = label;
+      if (option.disabled === open) option.disabled = !open;
     });
+    // A third class tool closes the first item slot: move a choice left on it to the first open slot.
+    if (slots.options[slots.selectedIndex] && slots.options[slots.selectedIndex].disabled) slots.value = String(Controls.itemOrder(match.player)[0]);
   }
 
   var practiceRequestPending = false;
@@ -706,7 +709,7 @@
       event.preventDefault();
       if (!match || (match.online && !match.practice) || !match.player.alive) return;
       var item = ITEMS[select.value], slot = Number($('practice-item-slot').value);
-      if (!item || !Number.isInteger(slot) || slot < 0 || slot >= C.hotbarSize) return;
+      if (!item || !match.world.itemSlotOpen(match.player, slot)) return;
       var n = Math.max(1, Math.min(item.stack, Math.floor(Number($('practice-item-quantity').value) || item.stack)));
       if (match.online) { practiceCommand('item', { slot: slot, id: item.id, n: n }); return; }
       match.player.items[slot] = { id: item.id, n: n };
@@ -792,7 +795,7 @@
             $('practice-items').hidden = !$('practice-items').hidden;
             btn.setAttribute('aria-expanded', String(!$('practice-items').hidden));
             if (!$('practice-items').hidden) { syncPracticeTools(); $('practice-item').focus(); }
-            msg = 'Choose an item, its quantity and one of your three item slots.';
+            msg = 'Choose an item, its quantity and one of your item slots.';
             break;
           case 'armor': p.armor = Math.min(C.armorMax, p.armor + C.armorPlate); msg = 'Armor: ' + p.armor + '/' + C.armorMax + '.'; break;
           case 'speed':

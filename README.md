@@ -98,8 +98,8 @@ The server verifies Apple's ID token the same way (issuer `https://appleid.apple
 | Spawn | evenly spaced coastal Drop Stations: 50 Solo, 25 Duos, 16 Trios, 12 Squads; 1.8 s parachute drop. Teammates land together; extra partial/no-fill teams receive separate nearby coastal positions |
 | Start | Soldier: 100 HP, 0 armor, Basic AR + Basic Pistol |
 | Tokens | a few in the open, in buildings and inside every crate. **8 tokens buy level 1; 15 tokens buy level 2; 40 tokens buy level 3.** |
-| Crates | 210 regular crates: 80% common, 10% rare, 8% epic, 2% mythic (whole-crate rounding). Exactly one legendary crate at the center drops all four legendary items and announces its destruction to everyone. Its gold marker appears on both maps until the crate breaks. |
-| Items | Two weapons/class gear (`1`–`2`) and three items (`3`–`5`); Engineer adds its hammer in slot `3` and moves that item to `6`. Press `E` near an item to pick it up; select an item and left click to use it or `Q` to drop its entire stack. `Tab` opens item details. Class weapons stay with you. See **Items** below. |
+| Crates | 420 regular crates: 80% common, 10% rare, 8% epic, 2% mythic (whole-crate rounding). Exactly one legendary crate at the center drops all four legendary items and announces its destruction to everyone. Its gold marker appears on both maps until the crate breaks. |
+| Items | Every class has ten hotbar slots: two weapons/class gear (`1`–`2`) and eight items (`3`–`9`, `0`). Engineer and Magic Medic keep a third class tool in slot `3` and have seven item slots (`4`–`9`, `0`), with no extra slot. Press `E` near an item to pick it up; select an item and left click to use it or `Q` to drop its entire stack. `Tab` opens item details. Class weapons stay with you. See **Items** below. |
 | Upgrade Stations | 9 per island (glowing blue hexagons). `E` opens the class tree. A used station recharges for **1:30** unless you spend a **station key**. |
 | Ammo | infinite; magazines reload automatically |
 | Humvees | Eight per island near the outer rounded-square coastal path, 1,000 HP each. WASD steers through gradual curves at up to 378 units/s (30% slower than the previous speed). At cruising speed the hull crushes contacted crates of every tier, releasing their normal loot; slower vehicles stop against crates. Ram damage is 65 × current speed / maximum speed. E boards from any side or exits. Seats fill in order: driver, machine gunner if equipped, then rear passengers, limited by the match team size. Solo vehicles have only a driver seat. In team modes every Humvee has two rear passenger seats; two also have a separate Turret I gunner position on the side. The hull absorbs damage for all occupants. A destroyed Humvee ejects its crew and remains an indestructible, solid wreck. |
@@ -124,7 +124,7 @@ Forests have more trees and three times the normal bush density. Grasslands have
 
 Each island has **4–6 villages and two towns** with separated footprints. Compact houses have clear outside entrances facing their streets. A village has **6–12 houses**, one crate per house: all common except one epic, replaced by a mythic above ten houses. Four sentries guard north, east, south and west around a neutral turret. Above eight houses, one sentry becomes Sentry II; at twelve houses, two become Sentry II.
 
-A town has **20–30 house plots**, each with a 5% chance of appearing as rubble. Ruined plots still hold their crate. The first twenty plots have eleven common, five rare, three epic and one mythic crate; each extra plot rolls 75% common, 20% rare and 5% epic. Thirty-house towns also have a separate Legendary crate that drops one random Legendary item. The island-center Legendary crate still drops all four. House loot is part of the 210 ordinary-crate budget; outdoor crates retain the original rarity shares.
+A town has **20–30 house plots**, each with a 5% chance of appearing as rubble. Ruined plots still hold their crate. The first twenty plots have eleven common, five rare, three epic and one mythic crate; each extra plot rolls 75% common, 20% rare and 5% epic. Thirty-house towns also have a separate Legendary crate that drops one random Legendary item. The island-center Legendary crate still drops all four. House loot is part of the 420 ordinary-crate budget; outdoor crates retain the original rarity shares.
 
 Towns have eight Sentry II guards on the compass directions, upgraded to Sentry III at thirty houses, and a neutral Turret III in the middle. Duos and larger modes also put an armed Humvee beside it, in addition to the existing vehicle rings. Sentries attack players of every team in range. Neutral turrets remain idle until ridden; anyone may ride or destroy them. Cities, castles and military bases are not generated in this version.
 
@@ -158,8 +158,10 @@ that applies to a player applies to a bot. Offline Practice starts without bots.
   strafe, reload behind cover, back off and heal when it goes badly, and use what they carry with a purpose: a
   boulder between them and the shooter and a snowbomb on the chaser to get away, smoke or a riot shield to revive
   under fire, flashbang before a shotgun push, black hole then grenade, a teleporter pad left somewhere safe. They
-  sprint to close in, to get away and to beat the storm, walk round cacti, and in a fight sit down at a free turret
-  that is a few steps away (their own, a teammate's, or a settlement's neutral one).
+  sprint to close in, to get away and to beat the storm, walk round cacti, and sit down at a free turret (their own,
+  a teammate's, or a settlement's neutral one): in a fight one that is a few steps away, otherwise any they can see
+  and walk to without crossing a guard sentry's reach, which they then hold for about a quarter of a minute (longer
+  for a Turret II or III) before moving on.
 - **Classes**: every bot plans a level-one, a level-two and a level-three class and upgrades at Upgrade Stations
   like a player. The island holds only a few hundred tokens for fifty players and bots are poor looters (a typical
   one finds six or seven in a match), so on tokens alone almost none would get past level one. Each living bot
@@ -172,11 +174,19 @@ that applies to a player applies to a bot. Offline Practice starts without bots.
   or dual revolvers, lined-up rockets from range (also at tanks), the Magic Medic's 300 HP kit, the riot shield
   kept toward the shooter (and the red one toward a blast), and an Engineer builds a sentry when things are quiet
   and hammers it up a level when it has tokens to spare.
-- **Vehicles**: bots that like them take tanks, Humvees and artillery (`server/core/bots/bot-vehicles.mjs`). A tank
+- **Vehicles**: every bot wants a tank or an artillery piece, and a seat in one comes before loot and upgrades
+  (`server/core/bots/bot-vehicles.mjs`). Empty vehicles are on everyone's map, so the match opens with a race: for
+  the first 100 seconds no tank or gun is too far away, and the bots who would reach one first run for it flat out
+  (up to three for a tank, one for a gun; the rest pick another or go looting). In a typical lobby every self-propelled
+  gun is crewed about 20 seconds in, every tank by about 40 and every gun emplacement within a minute. Later a tank is
+  still worth a 7,000-unit walk and a gun 5,000-5,500 (`RACE`, `REACH`, `RUNNERS`), and a bot in a fight with an
+  empty tank a few steps away gets into the tank first. Only some bots bother with an unarmed Humvee. A tank
   circles its target at cannon range (and goes round a rock or cactus that blocks its guns up close), fires the cannon when it is loaded and the machine gun while it reloads; an
   unarmed Humvee runs people down pass after pass, or is a quick lift ahead of the storm; an artillery crew (ground guns, or
-  self-propelled ones it parks and sets up) shells whoever keeps still for a moment, at most once every 18 seconds
-  at the same person. Drivers go round settlements, back out of a gap between rocks the hull does not fit through,
+  self-propelled ones it parks and sets up) shells whoever keeps still for a moment, at most once every 30 seconds
+  at the same person, and never anybody standing at an Upgrade Station, knocked down, or reviving a teammate
+  (a bot has to have stood still for three and a half seconds; a player, a second and a half). Bot crews leave each other's guns and tanks alone until late in the match (gun against gun
+  would leave no gun standing), and a bot on foot treats another bot's gun crew like any other bot. Drivers go round settlements, back out of a gap between rocks the hull does not fit through,
   wait for teammates to climb in, and get out when the hull is nearly gone. A bot on your team rides in your vehicle and works its gun. On foot, bots stay out of an enemy tank's
   sight unless it shoots at them or they carry something that dents armour (rockets, Shotgun III); anything else you
   sit in (a Humvee, a self-propelled gun, a gun emplacement) gets shot at. They dodge artillery shells they see coming.
@@ -227,7 +237,7 @@ Engineer and Shield Operator are available from **any level-two class for 40 tok
 
 Shotgunner III requires **Shotgunner II** and Magic Medic requires **Medic II**, each for **40 tokens**. Shotgunner III has **175 HP**, permanent **25% damage resistance**, and **10% extra damage** with everything it uses. Shotgun III deals 50–500 base damage by distance; Dual Heavy Revolvers fire two 75-base-damage bullets together, consuming two of their ten rounds per click.
 
-Magic Medic has **300 HP**, a Heavy Revolver, Medic Staff, and Medic's Medkit in slots 1–3. As with Engineer, the old slot-3 item moves to slot 6. The medkit adds **300 HP**, including overheal, to one player and recharges for **30 seconds**. With it selected, click a teammate to heal them or click empty ground to heal yourself; press E beside a teammate to heal them. Holding E revives teammates to full health without an item or medkit charge.
+Magic Medic has **300 HP**, a Heavy Revolver, Medic Staff, and Medic's Medkit in slots 1–3. As with Engineer, slots 4–10 hold items; an item that was in slot 3 moves to the first free item slot, or drops at your feet when all seven are full. The medkit adds **300 HP**, including overheal, to one player and recharges for **30 seconds**. With it selected, click a teammate to heal them or click empty ground to heal yourself; press E beside a teammate to heal them. Holding E revives teammates to full health without an item or medkit charge.
 
 Equip the staff to heal the nearby teammate with the lowest health percentage, excluding yourself, within a grenade's radius. Click to place it; press E nearby to pick it up. A placed staff shares its total healing rate evenly among injured teammates within a fire grenade's radius, including its owner, and displays a waypoint to everyone. Healing stops at maximum HP without removing existing overheal. Its stages advance while healing; switching between held and placed restarts those stages. Completing a cycle starts a **25-second recharge**, which switching modes cannot bypass.
 
@@ -242,7 +252,7 @@ Press the gear binding (F or G by default) as Pyromaniac to spend **50 additiona
 
 | Class | Equipment |
 | --- | --- |
-| Engineer | Sentry Wrench, Basic Pistol, and Engineer's Hammer in slots 1–3. Hold fire with the wrench for 10 seconds to construct an ordinary 50-HP sentry. The hammer deals 30 melee damage and repairs a friendly sentry at 12 HP/second. The previous slot-3 item moves to slot 6; slots 4–5 stay in place. |
+| Engineer | Sentry Wrench, Basic Pistol, and Engineer's Hammer in slots 1–3. Hold fire with the wrench for 10 seconds to construct an ordinary 50-HP sentry. The hammer deals 30 melee damage and repairs a friendly sentry at 12 HP/second. Slots 4–10 hold items and stay in place; an item that was in slot 3 moves to the first free item slot, or drops at your feet when all seven are full. |
 | Rocketeer | RPG + Basic Pistol. One rocket, then a 3-second reload, with unlimited reserve ammo. Click to fire immediately in the aimed direction. Rockets cross the island and explode on contact in a radius 10% smaller than a grenade: 10–200 player damage, 10–500 Humvee damage, or 10–1000 tank damage. Direct hits deal the maximum; blast damage falls with distance. |
 | Shield Operator | Slot 1 combines a forward-facing riot shield with a Basic Pistol: 10 rounds, 8 damage, normal reload, shield stays raised while shooting. Slot 2 is a red explosive shield, with no pistol. It also blocks frontal grenades, both grenade launchers, and flashbangs. Both class shields retain the normal shield movement penalty. |
 
@@ -284,10 +294,10 @@ Your items drop where you die. All numbers live in `W.ITEMS` / `W.CRATES` in `js
 ## Controls (defaults, rebindable in Settings)
 
 `WASD` move · mouse aim · left click shoot or use the held item · right click scope (Sniper / Rocketeer) · `1` `2` / wheel switch weapon ·
-`3`–`5` hold a hotbar item · `R` reload · `F`/`G` gear (medkit / grenade) ·
+`3`–`9` and `0` hold a hotbar item · `R` reload · `F`/`G` gear (medkit / grenade) ·
 `Q` drop the held item stack · `E` pick up item / Upgrade Station / mount a turret / hold to revive · `Tab` inventory · `M` map · `Esc` menu
 
-Engineer uses `3` for its hammer and `6` for the item previously in slot 3. Empty item slots can also be selected.
+Engineer and Magic Medic use `3` for their third class tool, so their items are on `4`–`9` and `0`. Empty item slots can also be selected.
 
 Sniper II scopes out to 2.1× the normal view; the Rocketeer's RPG scopes out to 1.65×. Driving SP artillery keeps the normal camera. Its targeting menu fills the screen near the vehicle: use WASD to pan and scroll up/down to zoom in/out. Maps draw tiny detailed Humvees, tanks and artillery, with layered foliage instead of plain terrain dots.
 

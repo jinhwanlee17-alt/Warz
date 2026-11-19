@@ -7,7 +7,17 @@
 import { Bot, clamp, lerp, TAU } from './bot.mjs';
 import { LANDING_GRACE } from './bot-combat.mjs';
 
-const VALUE = { tank: 6, artillery: 5, ride: 5, ram: 3 };      // how much a walk to each kind of errand is worth
+const VALUE = { tank: 9, artillery: 6.5, ride: 5, ram: 3 };    // how much a seat in each kind is worth
+// Everybody can see on the map where the empty tanks and guns stand, and straight off the drop the lobby runs for
+// them: for the first minute and a half none is too far away. After that a tank or a gun is still worth a long walk
+// (world units; a screen is 1800 wide), and a Humvee, which can only run people down, a short one.
+const RACE = 100, REACH = { tank: 7000, sp: 5500, ground: 5000, ram: 1100 };
+// How many bots race for the same empty one. A tank can look after itself once somebody is in it; a gun cannot (its
+// shells do not land that close), and a second runner arriving behind the first only shoots it to pieces.
+const RUNNERS = { tank: 3, artillery: 1, humvee: 1 };
+const PACE = 330;                                              // units a second on foot, sprints included: who is there first
+// How long a vehicle is left alone by the bot that got out of it, by why it got out (seconds; 25 otherwise).
+const AWAY = { enemy: 12, revive: 15, stuck: 60, hull: 120, idle: 240, storm: 240, edge: 240, arrived: 240 };
 const STEER = [0, 0.3, 0.6, 0.95, 1.3, 1.7, 2.15, 2.6, Math.PI];
 const SETTLE_PAD = 640;                                        // houses, plus the reach of the guards on a settlement's edge
 
@@ -41,42 +51,61 @@ Object.assign(Bot.prototype, {
       return false;
     }
     const cur = this.ride;
-    if (cur && now < cur.until && this.vehicleUse(cur.v, urgent) === cur.why) return true;
-    if (cur) this.dropRide(cur.v);
-    if (now < this.vehicleAt) return false;
+    if (cur && !(now < cur.until && this.vehicleUse(cur.v, urgent) === cur.why)) this.dropRide(cur.v);
+    if (now < this.vehicleAt) return !!this.ride;
     this.vehicleAt = now + 1.2;
     let best = null, bs = -Infinity;
     for (const v of world.vehicles) {
       const why = this.vehicleUse(v, urgent);
       if (!why) continue;
-      const score = VALUE[why] - this.dist(v) / 350;
+      // The walk costs a point for every twenty seconds, and so does every bot that will be there before us. The one
+      // we are already running for stays the choice unless another is clearly better.
+      const eta = this.dist(v) / PACE;
+      const score = VALUE[why] - eta / 20 - this.d.vehicleRivals(v, p, eta) * 1.2 + (this.ride && this.ride.v === v ? 1 : 0);
       if (score > bs) { bs = score; best = { v, why }; }
     }
-    if (!best) return false;
-    this.ride = { v: best.v, why: best.why, until: now + 8 + this.dist(best.v) / 200, spot: null, spotAt: 0, side: 0 };
+    if (!best) { if (this.ride) this.dropRide(this.ride.v); return false; }
+    if (this.ride && this.ride.v === best.v) return true;
+    if (this.ride) this.dropRide(this.ride.v);
+    this.ride = { v: best.v, why: best.why, until: now + 12 + this.dist(best.v) / 150, spot: null, spotAt: 0, side: 0 };
     return true;
   },
-  // What this bot would do with that vehicle ('tank', 'ram', 'ride', 'artillery'), or null to leave it be.
+  // In a fight, or running from one, an empty tank a few steps away is worth more than either: in first.
+  tankAtHand() {
+    const p = this.p, now = this.now, world = this.world;
+    if (p.vehicle || p.downed || !world.vehicles || this.following()) return false;
+    const cur = this.ride;
+    for (const v of world.vehicles) {
+      if (v.type !== 'tank' || this.dist(v) > v.r + 340 || this.vehicleUse(v, false) !== 'tank') continue;
+      if (cur && cur.v === v && now < cur.until) return true;
+      if (cur) this.dropRide(cur.v);
+      this.ride = { v, why: 'tank', until: now + 10, spot: null, spotAt: 0, side: 0 };
+      return true;
+    }
+    return false;
+  },
+  // What this bot would do with that vehicle ('tank', 'ram', 'ride', 'artillery'), or null to leave it be. Every bot
+  // wants a tank or a gun; only some care to run people down in a Humvee.
   vehicleUse(v, urgent) {
     const p = this.p, now = this.now;
-    if (!v || v.wreck || this.manned(v) || (v.settlement !== null && v.settlement !== undefined)) return null;
-    if ((this.badVehicle.get(v.id) || 0) > now || this.d.vehicleClaimed(v, p) || !this.seatIn(v)) return null;
+    if (!this.rides || !v || v.wreck || this.manned(v) || (v.settlement !== null && v.settlement !== undefined)) return null;
+    if ((this.badVehicle.get(v.id) || 0) > now || !this.seatIn(v)) return null;
     if (this.inHazard(v.x, v.y) || v.hp < v.maxHp * (p.classId === 'armorcrew' ? 0.15 : 0.35)) return null;
-    for (const r of this.known.values()) if (r.noticed && r.visible && !r.downed && Math.hypot(r.x - v.x, r.y - v.y) < 600) return null;   // somebody is standing at it
     const d = this.dist(v), st = this.storm, far = Math.hypot(st.x - p.x, st.y - p.y);
-    if (urgent) return (v.type === 'humvee' || v.type === 'tank') && d < 650 && far > 2500 ? 'ride' : null;
-    if (!this.inZone(v.x, v.y, 300)) return null;
-    if (v.type === 'tank') return this.wheels > 0.3 && d < 1000 + this.wheels * 1400 ? 'tank' : null;
-    if (v.type === 'humvee') {
-      if (st.soon && d < 900 && far > 3000) return 'ride';
-      return this.wheels > 0.6 && d < 1100 ? 'ram' : null;
-    }
-    if (v.type === 'artillery') {
-      if (this.gunnerish < 0.5 || d > (v.fixed ? 1900 : 1500)) return null;
+    if (d > 1500 && now - this.landAt < this.raceDelay) return null;      // just landed: still looking at the map
+    // Somebody is at it already, and nearer to it than we are: they will be in the seat first.
+    for (const r of this.known.values()) if (r.noticed && r.visible && !r.downed && Math.hypot(r.x - v.x, r.y - v.y) < Math.min(600, d - 80)) return null;
+    let why = null;
+    if (urgent) why = (v.type === 'humvee' || v.type === 'tank') && d < 650 && far > 2500 ? 'ride' : null;
+    else if (!this.inZone(v.x, v.y, 300)) return null;
+    else if (v.type === 'tank') why = this.world.time < RACE || d < REACH.tank ? 'tank' : null;
+    else if (v.type === 'humvee') why = st.soon && d < 900 && far > 3000 ? 'ride' : this.wheels > 0.6 && d < REACH.ram ? 'ram' : null;
+    else if (v.type === 'artillery') {
       if (v.fixed && !this.inSafe(v.x, v.y, 500)) return null;           // the next circle leaves it behind: not worth setting up
-      return 'artillery';
+      why = this.world.time < RACE || d < (v.fixed ? REACH.ground : REACH.sp) ? 'artillery' : null;
     }
-    return null;
+    // It is a race: with enough others who will be there before us, this one is theirs.
+    return why && this.d.vehicleRivals(v, p, d / PACE) < RUNNERS[v.type] ? why : null;
   },
   dropRide(v) { if (v) this.d.unclaimVehicle(v, this.p); this.ride = null; },
 
@@ -85,7 +114,7 @@ Object.assign(Bot.prototype, {
     const r = this.ride, p = this.p, now = this.now, world = this.world, v = r && r.v;
     const ok = !!v && !v.wreck && !!this.seatIn(v) && now < r.until && (r.why === 'crew' || !this.manned(v));
     if (!ok) { if (v) this.badVehicle.set(v.id, now + (r.why === 'crew' ? 6 : 30)); this.dropRide(v); this.redecide = true; return; }
-    if (r.why !== 'crew') this.d.claimVehicle(v, p);
+    if (r.why !== 'crew') this.d.claimVehicle(v, p, this.dist(v) / PACE);
     const gap = world.vehicleBoardingDistance(p, v);
     if (gap <= this.W.VEHICLE.interactRange - 6 && world.lineClear(p.x, p.y, v.x, v.y, v)) {
       this.still = true; this.look = v;
@@ -128,7 +157,7 @@ Object.assign(Bot.prototype, {
   leftVehicle() {
     const dr = this.drive;
     this.drive = null; this.route = null; this.redecide = true; this.stuck.n = 0; this.watch.clear();
-    if (dr && dr.why !== 'crew') this.badVehicle.set(dr.id, this.now + 25);
+    if (dr && dr.why !== 'crew') this.badVehicle.set(dr.id, this.now + (AWAY[dr.leave] || 25));
     if (this.mode === 'vehicle') this.mode = 'roam';
   },
   thinkVehicle() {
@@ -173,7 +202,9 @@ Object.assign(Bot.prototype, {
     if (v.type === 'artillery') {
       if (!v.fixed) return '';                                      // a self-propelled gun sets up wherever it got to
       if (this.storm.soon && !this.inSafe(v.x, v.y, 150)) return 'storm';
-      if (e && e.visible && !e.ref.vehicle && this.dist(e) < 560) return 'enemy';    // somebody at the gun: deal with them on foot
+      // Somebody at the gun, where its shells cannot reach: deal with them on foot. (Another bot walking past is left
+      // alone until it comes right up to the gun or starts on the hull.)
+      if (e && e.visible && !e.ref.vehicle && this.dist(e) < 560 && (!e.ref.bot || this.dist(e) < 260 || (dr.hullBy === e.id && now - dr.hullHitAt < 3))) return 'enemy';
       if (now - dr.hullHitAt < 2 && frac < 0.5) return 'hull';
       return now - dr.lastShotAt > 80 ? 'idle' : '';                // nothing worth a shell for a long while
     }
@@ -532,10 +563,13 @@ Object.assign(Bot.prototype, {
     this.artilleryFire(v);
   },
   artyThreat(v) {
+    const dr = this.drive, now = this.now;
     let best = null, bd = 850;
     for (const r of this.known.values()) {
       if (!r.noticed || !r.visible || r.downed || r.dropping) continue;
       const d = Math.hypot(r.x - v.x, r.y - v.y);
+      // A person coming this way means it; another bot only once it is right here or has started on the hull.
+      if (r.ref.bot && d > 320 && !(dr.hullBy === r.id && now - dr.hullHitAt < 4)) continue;
       if (d < bd) { bd = d; best = r; }
     }
     return best ? { x: (v.x - best.x) / (bd || 1), y: (v.y - best.y) / (bd || 1) } : null;
@@ -569,25 +603,39 @@ Object.assign(Bot.prototype, {
   },
   // The best dot to shell: someone who has kept still for a while (looting, healing, camping, crewing a gun).
   artyPick(v) {
-    const now = this.now, world = this.world, prof = this.prof;
+    const now = this.now, world = this.world, prof = this.prof, dr = this.drive;
     let best = null, bs = -Infinity;
     for (const [id, w] of this.watch) {
       const o = world.playerById(id);
       if (!o || !o.alive || now - w.seen > 0.8) continue;
       const still = now - w.since, d = Math.hypot(w.x - v.x, w.y - v.y), human = !o.bot;
-      if (still < 1.4 || d < 600 || !this.d.shellOk(id, human)) continue;   // (closer than 600 the blast reaches our own hull)
+      // (Closer than 600 the blast reaches our own hull. A bot has to have been standing there a while longer than a
+      // person: every gun on the island is crewed now, and one that fired at every bot that stopped to open a crate
+      // would do most of the lobby's killing.)
+      // (How long is by the match's pace, like every fight between bots: with too many of the lobby still alive a
+      // crew settles for a shorter standstill.)
+      if (still < (human ? 1.4 : this.d.keen > 1.5 ? 2.5 : 3.5) || d < 600 || !this.d.shellOk(id, human)) continue;
+      // Nobody is shelled at an Upgrade Station: it is the one place a player has to stand still (reading the class
+      // tree), and with every gun crewed nearly half the bots that artillery killed died standing at one.
+      if (this.d.atStation(w.x, w.y)) continue;
+      // Nor somebody who is down, or the teammate kneeling over them: that shell wipes a team that had a chance.
+      if (o.downed || world.players.some((q) => q.downed && q.alive && q.team === o.team && Math.hypot(q.x - w.x, q.y - w.y) < 160)) continue;
       if (human && world.time < 50) continue;                        // nobody is shelled straight off the parachute
-      let s = Math.min(still, 8) * 1.5 - d / 5000 + (o.downed ? 2 : 0) + (1 - o.hp / o.maxHp) * 2;
+      let s = Math.min(still, 8) * 1.5 - d / 5000 + (1 - o.hp / o.maxHp) * 2;
       if (w.hull) {
         const hv = world.vehicleById(w.hull);
         if (!hv || hv.wreck) continue;
+        // Gun against gun settles nothing but both guns, and a parked tank is five shells' work for a dozen guns
+        // (with the whole lobby crewing the artillery there was no gun left after a minute and no tank after three):
+        // another bot's gun or tank is left alone until late on, unless it has just landed one on ours.
+        if (hv.type !== 'humvee' && !human && !this.d.late && !(dr.hullBy === id && now - dr.hullHitAt < 30)) continue;
         s += hv.type === 'tank' ? -4 : hv.type === 'artillery' ? 3 : 2;   // a gun crew is going nowhere; a tank hardly notices
       }
       if (s > bs) { bs = s; best = { id, human, at: 0, until: 0 }; }
     }
     if (!best) return { none: true, until: now + this.vrng.range(1.5, 3) };
     // Whether to fire at all: a person is fair game; other bots follow the lobby's pace, like every other fight between them.
-    const keen = best.human ? this.d.humanKeen : clamp(this.d.keen, 0, 2.5) * 0.35;
+    const keen = best.human ? this.d.humanKeen : clamp(this.d.keen, 0, 2.5) * 0.2;
     if (this.vrng.next() >= keen) return { none: true, until: now + this.vrng.range(2, 4) };
     best.at = now + this.vrng.range(0.3, 1.2) * prof.hesitation; best.until = now + 4;
     return best;

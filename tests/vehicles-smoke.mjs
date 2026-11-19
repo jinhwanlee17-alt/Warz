@@ -24,7 +24,7 @@ for (const seed of [1, 42, 57, 9001, 123456]) {
   const humvees = w.vehicles.filter(v => v.type === 'humvee');
   t.equal(humvees.length, 8, 'seed ' + seed + ': exactly eight Humvees spawn');
   t.equal(w.vehicles.filter(v => v.type === 'tank').length, 4, 'seed ' + seed + ': four tanks share the map with the Humvees');
-  t.equal(map.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': 210 regular crates coexist with settlement loot');
+  t.equal(map.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': 420 regular crates coexist with settlement loot');
   t.equal(new Set(w.vehicles.map(v => v.id)).size, W.VEHICLE.count + W.TANK.count + W.ARTILLERY.count + W.GROUND_ARTILLERY.count, 'Humvees, tanks and artillery have unique vehicle identifiers');
   t.equal(new Set(humvees.map(v => Math.floor(((Math.atan2(v.y-map.size/2,v.x-map.size/2)+Math.PI/8+Math.PI*2)%(Math.PI*2))/(Math.PI/4)))).size, 8,
     'each of eight outer-lane sectors has one Humvee');

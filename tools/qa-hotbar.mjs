@@ -16,9 +16,18 @@ function fixture(W, world, player, classId) {
   world.structures = []; world.bullets = []; world.solids = new W.U.SpatialHash(256); world.buildSolids();
   for (const v of world.vehicles) { v.x = 15000 + v.id * 200; v.y = 15000; }
   for (const p of world.players) if (p !== player) { p.x = p.y = 16000; p.controller = () => ({}); }
+  // Empty the hotbar before the class change, so a stack from the previous step is never displaced onto the ground.
+  player.items = new Array(W.CONFIG.hotbarSize).fill(null); player.held = -1;
   world.setClass(player, classId, true); player.alive = true; player.downed = false; player.dropT = 0;
   player.x = player.px = 5000; player.y = player.py = 5000; player.vx = player.vy = player.ox = player.oy = 0;
-  player.items = [{ id: 'bandage', n: 2 }, { id: 'smoke', n: 1 }, null]; player.held = -1; player.slot = 0;
+  // Two stacks in the first two open item slots: indices 1 and 2 for a three-tool class, 0 and 1 otherwise.
+  world.addItem(player, 'bandage', 2); world.addItem(player, 'smoke', 1);
+  player.slot = 0;
+}
+// A full hotbar with long names, for the layout screenshots.
+function showcase(W, world, player) {
+  player.items = new Array(W.CONFIG.hotbarSize).fill(null); player.held = -1; player.slot = 0;
+  for (const id of ['bandage', 'blackhole', 'invisibility', 'riotshield', 'lightning', 'turret3', 'firenade', 'snowbomb']) world.addItem(player, id, W.ITEMS[id].stack);
 }
 try {
   const port = publishedUrl ? null : (await app.listen(0, '127.0.0.1')).port;
@@ -38,29 +47,78 @@ try {
     const mutate = async (fn, ...args) => live ? fn(live.W, live.world, owner, ...args) : evaluate((source, args) => {
       const m = Warz.debug.match(); return (0, eval)('(' + source + ')')(Warz, m.world, m.player, ...args);
     }, fn.toString(), args);
+    if (!online) {
+      // Ten slots for a two-tool class and for Engineer, at the two reference desktop sizes.
+      for (const [width, height] of [[1920, 1080], [1280, 720]]) for (const classId of ['soldier', 'engineer']) {
+        await b.cmd('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+        await mutate(fixture, classId); await mutate(showcase);
+        await evaluate(() => { const m = Warz.debug.match(); m.cam.x = m.cam.y = 5000; m.cam.zoom = 1; Warz.Hud.banner('', '', .01); });
+        await b.waitFor('Warz.debug.player().classId===' + JSON.stringify(classId) + ' && document.querySelectorAll("#hud-slots .slot.has-item").length===' + (classId === 'engineer' ? 7 : 8));
+        await sleep(300);
+        const l = await evaluate(() => {
+          const box = e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }; };
+          const shown = e => !e.hidden && getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().width > 0;
+          const slots = [...document.querySelectorAll('#hud-slots > .slot')];
+          return { width: innerWidth, height: innerHeight, slots: slots.map(box), keys: slots.map(e => e.querySelector('.slot-key').firstChild.textContent).join(),
+            tools: slots.filter(e => !e.classList.contains('item-slot')).length, items: slots.filter(e => e.classList.contains('item-slot')).map(e => e.dataset.slot).join(),
+            names: slots.map(e => { const o = e.getBoundingClientRect(), r = e.querySelector('.slot-name').getBoundingClientRect(), i = e.querySelector('svg, img').getBoundingClientRect(), s = e.querySelector('.slot-state').getBoundingClientRect(); return i.bottom <= r.top + 1 && r.bottom <= s.top + 1 && r.left >= o.left && r.right <= o.right; }),
+            icons: slots.map(e => e.querySelector('svg, img').getBoundingClientRect().width),
+            panels: ['.hud-bl', '.hud-br'].flatMap(sel => [...document.querySelector(sel).children].filter(shown).map(box)).concat([box(document.querySelector('.ammo'))]) };
+        });
+        const tag = 'Practice ' + width + 'x' + height + ' ' + classId + ': ';
+        check(l.slots.length === 10 && l.keys === '1,2,3,4,5,6,7,8,9,0', tag + 'ten hotbar slots on keys 1 to 9 and 0');
+        check(classId === 'engineer' ? l.tools === 3 && l.items === '1,2,3,4,5,6,7' : l.tools === 2 && l.items === '0,1,2,3,4,5,6,7', tag + (classId === 'engineer' ? 'three class tools, then seven item slots and no extra slot' : 'two class tools, then eight item slots'));
+        check(l.slots.every((r, i) => Math.abs(r.y - l.slots[0].y) <= 5 && r.x >= 0 && r.right <= l.width && r.bottom <= l.height && (!i || r.x >= l.slots[i - 1].right)), tag + 'all ten slots sit side by side inside the viewport');
+        check(l.slots.every(r => Math.abs(r.w - 113.6) < 1 && r.h === 122), tag + 'every slot keeps the size it had in the five-slot hotbar');
+        check(l.names.every(Boolean) && l.icons.every(w => w >= 46), tag + 'icons and names stay unclipped and readable');
+        check(l.slots.every(s => l.panels.every(p => s.x >= p.right || p.x >= s.right || s.y >= p.bottom || p.y >= s.bottom)), tag + 'the hotbar does not overlap the health panel, the ammo readout or the emote button');
+        await b.shot('ten-slot-' + classId + '-' + width + 'x' + height + '.png');
+      }
+      await b.cmd('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    }
     await mutate(fixture, 'engineer');
     await evaluate(() => { const m = Warz.debug.match(); m.cam.x = m.cam.y = 5000; m.cam.zoom = 1; Warz.Hud.banner('', '', .01); });
-    await b.waitFor('Warz.debug.player().classId==="engineer" && document.querySelectorAll("#hud-slots .slot").length===6');
-    check(await evaluate(() => [...document.querySelectorAll('#hud-slots .slot-key')].map(e => e.firstChild.textContent).join() === '1,2,3,4,5,6'), label + ': Engineer shows six consecutive hotbar keys');
-    check(await evaluate(() => [...document.querySelectorAll('#hud-slots .item-slot')].map(e => e.dataset.slot).join() === '1,2,0' && document.querySelector('#hud-slots [data-slot="0"] .slot-name').textContent === Warz.ITEMS.bandage.name), label + ': original item slot three is visibly moved to slot six');
+    await b.waitFor('Warz.debug.player().classId==="engineer" && document.querySelectorAll("#hud-slots .slot").length===10 && document.querySelectorAll("#hud-slots .slot.has-item").length===2');
+    check(await evaluate(() => [...document.querySelectorAll('#hud-slots .slot-key')].map(e => e.firstChild.textContent).join() === '1,2,3,4,5,6,7,8,9,0'), label + ': Engineer shows ten consecutive hotbar keys');
+    check(await evaluate(() => [...document.querySelectorAll('#hud-slots .item-slot')].map(e => e.dataset.slot).join() === '1,2,3,4,5,6,7' && !document.querySelector('#hud-slots [data-slot="0"]') &&
+      document.querySelector('#hud-slots [data-slot="1"] .slot-name').textContent === Warz.ITEMS.bandage.name), label + ': the hammer has slot three and the seven item slots follow it, with no extra slot');
     await press('Digit3');
     await b.waitFor('Warz.debug.player().slot===2 && Warz.debug.player().held===-1');
     check(await mutate((W, w, p) => p.weapons[p.slot].id === 'engineerhammer'), label + ': physical key 3 equips the Engineer hammer on authority');
-    await press('Digit6');
-    await b.waitFor('Warz.debug.player().held===0');
-    check(await mutate((W, w, p) => p.held === 0 && p.items[0].id === 'bandage'), label + ': physical key 6 selects the original retained item');
-    await press('Digit5');
-    await b.waitFor('Warz.debug.player().held===2 && document.getElementById("hud-ammo").textContent==="Empty"');
+    await press('Digit4');
+    await b.waitFor('Warz.debug.player().held===1');
+    check(await mutate((W, w, p) => p.held === 1 && p.items[1].id === 'bandage' && p.items[0] === null), label + ': physical key 4 selects the first item slot of a three-tool class');
+    await press('Digit0');
+    await b.waitFor('Warz.debug.player().held===7 && document.getElementById("hud-ammo").textContent==="Empty"');
+    check(await evaluate(() => document.querySelector('#hud-slots [data-slot="7"]').classList.contains('selected')), label + ': physical key 0 selects the tenth slot');
     const shots = await mutate((W, w, p) => p.stats.shots);
     await mouse(true); await sleep(400); await mouse(false);
-    check(await mutate((W, w, p, shots) => p.held === 2 && p.stats.shots === shots, shots), label + ': firing an empty slot keeps empty hands and never fires a stowed weapon');
+    check(await mutate((W, w, p, shots) => p.held === 7 && p.stats.shots === shots, shots), label + ': firing an empty slot keeps empty hands and never fires a stowed weapon');
     await key('KeyW', true); await sleep(220); await key('KeyW', false);
-    check(await mutate((W, w, p) => p.held === 2 && p.y < 4990), label + ': empty hands still allow normal movement');
-    await b.shot(label.toLowerCase() + '-six-slot-empty.png');
+    check(await mutate((W, w, p) => p.held === 7 && p.y < 4990), label + ': empty hands still allow normal movement');
+    await b.shot(label.toLowerCase() + '-ten-slot-empty.png');
     await press('Tab');
     await b.waitFor('Warz.Inventory.isOpen()');
-    check(await evaluate(() => [...document.querySelectorAll('#inv-grid .inv-key')].map(e => e.textContent).join() === '4,5,6'), label + ': inventory shows matching Engineer item key labels');
+    check(await evaluate(() => [...document.querySelectorAll('#inv-grid .inv-key')].map(e => e.textContent).join() === '4,5,6,7,8,9,0'), label + ': inventory shows matching Engineer item key labels');
     await press('Tab');
+    // Becoming a three-tool class with every item slot occupied: the slot-three stack lands at the player's feet.
+    await mutate((W, w, p) => {
+      w.setClass(p, 'soldier', true); p.items = new Array(W.CONFIG.hotbarSize).fill(null); p.held = -1;
+      for (const id of ['bandage', 'smoke', 'grenade', 'smoothie', 'energybar', 'flashbang', 'firenade', 'shieldo']) w.addItem(p, id, 1);
+    });
+    await b.waitFor('Warz.debug.player().classId==="soldier" && document.querySelectorAll("#hud-slots .slot.has-item").length===8');
+    await mutate((W, w, p) => { w.setClass(p, 'engineer', false); });
+    await b.waitFor('Warz.debug.player().classId==="engineer" && document.querySelectorAll("#hud-slots .slot.has-item").length===7');
+    await b.waitFor('[...document.querySelectorAll("#hud-feed li")].some(li => /No free item slot: dropped 1× Bandages/.test(li.textContent))');
+    check(await mutate((W, w, p) => p.items[0] === null && p.items.slice(1).every(Boolean) && w.map.pickups.some(pk => pk.alive && pk.type === 'item' && pk.item === 'bandage' && Math.hypot(pk.x - p.x, pk.y - p.y) < 1)),
+      label + ': with a full hotbar the displaced stack drops at the player\'s feet and the owner is told');
+    check(await evaluate(() => { const w = Warz.debug.match().world, p = Warz.debug.player(), pk = w.nearestItemPickup(p); return !!pk && pk.item === 'bandage' && /Pick up Bandages/.test(document.getElementById('hud-prompt').textContent); }),
+      label + ': the dropped stack is on the ground for everyone and offers the pickup prompt');
+    await mutate((W, w, p) => { w.takeItem(p, 7, 1); w.pressInteract(p); });
+    await b.waitFor('!Warz.debug.match().world.nearestItemPickup(Warz.debug.player()) && Warz.debug.player().items[7] && Warz.debug.player().items[7].id==="bandage"');
+    check(await mutate((W, w, p) => p.items[0] === null && p.items[7].id === 'bandage'), label + ': after freeing a slot the stack is picked up into it, never into the closed slot');
+    await mutate(fixture, 'engineer');
+    await b.waitFor('document.querySelectorAll("#hud-slots .slot.has-item").length===2');
     await mutate((W, w, p) => {
       p.tokens = 100; p.held = -1; w.switchSlot(p, 2); p.angle = 0;
       w.addStruct({ kind: 'sentry', item: 'sentry3', x: p.x + 80, y: p.y, r: 22, hp: W.ITEMS.sentry3.hp, maxHp: W.ITEMS.sentry3.hp, team: p.team, owner: p.id });
@@ -105,12 +163,16 @@ try {
     check(await evaluate(() => document.getElementById('hud-repair-text').textContent.includes('remaining') && document.getElementById('hud-repair-note').textContent.includes('30 tokens')), label + ': selected Sentry IV build displays remaining time and 30-token cost');
     await b.shot(label.toLowerCase() + '-sentry-upgrade-progress.png');
     await mouse(false);
+    // (Online, the server has to see the button released before the selection is cleared: otherwise it opens the
+    // choice again by itself, the press below lands on that popup and takes the keyboard focus off it, and Escape
+    // never reaches it. That made this step time out in one run in five before the ten-slot hotbar, more often after.)
+    await sleep(300);
     await mutate((W, w, p) => { p.sentrySelection = null; });
     await sleep(180); await mouse(true); await b.waitFor('Warz.SentryUpgradeUI.isOpen()'); await mouse(false);
     await press('Escape'); await b.waitFor('!Warz.SentryUpgradeUI.isOpen() && !Warz.debug.player().sentryChoice');
     check(await evaluate(() => document.getElementById('pause-menu').hidden && !Warz.debug.player().sentrySelection), label + ': Escape cancels the choice without opening the pause menu');
     await mutate(fixture, 'shieldoperator');
-    await b.waitFor('Warz.debug.player().classId==="shieldoperator" && document.querySelectorAll("#hud-slots .slot").length===5');
+    await b.waitFor('Warz.debug.player().classId==="shieldoperator" && document.querySelectorAll("#hud-slots .slot").length===10 && document.querySelectorAll("#hud-slots .item-slot").length===8');
     await mouse(true); await b.waitFor('Warz.debug.player().weapons[0].ammo<10'); await mouse(false);
     await press('KeyR');
     await b.waitFor('Warz.debug.player().weapons[0].reloading && document.getElementById("hud-ammo-label").textContent.includes("shield lowered")');

@@ -1,6 +1,7 @@
 // Bot combat: who to fight, whether to fight at all, how to move in a firefight, weapon handling,
 // class gear (hand grenades, medkit, command radar), running away, and sitting on a turret.
 import { Bot, clamp, lerp, TAU } from './bot.mjs';
+import { VIEW } from './sense.mjs';
 
 // Per weapon: [closest comfortable distance, farthest comfortable distance, farthest it bothers shooting].
 const BANDS = {
@@ -98,7 +99,8 @@ Object.assign(Bot.prototype, {
     // In no state to start anything. Hurt, with one of them in plain view: back off somewhere quiet (and patch up there).
     if (losing || swamped) return losing && e.visible && d < 520 && !e.downed && !this.d.endgame && now >= (this.fleeTired || 0) ? 'avoid' : 'ignore';
     if (e.downed) return prof.aggression > 0.35 && d < 600 && foes <= 1 ? 'fight' : 'ignore';   // finish them when it is cheap
-    if (ride && !ride.wreck && ride.type === 'artillery' && e.visible && d < 900) return 'fight';   // a gun crew cannot shoot back
+    // (Another bot crewing a gun is a free choice like any other bot: with the whole lobby running for the guns, a
+    // rule that everybody who walks past one opens up on it left no gun standing after the first minute.)
     return this.freeChoice(e, d, eHp, hp) ? 'fight' : 'ignore';
   },
   // The exchange is going so badly that it will be over in a couple of seconds (health bars are visible, so both
@@ -506,15 +508,68 @@ Object.assign(Bot.prototype, {
     this.turretAt = now + 0.8; this.turretPick = null;
     if (!e.visible || this.pusher() || this.hpFrac() < 0.45 || this.storm.must || this.evade || p.vehicle) return null;
     const o = e.ref, ride = o.vehicle ? world.vehicleById(o.vehicle) : null;
-    let best = null, bd = 340;
+    let best = null, bd = 520;
     for (const s of world.structures) {
       if (s.kind !== 'turret' || !s.alive || s.mounted || (s.team !== null && s.team !== p.team)) continue;
       const d = this.dist(s), reach = Math.hypot(o.x - s.x, o.y - s.y);
-      if (d >= bd || reach < 260 || reach > 980 || this.inHazard(s.x, s.y) || !this.inZone(s.x, s.y, 0)) continue;
+      if (d >= bd || reach < 260 || reach > 980 || this.inHazard(s.x, s.y) || !this.inZone(s.x, s.y, 0) || this.guarded(s.x, s.y)) continue;
       if (!world.lineClear(s.x, s.y, o.x, o.y, s, false, ride)) continue;
       bd = d; best = s;
     }
     return (this.turretPick = best);
+  },
+  // Would a sentry that is not ours (an enemy's, or a settlement's guard) shoot at somebody standing there?
+  guarded(x, y) {
+    for (const s of this.world.structures) {
+      if (s.kind !== 'sentry' || !s.alive || s.team === this.p.team) continue;
+      if (Math.hypot(s.x - x, s.y - y) < this.W.ITEMS[s.item].range + 20 && this.world.sentryLineClear(s, x, y)) return true;
+    }
+    return false;
+  },
+  // Would the straight walk from here to (x, y) cross the reach of such a sentry (whether or not it can see that far)?
+  guardedWay(x, y) {
+    const p = this.p, U = this.W.U;
+    for (const s of this.world.structures) {
+      if (s.kind !== 'sentry' || !s.alive || s.team === p.team) continue;
+      const r = this.W.ITEMS[s.item].range + 40;
+      if (Math.hypot(s.x - p.x, s.y - p.y) < r || Math.hypot(s.x - x, s.y - y) < r || U.segCircle(p.x, p.y, x, y, s.x, s.y, r) >= 0) return true;
+    }
+    return false;
+  },
+  // No fight needed: a turret nobody is sitting at, anywhere on the screen, is worth walking over to and holding
+  // for a while. Not past a settlement's guards (the turret in the middle of a village is theirs until they are shot
+  // down), not when hurt, not with the storm coming, and not while following somebody.
+  pickTurret() {
+    const p = this.p, now = this.now;
+    const free = (s) => s.alive && !s.mounted && (s.team === null || s.team === p.team) && !((this.badTurret.get(s.id) || 0) > now)
+      && !this.inHazard(s.x, s.y) && this.inZone(s.x, s.y, 100) && !this.guardedWay(s.x, s.y);
+    if (this.storm.soon || this.evade || this.hpFrac() < 0.5 || this.following()) { this.seat = null; return false; }
+    const cur = this.seat;
+    if (cur && now < cur.until && free(cur.s)) return true;
+    this.seat = null;
+    if (now < this.seatAt) return false;
+    this.seatAt = now + 1.5;
+    let best = null, bd = Infinity;
+    for (const s of this.world.structures) {
+      if (s.kind !== 'turret' || Math.abs(s.x - p.x) > VIEW.HALF_W || Math.abs(s.y - p.y) > VIEW.HALF_H) continue;
+      const d = this.dist(s);
+      if (d < bd && free(s)) { bd = d; best = s; }
+    }
+    if (!best) return false;
+    this.seat = { s: best, until: now + 8 + bd / 150 };
+    return true;
+  },
+  doMount() {
+    const r = this.seat, p = this.p, now = this.now, world = this.world, s = r && r.s;
+    if (!s || !s.alive || s.mounted || now > r.until) { if (s) this.badTurret.set(s.id, now + 30); this.seat = null; this.redecide = true; return; }
+    const gap = Math.hypot(s.x - p.x, s.y - p.y) - s.r - p.r;
+    if (gap > this.W.ItemRules.MOUNT_RANGE - 14 || !world.lineClear(p.x, p.y, s.x, s.y, s)) { this.moveGoal = { x: s.x, y: s.y, tol: s.r + p.r + 44 }; return; }
+    this.still = true; this.look = s;
+    if (now < this.nextInteract || this.act) return;
+    // The interact key takes a loose item, a boulder or a vehicle seat first: then this turret is not worth the fuss.
+    if (world.nearestMountable(p) === s && !world.nearestItemPickup(p) && !world.nearestRecoverableRock(p) && !(world.nearestVehicleSeat && world.nearestVehicleSeat(p))) {
+      this.out.interactPressed = true; this.nextInteract = now + 0.5; this.mountAt = now; this.mountIdle = 0;
+    } else { this.badTurret.set(s.id, now + 20); this.seat = null; this.redecide = true; }
   },
   thinkMounted() {
     const p = this.p, now = this.now, out = this.out, s = this.world.structById(p.mount);
@@ -524,12 +579,20 @@ Object.assign(Bot.prototype, {
     const e = this.target, def = this.W.WEAPONS.turret;
     let firing = false;
     if (e && e.visible && Math.hypot(e.x - s.x, e.y - s.y) < BANDS.turret[2] && this.shotClear(e)) { this.shoot = { rec: e, def }; firing = true; this.mountIdle = 0; }
-    else { this.mountIdle += this.dt; if (e) this.look = e; }
+    else if (e) { this.mountIdle += this.dt * 3; this.look = e; }   // somebody it cannot hit from here: not for long
+    else {
+      // Nobody about: keep the seat for a while, sweeping the barrel round.
+      this.mountIdle += this.dt;
+      const a = (now - this.mountAt) * 0.5;
+      this.look = { x: s.x + Math.cos(a) * 400, y: s.y + Math.sin(a) * 400 };
+    }
     const close = e && Math.hypot(e.x - p.x, e.y - p.y) < 120 && !firing;
     const hurt = this.hpFrac() < 0.35 && now - this.hurtAt < 1.2;
-    if (now - this.mountAt > 0.8 && (this.evade || this.storm.must || hurt || close || this.mountIdle > 3.5 + this.prof.caution * 3)) {
-      out.interactPressed = true;                          // get off: a grenade, the storm, too hurt, flanked, or nobody left to shoot
-      this.mountIdle = 0; this.turretPick = null; this.turretAt = now + 6;
+    const bored = this.mountIdle > (12 + this.prof.caution * 10) * (s.item === 'turret' ? 1 : 1.5);   // a Turret II or III is worth a longer wait
+    if (now - this.mountAt > 0.8 && (this.evade || this.storm.must || hurt || close || bored || this.guarded(s.x, s.y))) {
+      out.interactPressed = true;                          // get off: a grenade, the storm, too hurt, flanked, a guard, or nobody left to shoot
+      this.mountIdle = 0; this.turretPick = null; this.turretAt = now + 6; this.seat = null;
+      this.badTurret.set(s.id, now + (bored ? 90 : 15));
       this.redecide = true;
     }
   },

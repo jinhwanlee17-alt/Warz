@@ -56,6 +56,12 @@ try {
   t.check((await cmd(ma, 'item', { slot: 0, id: 'bandage', n: 9999 })).ok && pa.items[0].n === W.ITEMS.bandage.stack, 'item tool clamps quantity to the real stack size');
   t.equal(pb.items[0], null, 'item tool changes only the requesting player');
   t.equal((await cmd(ma, 'item', { slot: 8, id: 'bandage', n: 1 })).reason, 'item', 'invalid slot is rejected');
+  t.check((await cmd(ma, 'item', { slot: 7, id: 'smoke', n: 1 })).ok && pa.items[7].id === 'smoke', 'item tool reaches the eighth item slot (hotbar slot ten)');
+  match.world.setClass(pa, 'engineer', false);
+  t.check(pa.items[0] === null && pa.items[1].id === 'bandage' && pa.items[1].n === W.ITEMS.bandage.stack, 'a third class tool moves the slot-three stack to the next item slot');
+  t.equal((await cmd(ma, 'item', { slot: 0, id: 'grenade', n: 1 })).reason, 'item', 'item tool refuses the item slot a third class tool closes');
+  t.check(pa.items[0] === null && (await cmd(ma, 'item', { slot: 2, id: 'grenade', n: 1 })).ok && pa.items[2].id === 'grenade', 'and still fills the open ones');
+  match.world.setClass(pa, 'soldier', false); pa.items.fill(null);
   t.equal((await cmd(ma, 'item', { slot: 1, id: '__proto__', n: 1 })).reason, 'item', 'invalid item is rejected');
   t.equal((await cmd(mb, 'storm', { enabled: true })).reason, 'leader', 'shared storm setting requires leader');
   t.check((await cmd(ma, 'storm', { enabled: true })).ok && !!match.world.storm, 'leader enables authoritative storm');
@@ -86,12 +92,12 @@ try {
   match.world.bullets.push(oldBullet); pa.sentryBurn = { owner: pb.id, until: match.world.time + 20, next: match.world.time + 10 };
   t.check((await cmd(ma, 'friendly-fire', { enabled: false })).ok && pa.team === pb.team && match.world.teams, 'cooperative teammate play can be restored');
   t.check(oldBullet.team === pa.team && !pa.sentryBurn, 'returning to cooperative play retags old bullets and ends hostile burn damage');
-  match.world.setClass(pa, 'engineer', true); pa.tokens = 80; pa.keys = 2; pa.items[0] = { id: 'bandage', n: 3 }; match.tick();
+  match.world.setClass(pa, 'engineer', true); pa.tokens = 80; pa.keys = 2; pa.items[1] = { id: 'bandage', n: 3 }; match.tick();
   match.world.killPlayer(pa, pb, 'test'); match.tick();
   t.check(!match.ended && !pa.alive, 'a practice elimination does not end the session');
   await sleep(2250);
   t.check(pa.alive && pa.hp === pa.maxHp && pa.classId === 'engineer' && pa.weapons.length === 3, 'practice automatically respawns after two seconds with class equipment');
-  t.check(pa.tokens === 80 && pa.keys === 2 && pa.items[0].id === 'bandage' && pa.items[0].n === 3, 'practice respawn preserves tokens, keys and carried item stacks');
+  t.check(pa.tokens === 80 && pa.keys === 2 && pa.items.length === 8 && pa.items[0] === null && pa.items[1].id === 'bandage' && pa.items[1].n === 3, 'practice respawn preserves tokens, keys and carried item stacks on their slots');
   match.world.map.stations = [{ id: 0, number: 1, x: 6000, y: 6000, cooldown: 0 }];
   t.check((await cmd(ma, 'station')).ok && Math.hypot(pa.x - 6000, pa.y - 6000) < W.CONFIG.stationInteractRadius + pa.r, 'station tool finds a clear authoritative landing');
   match.world.setClass(pa, 'pyromaniac', true); pa.tokens = 50;

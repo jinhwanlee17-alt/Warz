@@ -16,7 +16,7 @@ t.equal(active.length, 8, 'eight level-two classes are playable');
 for (const id of active) {
   const c = CLASSES[id], w = arena(), p = player(w, id);
   t.check(Rules.upgradeCheck({ from: c.parent, to: id, tokens: 15, keys: 0, stationCooldown: 0 }).ok, id + ' upgrades for fifteen tokens');
-  t.equal(p.items.length + p.weapons.length, 5, id + ' preserves the five-slot hotbar');
+  t.equal(p.items.length + p.weapons.length, 10, id + ' has the ten-slot hotbar');
   t.check(p.weapons.every(slot => WEAPONS[slot.id] && (W.BARRELS[slot.id] || WEAPONS[slot.id].kind === 'melee')), id + ' has combat definitions and either barrel art or dedicated melee rendering');
   t.check(Number.isFinite(p.commandCd) && Number.isFinite(p.commandBuff), id + ' initializes serializable ability state');
 }

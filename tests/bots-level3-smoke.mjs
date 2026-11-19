@@ -97,6 +97,25 @@ const shotsBy = (a, b) => a.count('shot', (e) => e.player === b.p);
   t.check(mounted >= N - 2 && fired >= N - 2, 'in a fight a bot takes a free turret a few steps away (here a settlement\'s neutral one) and fires from it (mounted ' + mounted + ', fired ' + fired + ' of ' + N + ')');
   t.equal(off, N, 'and gets off again when there is nobody left to shoot');
 }
+{
+  // No fight needed: a free turret on the screen is worth walking over to and holding for a while.
+  const turret = { kind: 'turret', item: 'turret', x: 9600, y: 9200, angle: 0, settlement: 0, neutral: true };
+  const a = arena({ extra: { settlementStructures: [turret] } });
+  a.crowd();
+  const b = a.bot(9000, 9000, { caution: 0.5 });
+  const on = a.until(() => b.p.mount > 0, 10);
+  const held = on >= 0 ? a.until(() => !b.p.mount, 40) : -1;
+  t.check(on >= 0 && held >= 12 && held <= 24, 'with nobody about, a bot that sees a free turret walks over and sits down at it (' + on.toFixed(1) + ' s), and holds it for a while (' + held.toFixed(0) + ' s)');
+  a.step(20);
+  t.check(!b.p.mount && Math.hypot(b.p.x - turret.x, b.p.y - turret.y) > 150, 'then moves on instead of sitting straight back down');
+  // A settlement's guard in the way: that turret belongs to the guard until somebody shoots it down.
+  const g = arena({ extra: { settlementStructures: [turret, { kind: 'sentry', item: 'sentry2', x: 9600, y: 8700, angle: 0, settlement: 0, neutral: true }] } });
+  g.crowd();
+  const c = g.bot(8600, 9200, { caution: 0.5 });
+  g.step(12);
+  t.check(!c.p.mount && c.p.hp === c.p.maxHp && g.count('mounted') === 0, 'a turret it could only reach by crossing a guard sentry\'s reach is left alone, and the bot is not shot going for it');
+  t.equal(a.dir.errors + g.dir.errors, 0, 'going for a turret does not throw');
+}
 
 // ---------------------------------------------------------------- the plan and the credit
 {

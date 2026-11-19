@@ -92,7 +92,7 @@
         <b id="hud-ammo">20</b><span id="hud-ammo-max">/ 20</span><small id="hud-ammo-label">&infin; ammo</small>
         <div class="reload" id="hud-reload" hidden><i id="hud-reload-fill"></i><span>Reloading</span></div>
       </div>
-      <div class="slots" id="hud-slots" aria-label="Five-slot hotbar"></div>
+      <div class="slots" id="hud-slots" aria-label="Ten-slot hotbar"></div>
     </div>
 
     <div class="hud-br"><button type="button" id="emotes-btn" aria-label="Open emote picker">Emotes</button><aside id="sound-cues" class="sound-cues" aria-label="Nearby sounds"><div class="sound-cues-title">NEARBY SOUNDS</div><div id="sound-cues-list"></div></aside></div>
@@ -316,7 +316,7 @@
         <div><dt><kbd>E</kbd></dt><dd>Pick up item &middot; Upgrade Station &middot; mount a turret &middot; hold to revive a teammate</dd></div>
         <div><dt><kbd>Q</kbd></dt><dd>Drop the held item stack</dd></div>
         <div><dt><kbd>Tab</kbd></dt><dd>Inventory and item details</dd></div>
-        <div><dt><kbd>3</kbd> <kbd>4</kbd> <kbd>5</kbd></dt><dd>Hotbar items (hold one, then click to use it)</dd></div>
+        <div><dt><kbd>3</kbd> &ndash; <kbd>9</kbd> <kbd>0</kbd></dt><dd>Hotbar items (hold one, then click to use it)</dd></div>
         <div><dt><kbd>M</kbd></dt><dd>Island map</dd></div>
       </dl>
       <p class="modal-note">Defaults shown. Rebind anything in Settings.</p>
@@ -338,7 +338,7 @@
         </div>
         <form id="practice-items" class="practice-items" hidden>
           <label class="practice-item-select">Item <select id="practice-item" aria-describedby="practice-item-detail"></select></label>
-          <label>Hotbar item slot <select id="practice-item-slot"><option value="0">Item slot 1</option><option value="1">Item slot 2</option><option value="2">Item slot 3</option></select></label>
+          <label>Hotbar item slot <select id="practice-item-slot"><option value="0">Item slot 1</option><option value="1">Item slot 2</option><option value="2">Item slot 3</option><option value="3">Item slot 4</option><option value="4">Item slot 5</option><option value="5">Item slot 6</option><option value="6">Item slot 7</option><option value="7">Item slot 8</option></select></label>
           <label>Quantity <input id="practice-item-quantity" type="number" min="1" max="9" value="9" step="1" required></label>
           <p id="practice-item-detail"></p>
           <button type="submit" class="mini">Put item in slot</button>

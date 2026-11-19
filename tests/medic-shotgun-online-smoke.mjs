@@ -53,8 +53,14 @@ try {
   t.equal(state.me.maxHp, 300, '300 maximum HP replicates');
   t.equal(state.me.weapons.map(w => w.id).join(), 'revolver,medicstaff,magicmedkit', 'all three class weapons reach the owner');
   t.equal(state.me.tokens, 0, 'upgrade costs 40 tokens');
-  input([], ['Digit6']);
-  t.check(p.held === 0 && state.me.items[0].id === 'bandage', 'old slot-three item remains accessible in physical slot six online');
+  t.check(p.items.length === 8 && p.items[0] === null && p.items[1].id === 'bandage' && p.items[1].n === 3, 'the medkit takes slot three: the stack that was there moves to the next item slot on the server');
+  t.check(state.me.items.length === 8 && state.me.items[0] === null && state.me.items[1].id === 'bandage', 'the owner receives the eight-entry hotbar with the moved stack');
+  input([], ['Digit4']);
+  t.check(p.held === 1 && state.me.held === 1, 'physical slot four holds the moved stack online');
+  match.handleInput(p, { s: seq, ht: 0 });
+  t.equal(p.net.inputs.pop().ht, null, 'the server ignores a request to hold the closed item slot');
+  input([], ['Digit0']);
+  t.check(p.held === 7 && state.me.held === 7, 'physical slot ten selects the last item slot online');
   input([], ['Digit3']);
   t.check(p.held < 0 && p.slot === 2 && state.me.weapons[state.me.slot].id === 'magicmedkit', 'physical slot three selects the medkit');
   p.hp = 150; flush(); input(['Mouse1'], ['Mouse1']); input();

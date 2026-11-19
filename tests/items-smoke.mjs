@@ -21,6 +21,13 @@ function idle(p, ax, ay) { p.controller = () => ({ mx: 0, my: 0, aimX: ax, aimY:
 function once(world, p, intent) { p.controller = () => intent; world.update(DT); idle(p, intent.aimX, intent.aimY); }
 function give(world, p, id, n) { return world.addItem(p, id, n || ITEMS[id].found); }
 function slotOf(p, id) { return p.items.findIndex((s) => s && s.id === id); }
+// Occupy every open empty item slot with a full stack of something not carried yet.
+function fill(world, p) {
+  for (const id of W.ITEM_ORDER) {
+    if (!p.items.some((s, i) => !s && world.itemSlotOpen(p, i))) return;
+    if (world.countItem(p, id) === 0) world.addItem(p, id, ITEMS[id].stack);
+  }
+}
 function hold(world, p, id, ax, ay) {
   if (slotOf(p, id) < 0) give(world, p, id);
   const i = slotOf(p, id);
@@ -50,7 +57,7 @@ for (const seed of [1, 42, 9001]) {
   const m = MapGen.generate(seed), tiers = {};
   m.crates.forEach((c) => { tiers[c.tier] = (tiers[c.tier] || 0) + 1; });
   const outdoor = m.crates.filter(c => c.settlement === undefined && c.id !== m.legendaryCrateId), q = Rules.crateQuota(outdoor.length + 1);
-  t.equal(m.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': 210 regular crates plus legendary rewards');
+  t.equal(m.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': 420 regular crates plus legendary rewards');
   t.check(W.CRATE_ORDER.filter(id => id !== 'legendary').every(id => outdoor.filter(c => c.tier === id).length === q[id]), 'seed ' + seed + ': outdoor crates retain their rarity shares');
   t.check((tiers.legendary || 0) >= 1 && (tiers.mythic || 0) >= 1 && (tiers.epic || 0) >= 5, 'seed ' + seed + ': rare crates exist');
   t.check(m.crates.filter((c) => c.tier === 'legendary').every((c) => c.hp === CRATES.legendary.hp), 'seed ' + seed + ': legendary crates are tougher');
@@ -93,8 +100,8 @@ for (const seed of [1, 42, 9001]) {
 // ---------------------------------------------------------------- hotbar
 {
   const world = new World({ map: range(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200 });
-  t.equal(p.items.length, 3, 'three item slots');
-  t.equal(p.weapons.length + p.items.length, 5, 'weapons and items share a five-slot hotbar');
+  t.equal(p.items.length, 8, 'eight item slots');
+  t.equal(p.weapons.length + p.items.length, 10, 'weapons and items share a ten-slot hotbar');
   t.equal(world.addItem(p, 'bandage', 12), 0, 'twelve bandages fit (stacks of 9)');
   t.check(p.items[0].n === 9 && p.items[1].n === 3, 'stacked 9 + 3');
   t.equal(world.countItem(p, 'bandage'), 12, 'count across stacks');
@@ -114,10 +121,29 @@ for (const seed of [1, 42, 9001]) {
   once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 0 });
   once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, slot: 0 });
   t.equal(p.held, -1, 'weapon key puts the item away');
-  once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 2 });
-  t.equal(p.held, 2, 'the last item card (overall slot 5) can be selected');
-  once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 3 });
-  t.equal(p.held, 2, 'there is no hidden fourth item slot to select');
+  once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 7 });
+  t.equal(p.held, 7, 'the last item card (overall slot 10) can be selected');
+  once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 8 });
+  t.equal(p.held, 7, 'there is no hidden ninth item slot to select');
+}
+{
+  // A class with a third tool: that tool has hotbar slot 3, so item slot 0 is closed and seven remain.
+  const world = new World({ map: range(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200, classId: 'engineer' });
+  idle(p, 3300, 3200);
+  t.check(p.weapons.length === 3 && p.items.length === 8 && p.weapons.length + p.items.filter((s, i) => world.itemSlotOpen(p, i)).length === 10, 'three class tools and seven open item slots are still ten hotbar slots');
+  t.equal(world.addItem(p, 'bandage', 12), 0, 'twelve bandages fit a three-tool class too');
+  t.check(p.items[0] === null && p.items[1].n === 9 && p.items[2].n === 3, 'they stack 9 + 3 from the first open slot');
+  fill(world, p);
+  t.check(p.items[0] === null && p.items.slice(1).every(Boolean), 'seven stacks fill it');
+  t.check(!world.canTake(p, 'turret') && world.addItem(p, 'turret', 1) === 1 && p.items[0] === null, 'the closed slot takes nothing, even with the rest full');
+  t.check(world.canTake(p, 'bandage') && world.addItem(p, 'bandage', 6) === 0 && p.items[0] === null && p.items[2].n === 9, 'a partial stack still fills');
+  const turret = world.spawnPickup('item', 3230, 3200, 1, false, 'turret');
+  world.events.length = 0;
+  t.check(world.pressInteract(p) && turret.alive && events(world, 'deny').some((e) => e.reason === 'full'), 'E on a full seven-slot hotbar warns and leaves the item');
+  once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 0 });
+  t.equal(p.held, -1, 'the closed slot cannot be selected');
+  once(world, p, { mx: 0, my: 0, aimX: 3300, aimY: 3200, held: 1 });
+  t.equal(p.held, 1, 'the first open slot can');
 }
 
 // ---------------------------------------------------------------- picking items up
@@ -154,10 +180,11 @@ for (const seed of [1, 42, 9001]) {
 // ---------------------------------------------------------------- manual pickup and selected-stack dropping
 {
   const world = new World({ map: range(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200 });
-  give(world, p, 'bandage', 8); give(world, p, 'grenade', 5); give(world, p, 'riotshield', 1);
+  give(world, p, 'bandage', 8); give(world, p, 'grenade', 5); give(world, p, 'riotshield', 1); fill(world, p);
+  t.check(p.items.every(Boolean), 'eight stacks occupy every slot');
   const pk = world.spawnPickup('item', 3230, 3200, 4, false, 'bandage');
   world.events.length = 0;
-  t.check(world.pressInteract(p), 'E can fill a partial stack even with all three slots occupied');
+  t.check(world.pressInteract(p), 'E can fill a partial stack even with all eight slots occupied');
   t.equal(world.countItem(p, 'bandage'), 9, 'only the one available stack space is filled');
   t.check(!pk.alive && pk.amount === 1, 'collected pickup event records the actual quantity taken');
   const remainder = pickups(world, 'item');
@@ -228,7 +255,7 @@ for (const seed of [1, 42, 9001]) {
   mate.downed = false;
   const mount = world.addStruct({ kind: 'turret', item: 'turret', x: 3200, y: 3270, r: 24, hp: 100, owner: p.id, team: p.team });
   t.check(world.pressInteract(p) && !pk.alive && !p.mount, 'a nearby item is picked up before mounting a turret');
-  give(world, p, 'grenade', 5); give(world, p, 'riotshield', 1);
+  give(world, p, 'grenade', 5); give(world, p, 'riotshield', 1); fill(world, p);
   const full = world.spawnPickup('item', 3210, 3200, 1, false, 'turret');
   world.events.length = 0;
   t.check(world.pressInteract(p) && !p.mount && full.alive && events(world, 'deny')[0].reason === 'full', 'a full inventory denies E without accidentally mounting a turret');
@@ -653,7 +680,7 @@ for (const seed of [1, 42, 9001]) {
   t.equal(world.nearestRecoverableRock(mate), rock, 'teammate can reclaim the shared boulder');
   t.equal(world.nearestRecoverableRock(enemy), null, 'enemy never gets a rock-reclaim target');
   t.check(!world.recoverRock(enemy, rock) && rock.alive, 'enemy reclaim cannot steal the boulder');
-  give(world, p, 'bandage', 9); give(world, p, 'grenade', 5); give(world, p, 'smoothie', 5);
+  give(world, p, 'bandage', 9); give(world, p, 'grenade', 5); give(world, p, 'smoothie', 5); fill(world, p);
   t.check(world.pressInteract(p) && rock.alive && events(world, 'deny').some(e => e.reason === 'full'), 'full inventory reports failure and leaves deployed rock intact');
   t.check(world.pressInteract(mate) && !rock.alive && world.countItem(mate, 'rock') === 1, 'E returns exactly one rock to a teammate with space');
   t.check(rock.removalReason === 'recovered' && events(world, 'struct').some(e => e.op === 'gone' && e.struct === rock && e.reason === 'recovered'), 'rock reclaim reports recovery rather than destruction');

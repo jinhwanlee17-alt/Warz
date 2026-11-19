@@ -10,10 +10,10 @@ t.near(C.cornerRadius / 2850, 2, 1e-10, 'rounded corners grow with the island di
 t.near(C.worldSize * C.worldSize / (6400 * 6400), 56.25, 1e-10, 'terrain density follows the full expanded area');
 t.equal(C.mapAreaScale, 56.25, 'fractional terrain multiplier preserves the existing density');
 t.equal(C.stationCount, 9, 'nine upgrade stations are 75 percent fewer than before');
-t.equal(C.regularCrateCount, 210, 'thirty additional regular crates bring the total to210 plus the central legendary');
+t.equal(C.regularCrateCount, 420, 'doubling the regular crates brings the total to 420 plus the central legendary');
 t.equal([1,2,3,4].map(size => C.dropStationCounts[size]).join(), '50,25,16,12', 'each mode has its requested coastal drop count');
 t.equal(W.CRATE_ORDER.map(id => W.CRATES[id].share).join(), '0.8,0.1,0.08,0.02,0', 'regular crate shares exclude the fixed legendary');
-for (const total of [0, 1, 2, 10, 91, 101, 181, 211, 1000]) {
+for (const total of [0, 1, 2, 10, 91, 101, 181, 211, 421, 1000]) {
   const q = W.Rules.crateQuota(total), ordinary = Math.max(0, total - 1);
   t.equal(Object.values(q).reduce((sum, n) => sum + n, 0), total, `quota ${total}: no missing or extra crates`);
   t.equal(q.legendary, total > 0 ? 1 : 0, `quota ${total}: at most one legendary`);
@@ -21,8 +21,8 @@ for (const total of [0, 1, 2, 10, 91, 101, 181, 211, 1000]) {
 }
 const hundred = W.Rules.crateQuota(101);
 t.equal(['common','rare','epic','mythic'].map(id => hundred[id]).join(), '80,10,8,2', '100 regular crates split exactly 80/10/8/2');
-const expandedQuota = W.Rules.crateQuota(211);
-t.equal(W.CRATE_ORDER.map(id => expandedQuota[id]).join(), '168,21,17,4,1', '210 regular crates retain their rarity shares with one reserved legendary');
+const expandedQuota = W.Rules.crateQuota(421);
+t.equal(W.CRATE_ORDER.map(id => expandedQuota[id]).join(), '336,42,34,8,1', '420 regular crates retain their rarity shares with one reserved legendary');
 
 const seeds = [1, 42, 57, 79, 991, 9001, 31337, 123456, 777777, 0xffffffff];
 const started = Date.now();
@@ -30,7 +30,7 @@ for (const seed of seeds) {
   const map = W.MapGen.generate(seed), center = map.size / 2;
   const legendary = map.crates.find(c => c.id === map.legendaryCrateId), bonuses = map.crates.filter(c => c.legendaryDrops === 1);
   t.equal(map.size, 48000, `seed ${seed}: generated map uses the expanded dimensions`);
-  t.equal(map.crates.length, 211 + bonuses.length, `seed ${seed}: 210 regular crates, the central legendary and earned town bonuses`);
+  t.equal(map.crates.length, 421 + bonuses.length, `seed ${seed}: 420 regular crates, the central legendary and earned town bonuses`);
   t.equal(map.crates.filter(c => c.tier === 'legendary').length, 1 + bonuses.length, `seed ${seed}: legendary crates are the centre reward and thirty-house town bonuses`);
   t.check(legendary.x === center && legendary.y === center, `seed ${seed}: primary legendary is at the exact centre`);
   t.equal(map.legendaryCrateId, legendary.id, `seed ${seed}: centre crate identifier is stable`);

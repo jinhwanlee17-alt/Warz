@@ -64,7 +64,7 @@ for (const [mode, teamSize, count] of modes) for (const seed of seeds) {
     if (!dryOpen(world, p.x, p.y, 60)) reserved = false;
   }
   t.check(reserved, tag + ': even maximum no-fill sharing has dry, unobstructed team footprints');
-  t.equal(map.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, tag + ': 210 regular crates alongside legendary rewards');
+  t.equal(map.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, tag + ': 420 regular crates alongside legendary rewards');
   const outdoor = map.crates.filter(c => c.settlement === undefined && c.id !== map.legendaryCrateId), outdoorQuota = W.Rules.crateQuota(outdoor.length + 1);
   t.check(W.CRATE_ORDER.filter(tier => tier !== 'legendary').every(tier => outdoor.filter(c => c.tier === tier).length === outdoorQuota[tier]), tag + ': outdoor rarity quotas retain the same odds');
   const legendary = map.crates.find(c => c.id === map.legendaryCrateId);

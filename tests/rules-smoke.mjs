@@ -14,7 +14,7 @@ t.equal(CONFIG.upgradeCost, 8, 'first-tier upgrades cost eight tokens');
 t.check(Rules.upgradeCostFor('sniper') === 8 && Rules.upgradeCostFor('sniper2') === 15, 'target tiers use eight and fifteen tokens');
 t.check(Rules.nextUpgradeCost('soldier') === 8 && Rules.nextUpgradeCost('medic') === 15 && Rules.nextUpgradeCost('medic2') === 40 && Rules.nextUpgradeCost('engineer') === 0, 'next-tier cost follows all three upgrade levels');
 t.equal(CONFIG.bushes, true, 'biomes enable gameplay bush cover');
-t.check(CONFIG.tokenLoose <= 50 && CONFIG.regularCrateCount === 210, 'sparse loose tokens and 210 regular crates');
+t.check(CONFIG.tokenLoose <= 50 && CONFIG.regularCrateCount === 420, 'sparse loose tokens and 420 regular crates');
 
 // Soldier (starting class)
 t.equal(CLASSES.soldier.hp, 100, 'soldier HP');
@@ -85,11 +85,11 @@ t.equal(Rules.childClasses('sniper').length, 5, 'sniper has its matching upgrade
 
 // Crates and items
 const { CRATES, ITEMS } = W;
-t.check(CONFIG.regularCrateCount === 210 && CONFIG.crateInBuilding < 0.7, '210 regular crates spread across the larger island');
+t.check(CONFIG.regularCrateCount === 420 && CONFIG.crateInBuilding < 0.7, '420 regular crates spread across the larger island');
 t.near(W.CRATE_ORDER.reduce((s, id) => s + CRATES[id].share, 0), 1, 1e-9, 'crate tiers cover 100% of crates');
 t.equal(W.CRATE_ORDER.map((id) => CRATES[id].share).join(), '0.8,0.1,0.08,0.02,0', 'regular crate mix 80/10/8/2 plus a reserved legendary');
 t.equal(JSON.stringify(Rules.crateQuota(101)), JSON.stringify({ common: 80, rare: 10, epic: 8, mythic: 2, legendary: 1 }), '100 regular crates plus one central legendary');
-t.equal(JSON.stringify(Rules.crateQuota(CONFIG.regularCrateCount + 1)), JSON.stringify({ common: 168, rare: 21, epic: 17, mythic: 4, legendary: 1 }), 'expanded island retains the regular crate odds with one central legendary');
+t.equal(JSON.stringify(Rules.crateQuota(CONFIG.regularCrateCount + 1)), JSON.stringify({ common: 336, rare: 42, epic: 34, mythic: 8, legendary: 1 }), 'doubled crate count retains the regular crate odds with one central legendary');
 t.equal(Rules.crateQuota(10).legendary, 1, 'even a tiny island gets one legendary crate');
 t.equal(Rules.crateTokens('common', 0.5), 1, 'common crate: 1 token 90% of the time');
 t.equal(Rules.crateTokens('common', 0.05), 2, 'common crate: 2 tokens 10% of the time');
@@ -109,8 +109,13 @@ t.equal(Rules.itemsOfTier('epic').join(), 'drone,rock,riotshield,turret,sentry,b
 t.equal(Rules.itemsOfTier('mythic').join(), 'invisibility,radar,teleporter,turret2,sentry2,lightning,power', 'seven mythic items');
 t.equal(Rules.itemsOfTier('legendary').join(), 'turret3,sentry3,power2,meteor', 'four legendary items');
 t.check(!ITEMS.gravitybomb, 'the gravity bomb is gone');
-t.equal(CONFIG.hotbarSize, 3, 'three item slots accompany the two class slots');
-t.check(Object.entries(CLASSES).every(([id, c]) => c.loadout.length + CONFIG.hotbarSize === (['engineer', 'magicmedic'].includes(id) ? 6 : 5)), 'Engineer and Magic Medic have six total slots and other classes keep five');
+t.equal(CONFIG.hotbarSize, 8, 'eight item slots accompany the two class slots');
+const openItemSlots = (c) => CONFIG.hotbarSize - Rules.closedItemSlots({ weapons: c.loadout });
+t.check(Object.values(CLASSES).every((c) => c.loadout.length + openItemSlots(c) === 10), 'every class has exactly ten hotbar slots');
+t.equal(Object.keys(CLASSES).filter((id) => CLASSES[id].loadout.length === 3).join(), 'engineer,magicmedic', 'Engineer and Magic Medic are the classes with a third tool');
+t.check(openItemSlots(CLASSES.engineer) === 7 && openItemSlots(CLASSES.magicmedic) === 7 && openItemSlots(CLASSES.soldier) === 8, 'a third class tool leaves seven item slots: no extra slot');
+t.check(Rules.closedItemSlots({ weapons: [1, 2] }) === 0 && Rules.closedItemSlots({ weapons: [1, 2, 3] }) === 1 && Rules.closedItemSlots({ weapons: [1, 2, 3, 4] }) === 2 && Rules.closedItemSlots(null) === 0, 'each tool beyond the second closes one more of the first item slots');
+t.check(Object.values(CLASSES).every((c) => !/slot 6|slot-3 item moves/i.test(c.description)), 'class descriptions no longer promise a sixth slot');
 t.check(ITEMS.bandage.heal === 20 && ITEMS.bandage.found === 3, 'bandages: 20 HP, sets of 3');
 t.check(ITEMS.smoothie.heal === 15 && ITEMS.energybar.speed === 0.15, 'smoothie 15 HP, energy bar +15% speed');
 t.check(ITEMS.flashbang.radius === 150 && ITEMS.flashbang.fuse === WEAPONS.grenade.fuse, 'flash bang: grenade range and timing');

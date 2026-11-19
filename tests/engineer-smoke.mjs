@@ -18,6 +18,7 @@ function crate(x, y = Y) { return { id: 1, x, y, size: 30, tier: 'common', hp: 1
 {
   const a = arena();
   t.equal(a.p.weapons.map(w => w.id).join(','), 'wrench,pistol,engineerhammer', 'Engineer carries wrench, basic pistol and its third-slot hammer');
+  t.check(a.p.items.length === 8 && !a.world.itemSlotOpen(a.p, 0) && [1, 2, 3, 4, 5, 6, 7].every(i => a.world.itemSlotOpen(a.p, i)), 'the hammer has hotbar slot three and seven item slots follow it: ten slots, no extra one');
   run(a, 9.95);
   t.equal(sentries(a).length, 0, 'no sentry appears before the full ten seconds');
   t.near(a.p.sentryBuild.elapsed, 9.95, 1e-8, 'construction progress preserves exact simulation time');

@@ -52,7 +52,7 @@
     p = hintPlayer;
     var k = function (a) { return '<kbd>' + esc(Controls.primary(a)) + '</kbd>'; };
     baseHints =
-      '<span>' + k('interact') + ' pick up / station / revive / mount</span><span>' + k('weapon1') + '…' + k(p && p.weapons.length > 2 ? 'slot6' : 'item3') + ' hotbar · click to use</span>' +
+      '<span>' + k('interact') + ' pick up / station / revive / mount</span><span>' + k('weapon1') + '…' + k('slot10') + ' hotbar · click to use</span>' +
       '<span>' + k('drop') + ' drop held item</span><span>' + k('inventory') + ' inventory</span><span>' + k('sprint') + ' sprint</span>' +
       '<span>' + k('map') + ' map · ' + k('reload') + ' reload</span><span>' + k('emotes') + ' emotes</span>' +
       '<span>' + k('weapon1') + k('weapon2') + (p && p.weapons.length > 2 ? k('item1') : '') + ' / wheel switch weapons</span><span><kbd>Esc</kbd> menu</span>';
@@ -62,7 +62,7 @@
     delete cache.prompt;
   }
 
-  // Three inventory stacks keep their identity when a class adds a third tool.
+  // The open item slots, in hotbar order. With the class tools drawn before them that is always ten slots.
   function buildHotbar(p) {
     var html = '', order = Controls.itemOrder(p);
     for (var oi = 0; oi < order.length; oi++) {
@@ -129,7 +129,6 @@
         '<i class="slot-cooldown" id="hud-slot-cd-' + i + '"></i></div>';
     });
     el['hud-slots'].innerHTML = html + buildHotbar(p);
-    el['hud-slots'].classList.toggle('six-slots', p.weapons.length > 2);
   }
 
   function slotState(p, w) {

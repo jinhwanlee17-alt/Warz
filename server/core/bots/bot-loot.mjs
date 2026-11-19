@@ -1,6 +1,6 @@
 // Bot looting and upgrading: which crate or pickup is worth the walk, breaking crates with the right gun from a
 // spot that actually has a line to them, picking items up with the interact key (and dropping a worse stack to
-// make room, since there are only three item slots), and spending tokens at an Upgrade Station.
+// make room when all eight item slots are full), and spending tokens at an Upgrade Station.
 import { Bot, TAU } from './bot.mjs';
 import { ITEM_VALUE } from './profile.mjs';
 

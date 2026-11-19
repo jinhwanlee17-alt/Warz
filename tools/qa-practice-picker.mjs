@@ -49,7 +49,7 @@ try {
     const match = Warz.debug.match();
     match.world.storm = null;
     match.player.dropT = 0;
-    match.player.items = [null, null, null];
+    match.player.items = new Array(Warz.CONFIG.hotbarSize).fill(null);
   });
   await press('Escape');
   await b.waitFor('!document.getElementById("pause-menu").hidden');
@@ -85,7 +85,7 @@ try {
   });
   check(await evaluate(n => Number(document.getElementById('practice-item-quantity').value) === n, item.quantity), 'choosing an item updates its stack quantity');
 
-  for (const slot of [2, 0, 1]) {
+  for (const slot of [7, 0, 1]) {
     await resetObserver();
     await click('#practice-item-slot');
     await frames();
@@ -120,10 +120,25 @@ try {
   await frames();
   check(await evaluate(() => {
     const select = document.getElementById('practice-item-slot'), p = Warz.debug.player();
-    return select.value === '2' && [...select.options].every((o, i) =>
-      o === window.pickerOptions[i] && o.textContent.includes('(' + Warz.Controls.primary(Warz.Controls.itemAction(p, i)) + ')')) &&
-      select.options[0].textContent.includes(Warz.ITEMS.smoke.name);
-  }), 'leaving the picker refreshes inventory and class bindings without replacing options or resetting the choice');
+    return select.value === '7' && select.options.length === 8 && [...select.options].every((o, i) =>
+      o === window.pickerOptions[i] && o.textContent.includes('(' + Warz.Controls.primary(Warz.Controls.itemAction(p, i)) + ')') && o.disabled === (i === 0)) &&
+      select.options[0].textContent.includes('Third class tool') && p.items[0] === null && select.options[2].textContent.includes(Warz.ITEMS.smoke.name);
+  }), 'leaving the picker refreshes inventory and class bindings without replacing options or resetting the choice: the slot the Engineer hammer closes is disabled and its stack shows in the next free slot');
+  // A choice left on the slot that closes moves to the first open slot, and the closed slot cannot be filled.
+  await evaluate(() => {
+    const match = Warz.debug.match(), select = document.getElementById('practice-item-slot');
+    match.world.setClass(match.player, 'soldier', false);
+    select.focus(); select.value = '0';
+    match.world.setClass(match.player, 'engineer', false);
+  });
+  await frames();
+  check(await evaluate(() => document.getElementById('practice-item-slot').value === '0'), 'a class change does not move the choice while the picker has focus');
+  await click('#practice-item-quantity');
+  await frames();
+  check(await evaluate(() => {
+    const select = document.getElementById('practice-item-slot'), p = Warz.debug.player();
+    return select.value === '1' && select.options[0].disabled && p.items[0] === null;
+  }), 'a choice left on the closed slot moves to the first open item slot once the picker loses focus');
   await resetObserver();
   await frames();
   check(await mutations() === 0, 'refreshed labels stop mutating once current');
