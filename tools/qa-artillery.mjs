@@ -65,7 +65,10 @@ try {
     await evaluate((source) => (0, eval)('(' + source + ')')(Warz, Warz.debug.match().world), terrain.toString());
     await watchMaps();
     await b.waitFor('document.getElementById("hud-prompt").textContent.includes("Drive SP Artillery")');
-    check(await evaluate(() => { const list = Warz.debug.match().world.vehicles.filter(v => v.type === 'artillery'); return list.filter(v => !v.fixed).length === 4 && list.filter(v => v.fixed).length === 6; }), label + ': four mobile and six fixed artillery spawn alongside existing vehicles');
+    check(await evaluate(() => {
+      const list = Warz.debug.match().world.vehicles.filter(v => v.type === 'artillery' && !v.militaryBase);
+      return list.filter(v => !v.fixed).length === 4 && list.filter(v => v.fixed).length === 6;
+    }), label + ': four mobile and six fixed artillery spawn outside military bases');
     await press('KeyE'); await b.waitFor('Warz.debug.player().vehicle && Warz.debug.match().world.vehicleById(Warz.debug.player().vehicle).type==="artillery"');
     check(await evaluate(() => document.getElementById('hud-vehicle-name').textContent === 'SP Artillery' && document.getElementById('hud-ammo-label').textContent.includes('2 targeting map')), label + ': driver has dedicated artillery HUD and mode controls');
     await b.waitFor('Math.abs(Warz.debug.match().cam.zoom-1)<.01');

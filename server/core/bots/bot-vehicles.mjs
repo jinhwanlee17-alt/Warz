@@ -89,9 +89,13 @@ Object.assign(Bot.prototype, {
   vehicleUse(v, urgent) {
     const p = this.p, now = this.now;
     if (!this.rides || !v || v.wreck || this.manned(v) || (v.settlement !== null && v.settlement !== undefined)) return null;
+    const d = this.dist(v);
+    // A base motor pool is a local opportunity once its approach is clear.
+    // Sending the opening tank race to every parked hull abandons the drop area's loot.
+    if (v.militaryBase && (d > 900 || this.guardedWay(v.x, v.y))) return null;
     if ((this.badVehicle.get(v.id) || 0) > now || !this.seatIn(v)) return null;
     if (this.inHazard(v.x, v.y) || v.hp < v.maxHp * (p.classId === 'armorcrew' ? 0.15 : 0.35)) return null;
-    const d = this.dist(v), st = this.storm, far = Math.hypot(st.x - p.x, st.y - p.y);
+    const st = this.storm, far = Math.hypot(st.x - p.x, st.y - p.y);
     if (d > 1500 && now - this.landAt < this.raceDelay) return null;      // just landed: still looking at the map
     // Somebody is at it already, and nearer to it than we are: they will be in the seat first.
     for (const r of this.known.values()) if (r.noticed && r.visible && !r.downed && Math.hypot(r.x - v.x, r.y - v.y) < Math.min(600, d - 80)) return null;

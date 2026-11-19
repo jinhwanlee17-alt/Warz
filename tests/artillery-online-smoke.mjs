@@ -24,7 +24,7 @@ try{
  enemy.x=11000;enemy.y=5000;enemy.hp=enemy.maxHp=10000;
  p.net.conn={open:true,sendText(){},sendJson(){},close(){}};enemy.net.conn={open:true,sendText(){},sendJson(){},close(){}};
  let replica=connect(p);
- t.equal(last.vehicles.length,22,'snapshots include mobile and fixed artillery with existing vehicles');
+ t.equal(last.vehicles.length,22 + world.map.militaryVehicles.length,'snapshots include military hulls with the original fleet');
  t.equal(replica.type,'artillery','vehicle type decodes as artillery');
  t.equal(replica.r,W.ARTILLERY.radius,'artillery collider radius reaches client');
  t.check(!last.p.some(row=>row[0]===enemy.id),'distant enemy hidden in ordinary driving view');

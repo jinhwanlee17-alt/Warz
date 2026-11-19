@@ -56,7 +56,7 @@ for (const teamSize of [1, 4]) {
       return match.world.enterVehicle(p, tank, seat);
     }
     let replica = connect(driver);
-    t.check(last.vehicles.length === match.world.vehicles.length && state.world.vehicles.filter(v => v.type === 'tank').length === 4,
+    t.check(last.vehicles.length === match.world.vehicles.length && state.world.vehicles.filter(v => v.type === 'tank' && !v.militaryBase).length === 4,
       tag + ': real initial snapshots include Humvees, tanks and artillery');
     t.check(replica.r === W.TANK.radius && replica.hp === W.TANK.hp && replica.mgAmmo === 1000,
       tag + ': tank geometry, health and magazine survive decoding');

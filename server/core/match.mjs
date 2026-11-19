@@ -54,6 +54,7 @@ export class Match {
     this.log = log;
     this.emptyTimeout = emptyTimeout;
     this.map = W.MapGen.generate(this.seed, teamSize);
+    this.extraLegendary = this.map.crates.filter(c => c.tier === 'legendary' && c.id !== this.map.legendaryCrateId);
     this.world = new W.World({ map: this.map, teams: teamSize > 1, practice: this.practice, storm: !this.practice });
     if (this.practice) {
       const kill = this.world.killPlayer.bind(this.world);
@@ -61,7 +62,7 @@ export class Match {
         if (p && p.net && p.alive && !p.practiceBot) {
           this.rememberPracticeLoadout(p);
           // Practice restores equipment on respawn; do not also scatter duplicate loot.
-          p.tokens = p.keys = 0; p.items = new Array(W.CONFIG.hotbarSize).fill(null);
+          p.tokens = p.keys = p.classTokens = 0; p.items = new Array(W.CONFIG.hotbarSize).fill(null);
         }
         return kill(p, ...args);
       };
@@ -202,6 +203,8 @@ export class Match {
     p.net.everConnected = true;
     p.net.itemsKey = ''; // resend the hotbar with the next snapshot
     p.net.staffKey = '';
+    p.net.structKey = '';
+    conn.militaryVehicleKeys = null;
     p.net.practiceRosterVersion = -1;
     p.net.lookVersion = -1; p.net.cosmeticsKey = ''; p.net.cosmeticsSet = false;
     conn.player = p;
@@ -260,7 +263,7 @@ export class Match {
       }
       case 'upgrade': {
         const cls = str(m.cls, 20), r = p.nearStation ? this.world.upgrade(p, p.nearStation, cls) : { ok: false, reason: 'far' };
-        this.send(conn, { t: 'upgrade-result', ok: !!r.ok, reason: r.reason, usedKey: !!r.usedKey, cls });
+        this.send(conn, { t: 'upgrade-result', ok: !!r.ok, reason: r.reason, usedKey: !!r.usedKey, usedClassToken: !!r.usedClassToken, cls });
         return;
       }
       case 'leave': this.leave(conn); return;
@@ -370,7 +373,7 @@ export class Match {
   }
 
   rememberPracticeLoadout(p) {
-    p.net.practiceLoadout = { cls: p.classId, items: p.items.map((s) => s ? { ...s } : null), tokens: p.tokens, keys: p.keys,
+    p.net.practiceLoadout = { cls: p.classId, items: p.items.map((s) => s ? { ...s } : null), tokens: p.tokens, keys: p.keys, classTokens: p.classTokens,
       weaponIds: p.weapons.map((w) => w.id), pyroFiregun: !!p.pyroFiregun, path: (p.upgradePath || []).slice(), from: p.upgradeFrom };
   }
 
@@ -381,7 +384,7 @@ export class Match {
     const fromX = p.x, fromY = p.y;
     world.respawn(p, at.x, at.y, saved ? saved.cls : p.classId); p.dropT = 0;
     if (saved) {
-      p.items = saved.items.map((s) => s ? { ...s } : null); p.tokens = saved.tokens; p.keys = saved.keys;
+      p.items = saved.items.map((s) => s ? { ...s } : null); p.tokens = saved.tokens; p.keys = saved.keys; p.classTokens = saved.classTokens || 0;
       p.pyroFiregun = saved.pyroFiregun;
       p.weapons = saved.weaponIds.map((id) => ({ id, ammo: this.W.WEAPONS[id].mag || 0, cooldown: 0, reloadT: 0, reloading: false }));
       p.upgradePath = saved.path; p.upgradeFrom = saved.from;
@@ -422,7 +425,7 @@ export class Match {
 
   encodeStruct(s) {
     return { id: s.id, k: s.kind, it: s.item, x: r1(s.x), y: r1(s.y), r: s.r, o: s.owner || 0, tm: s.team, hp: Math.round(s.hp), mhp: s.maxHp, a: r2(s.angle), m: s.mounted || 0, pr: s.pair || 0,
-      nt: !!s.neutral, seeded: !!s.seeded, settlement: s.settlement };
+      nt: !!s.neutral, seeded: !!s.seeded, settlement: s.settlement, militaryBase: s.militaryBase, guardRole: s.guardRole, aiRider: s.aiRider };
   }
   encodeSentryProjectile(p) {
     const row = [p.id, p.kind, p.owner, p.team, p.sentry, r2(p.x), r2(p.y), p.dx, p.dy, p.r, p.speed, r2(p.traveled), p.range, r3(p.age)];
@@ -459,6 +462,7 @@ export class Match {
       cn: v.cannonAmmo, cm: v.cannonMaxAmmo, cr: r3(v.cannonReload || 0),
       cd: r3(v.cooldown || 0), ma: v.mgAmmo, mr: r3(v.mgReload || 0) });
     if (v.type === 'artillery') Object.assign(row, { fixed: !!v.fixed, ca: r3(v.cannonAngle || 0), still: r3(v.stationaryT || 0), ac: r3(v.artilleryCooldown || 0), tx: v.targetX, ty: v.targetY });
+    if (v.militaryBase) row.militaryBase = v.militaryBase;
     return row;
   }
   encodeTankShell(shell) {
@@ -668,10 +672,11 @@ export class Match {
       x: r2(p.x), y: r2(p.y), vx: r2(p.vx), vy: r2(p.vy), ack: p.net.ack, hp: Math.ceil(p.hp * 10) / 10, mhp: p.maxHp, ar: p.armor,
       stam: r3(p.stamina), exh: p.sprintExhausted, rest: r3(p.sprintRestT), spr: p.sprinting,
       snow: { inside: !!p.inSnow, slow: p.snowSlow || 0, time: r3(p.snowT || 0), cold: r3(p.tundraSnowT || 0), frozen: !!p.snowFrozen },
-      tok: p.tokens, keys: p.keys, cls: this.classIndex.indexOf(p.classId), slot: p.slot,
+      tok: p.tokens, keys: p.keys, classTokens: p.classTokens || undefined, cls: this.classIndex.indexOf(p.classId), slot: p.slot,
       ammo: p.weapons.map((w) => w.ammo), rel: p.weapons.map((w) => (w.reloading ? r2(w.reloadT) : 0)), gren: p.grenades, med: r1(p.medkitCd),
       down: p.downed, downT: r1(p.downT), rev: r2(p.revive), sc: p.scoping, near: p.nearStation ? p.nearStation.id : -1,
       alive: p.alive, drop: r2(p.dropT), team: p.team, storm: p.inStorm,
+      baseSignal: p.alive && p.baseSignal ? [p.baseSignal.base, +p.baseSignal.global, p.baseSignal.until ? Math.max(0.01, r2(p.baseSignal.until - this.world.time)) : 0] : undefined,
       cmd: r1(p.commandCd || 0), cb: r1(p.commandBuff || 0), spin: r2(p.minigunSpin || 0), ft: p.flameTicks || 0,
       from: p.upgradeFrom || null, path: p.upgradePath || [], sb: this.encodeSentryBuild(p),
       sw: this.encodeSentryWork(p), sch: p.sentryChoice || null, ss: this.encodeSentryStatus(p), ms: this.encodeMedicStaff(p), py: this.encodePyro(p),
@@ -734,7 +739,7 @@ export class Match {
       case 'collected': return { msg: { t: 'pick', id: e.pickup.id, by: e.player.id, what: e.pickup.type, it: e.pickup.item || undefined, n: e.pickup.amount, tot: e.total }, global: true };
       case 'spawn-pickup': return { msg: { t: 'pkspawn', id: e.pickup.id, type: e.pickup.type, it: e.pickup.item || undefined, x: r1(e.pickup.x), y: r1(e.pickup.y), vx: r1(e.pickup.vx), vy: r1(e.pickup.vy), n: e.pickup.amount, lk: r2(e.pickup.lockT || 0) }, global: true };
       case 'crate-hp': return { msg: { t: 'crate', id: e.crate.id, hp: Math.ceil(Math.max(0, e.hp)), src: e.source ? e.source.id : 0, n: r1(e.amount), x: r1(e.x), y: r1(e.y) }, global: true };
-      case 'upgrade': return { msg: { t: 'upg', id: e.player.id, cls: e.classId, st: e.station.id, key: !!e.usedKey }, global: true };
+      case 'upgrade': return { msg: { t: 'upg', id: e.player.id, cls: e.classId, st: e.station.id, key: !!e.usedKey, classToken: e.usedClassToken || undefined }, global: true };
       case 'land': return { msg: { t: 'land', id: e.player.id }, x: e.player.x, y: e.player.y, to: [e.player.id] };
       case 'reload': case 'reloaded': case 'switch': case 'deny': case 'item-used': case 'item-dropped': case 'mounted': case 'dismounted':
         return { msg: { t: 'local', k: e.type, w: e.weapon, reason: e.reason, value: e.value, it: e.item, n: e.amount }, only: e.player.id };
@@ -754,15 +759,18 @@ export class Match {
   }
 
   sendSnapshots(events) {
+    if (!this.players.some(p => p.net.conn && p.net.conn.open)) return;
     const encoded = [];
     for (const e of events) { const enc = this.encodeEvent(e), sound = this.soundEvent(e); if (enc || sound) encoded.push(Object.assign({ sound }, enc || {})); }
     const time = r3(this.world.time);
     // Repair the global legendary marker after a slow connection skips a break event.
     const legendary = this.map.crates[this.map.legendaryCrateId];
     const lc = legendary ? (legendary.alive ? Math.max(1, Math.ceil(legendary.hp)) : 0) : undefined;
-    // Shared vehicles are cheap to synchronize globally. This keeps vacated seats,
-    // wrecks and vehicles crossing the view boundary authoritative without stale ownership.
+    const extraLc = this.extraLegendary.map(c => [c.id, c.alive ? Math.max(1, Math.ceil(c.hp)) : 0]);
+    // Keep the whole fleet visible. An unchanged military hull can reuse the
+    // last complete row delivered on that connection's ordered WebSocket.
     const vehicles = (this.world.vehicles || []).map((v) => this.encodeVehicle(v));
+    const militaryVehicleKeys = new Map(vehicles.filter(v => v.militaryBase).map(v => [v.id, JSON.stringify(v)]));
     const ms = this.encodeMedicStaffMarkers(), staffKey = JSON.stringify(ms);
     const structs = this.world.structures.filter(s => s.alive).map(s => this.encodeStruct(s)), structKey = JSON.stringify(structs);
     for (const p of this.players) {
@@ -772,6 +780,7 @@ export class Match {
       const c = this.viewCenter(p), hull = this.world.vehicleById(c.vehicle);
       const artilleryView = hull && hull.type === 'artillery' && c.vehicleWeapon === 1 && hull.seats.driver === c.id;
       const viewRange = c.scoping ? 4400 : VIEW;
+      const basePings = this.world.militaryPingsFor(c).map(o => [o.id, r1(o.x), r1(o.y), o.team]);
       const list = [];
       for (const enc of encoded) {
         const distance = Math.hypot(enc.x - c.x, enc.y - c.y);
@@ -799,10 +808,14 @@ export class Match {
       const looks = p.net.lookVersion !== this.cosmeticsVersion ? this.players.map(o => [o.id, o.color, o.face]) : undefined;
       const projectiles = (this.world.sentryProjectiles || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < viewRange + 400).map(o => this.encodeSentryProjectile(o));
       const rockets = (this.world.rpgRockets || []).filter(o => Math.hypot(o.x - c.x, o.y - c.y) < viewRange + 400).map(o => this.encodeRpgRocket(o));
-      conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), looks, spec: p.alive ? 0 : p.net.specId, p: players, vehicles,
+      const previousFleet = conn.militaryVehicleKeys;
+      const fleet = previousFleet ? vehicles.map(v => v.militaryBase && previousFleet.get(v.id) === militaryVehicleKeys.get(v.id) ? v.id : v) : vehicles;
+      conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), looks, spec: p.alive ? 0 : p.net.specId, p: players, vehicles: fleet,
+        basePings: basePings.length ? basePings : undefined, extraLc: extraLc.length ? extraLc : undefined,
         ps: this.practice ? this.practiceSettings() : undefined, pr: this.practice && p.net.practiceRosterVersion !== this.practiceRosterVersion ? this.roster() : undefined,
         ms: p.net.staffKey !== staffKey ? ms : undefined, sp: projectiles, rp: rockets, structs: p.net.structKey !== structKey ? structs : undefined, lc, e: list, alive: this.aliveCount, teams: this.teamsAlive }));
       p.net.structKey = structKey;
+      conn.militaryVehicleKeys = militaryVehicleKeys;
       p.net.staffKey = staffKey;
       p.net.lookVersion = this.cosmeticsVersion;
       p.net.practiceRosterVersion = this.practiceRosterVersion;

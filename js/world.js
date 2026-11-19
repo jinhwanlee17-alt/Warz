@@ -32,6 +32,7 @@
     this.zones = [];        // fire, smoke, snow
     this.strikes = [];      // pending lightning and meteors
     this.reveal = {};       // team -> seconds of drone reveal left
+    this.baseContacts = []; // map-only positions supplied to this viewer online
     this.nextId = 1;
     this.nextStructId = 1;
     this.cleanupT = 5;
@@ -48,6 +49,12 @@
 
   World.prototype.buildSolids = function () {
     var h = this.solids, m = this.map, cr = C.stationCoreRadius;
+    this.pondGrid = new U.SpatialHash(512);
+    this.indexedPonds = m.ponds || [];
+    this.indexedPondCount = this.indexedPonds.length;
+    this.indexedPonds.forEach(function (p) {
+      this.pondGrid.insert(p, p.x - p.r, p.y - p.r, p.x + p.r, p.y + p.r);
+    }, this);
     // Leafy cover has no collision or health. Discard old trunk metadata too.
     ['trees', 'bushes'].forEach(function (kind) {
       (m[kind] || []).forEach(function (plant) {
@@ -99,10 +106,11 @@
       face: look.face, emotes: look.emotes, emote: null, emoteReadyAt: 0,
       x: o.x, y: o.y, vx: 0, vy: 0, r: C.playerRadius, angle: o.angle || 0,
       classId: 'soldier', hp: 100, maxHp: 100, armor: 0, weapons: [], slot: 0, lastSlot: 0,
-      grenades: 0, medkitCd: 0, throwCd: 0, tokens: o.tokens || 0, keys: o.keys || 0,
+      grenades: 0, medkitCd: 0, throwCd: 0, tokens: o.tokens || 0, keys: o.keys || 0, classTokens: o.classTokens || 0,
       alive: true, deadT: 0, isLocal: !!o.isLocal, bot: !!o.bot, controller: null, ai: null,
       recoil: 0, hitFlash: 0, healFlash: 0, dropT: o.drop ? C.dropDuration : 0,
       inPond: false, inStorm: false, nearStation: null, scoping: false,
+      baseSignal: null,
       stamina: C.staminaMax, sprintExhausted: false, sprintRestT: 0, sprinting: false,
       team: o.team || 0, downed: false, downT: 0, revive: 0, wantsRevive: false,
       vehicle: 0, vehicleSeat: null, vehicleWeapon: 0, repairVehicle: 0, meleeSwing: 0, meleeAngle: o.angle || 0,
@@ -186,6 +194,7 @@
     if (p.vehicle && this.exitVehicle) this.exitVehicle(p, true);
     p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.alive = true; p.deadT = 0; p.hitFlash = 0;
     p.downed = false; p.downT = 0; p.revive = 0;
+    p.baseSignal = null;
     p.emote = null; p.emoteReadyAt = 0;
     p.stamina = C.staminaMax; p.sprintExhausted = false; p.sprintRestT = 0; p.sprinting = false;
     this.resetItems(p);
@@ -194,6 +203,7 @@
   };
 
   World.prototype.playerById = function (id) {
+    if (!id) return null; // An empty vehicle seat has no player.
     for (var i = 0; i < this.players.length; i++) if (this.players[i].id === id) return this.players[i];
     return null;
   };
@@ -219,8 +229,43 @@
     this.updateBullets(dt);
     this.updateGrenades(dt);
     this.updateItems(dt);
+    if (!this.remote && !this.demo && this.map.militaryBases) {
+      for (i = 0; i < this.players.length; i++) this.updateBaseSignal(this.players[i]);
+    }
     this.updatePickups(dt);
     this.updateEffects(dt);
+  };
+
+  World.prototype.updateBaseSignal = function (p) {
+    if (!p.alive || p.dropT > 0) { p.baseSignal = null; return; }
+    var signal = p.baseSignal, bases = this.map.militaryBases || [];
+    var base = bases.find(function (b) {
+      return Math.abs(p.x - b.x) <= b.halfW && Math.abs(p.y - b.y) <= b.halfH;
+    });
+    if (base) {
+      if (!signal || signal.base !== base.id || signal.until) {
+        signal = p.baseSignal = { base: base.id, radius: base.pingRadius, cycles: base.pingCycles, global: false, until: 0 };
+      }
+      var mount = p.mount && this.structById(p.mount);
+      if (mount && mount.item === 'turret3' && mount.militaryBase === base.id) signal.global = true;
+    } else if (signal && !signal.until) {
+      // A full wait-and-shrink cycle from exit, even when practice has its storm switched off.
+      var phases = W.STORM, index = phases.findIndex(function (phase) { return phase.end > this.time; }, this);
+      if (index < 0) index = phases.length - 1;
+      var length = phases[index].end - (index ? phases[index - 1].end : 0);
+      signal.until = this.time + signal.cycles * length;
+      signal.global = false;
+    } else if (signal && this.time >= signal.until) p.baseSignal = null;
+  };
+
+  World.prototype.militaryPingsFor = function (viewer) {
+    if (this.remote) return this.baseContacts;
+    if (!viewer) return [];
+    return this.players.filter(function (p) {
+      var s = p.baseSignal;
+      return p !== viewer && p.alive && s && (!s.until || this.time < s.until) &&
+        (s.global || Math.hypot(p.x - viewer.x, p.y - viewer.y) <= s.radius);
+    }, this);
   };
 
   // Client mirror: timers and flashes only; positions and state come from snapshots.
@@ -463,15 +508,23 @@
 
   World.prototype.inPond = function (x, y) {
     var ps = this.map.ponds;
-    for (var i = 0; i < ps.length; i++) if (Math.hypot(ps[i].x - x, ps[i].y - y) < ps[i].r * 0.9) return true;
+    if (ps === this.indexedPonds && ps.length === this.indexedPondCount) {
+      var grid = this.pondGrid;
+      ps = grid.cells.get(grid.key(Math.floor(x / grid.cell), Math.floor(y / grid.cell)));
+      if (!ps) return false;
+    }
+    for (var i = 0; i < ps.length; i++) {
+      var dx = ps[i].x - x, dy = ps[i].y - y, radius = ps[i].r * .9;
+      if (dx * dx + dy * dy < radius * radius) return true;
+    }
     return false;
   };
 
   World.prototype.nearestStation = function (x, y, maxD) {
-    var best = null, bd = maxD, list = this.map.stations;
+    var best = null, bestSq = maxD > 0 ? maxD * maxD : 0, list = this.map.stations;
     for (var i = 0; i < list.length; i++) {
-      var d = Math.hypot(list[i].x - x, list[i].y - y);
-      if (d < bd) { bd = d; best = list[i]; }
+      var dx = list[i].x - x, dy = list[i].y - y, distanceSq = dx * dx + dy * dy;
+      if (distanceSq < bestSq) { bestSq = distanceSq; best = list[i]; }
     }
     return best;
   };
@@ -722,7 +775,8 @@
   // player. Teammates (and your team's own turrets and sentries) never block or take a shot; rocks block everyone.
   World.prototype.sweep = function (x1, y1, x2, y2, br, ownerId, ownerTeam) {
     var bestT = 2, best = null, bestPlayer = null, teamed = ownerTeam !== undefined && ownerTeam !== null;
-    this.solids.query(Math.min(x1, x2) - br, Math.min(y1, y2) - br, Math.max(x1, x2) + br, Math.max(y1, y2) + br, function (s) {
+    var minX = Math.min(x1, x2) - br, minY = Math.min(y1, y2) - br, maxX = Math.max(x1, x2) + br, maxY = Math.max(y1, y2) + br;
+    this.solids.query(minX, minY, maxX, maxY, function (s) {
       if (s.crate && !s.crate.alive) return;
       if (s.rock && !s.rock.alive) return;
       if (s.struct && s.struct.mounted && s.struct.mounted === ownerId) return;
@@ -732,7 +786,7 @@
         : U.segRect(x1, y1, x2, y2, s.x - br, s.y - br, s.w + br * 2, s.h + br * 2);
       if (t >= 0 && t < bestT) { bestT = t; best = s; }
     });
-    this.foliage.query(Math.min(x1, x2) - br, Math.min(y1, y2) - br, Math.max(x1, x2) + br, Math.max(y1, y2) + br, function (plant) {
+    this.foliage.query(minX, minY, maxX, maxY, function (plant) {
       if (plant.alive === false) return;
       var t = U.segCircle(x1, y1, x2, y2, plant.x, plant.y, plant.hitRadius + br);
       if (t >= 0 && t < bestT) { bestT = t; best = { type: 'foliage', plant: plant }; }
@@ -749,6 +803,7 @@
     var owner = this.playerById(ownerId), vehicles = this.vehicles || [];
     for (var j = 0; j < vehicles.length; j++) {
       var v = vehicles[j];
+      if (v.x + v.r < minX || v.x - v.r > maxX || v.y + v.r < minY || v.y - v.r > maxY) continue;
       if (this.remote && v.hidden) continue;
       if (owner && owner.vehicle === v.id) continue;
       if (!v.wreck && teamed && this.vehicleTeam && this.vehicleTeam(v) === ownerTeam) continue;
@@ -762,7 +817,8 @@
   // Walls, rocks and placed structures block explosions and line of sight.
   World.prototype.lineClear = function (x1, y1, x2, y2, ignore, demolition, ignoreVehicle) {
     var clear = true;
-    this.solids.query(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), function (s) {
+    var minX = Math.min(x1, x2), minY = Math.min(y1, y2), maxX = Math.max(x1, x2), maxY = Math.max(y1, y2);
+    this.solids.query(minX, minY, maxX, maxY, function (s) {
       if (!clear || (ignore && (s === ignore || s.rock === ignore || s.struct === ignore)) || (s.type !== 'wall' && s.type !== 'rock' && s.type !== 'struct')) return;
       if (demolition && (s.type === 'rock' || (s.struct && s.struct.kind === 'rock'))) return;
       if (s.rock && !s.rock.alive) return;
@@ -773,6 +829,7 @@
     var vehicles = this.vehicles || [];
     for (var i = 0; clear && i < vehicles.length; i++) {
       var v = vehicles[i];
+      if (v.x + v.r < minX || v.x - v.r > maxX || v.y + v.r < minY || v.y - v.r > maxY) continue;
       if (this.remote && v.hidden) continue;
       if (v === ignore || v === ignoreVehicle || (ignore && ignore.vehicle === v)) continue;
       var t = U.segCircle(x1, y1, x2, y2, v.x, v.y, v.r);
@@ -1094,9 +1151,11 @@
         for (var i = 0; i < n; i++) this.spawnPickup('token', p.x, p.y, each + (i < rem ? 1 : 0), true);
       }
       for (var k = 0; k < p.keys; k++) this.spawnPickup('key', p.x, p.y, 1, true);
+      if (p.classTokens) this.spawnPickup('classToken', p.x, p.y, p.classTokens, true);
       this.dropItems(p);
       p.tokens = 0;
       p.keys = 0;
+      p.classTokens = 0;
     }
     if (!this.remote || !p.hidden) {
       this.burst(p.x, p.y, 26, p.color, 320, 0.8, 7);
@@ -1118,7 +1177,7 @@
     if (c.hp > 0) return;
     if (src) src.stats.crates++;
     this.crateBreakFx(c);
-    this.crateLoot(c, src); // tokens every time, sometimes an armor plate or a key, and items by the crate's tier
+    this.crateLoot(c, src);
     this.emit({ type: 'crate', crate: c, source: src });
   };
 
@@ -1136,7 +1195,7 @@
   };
 
   // ---------------------------------------------------------------- pickups & stations
-  // type: token | key | armor | item (with `item` = item id and `amount` = how many)
+  // type: token | classToken | key | armor | item (with `item` = item id and `amount` = how many)
   World.prototype.spawnPickup = function (type, x, y, amount, scatter, item, lockT) {
     var pk = { id: this.map.nextPickupId++, type: type, item: item || null, x: x, y: y, amount: amount || 1, alive: true, age: 0, vx: 0, vy: 0, lockT: Math.max(0, lockT || 0) };
     if (scatter) {
@@ -1174,6 +1233,7 @@
   };
   World.prototype.pickupColor = function (pk) {
     if (pk.type === 'token') return '#ffe680';
+    if (pk.type === 'classToken') return W.CRATES.classToken.color;
     if (pk.type === 'key') return '#d9b8ff';
     if (pk.type === 'armor') return '#9cc6ff';
     var it = pk.item && W.ITEMS[pk.item];
@@ -1189,6 +1249,7 @@
   World.prototype.pickupText = function (p, what, amount, total, item) {
     if (!this.remote || !p.hidden) {
       if (what === 'token') this.text(p.x, p.y - p.r - 16, '+' + amount + (amount === 1 ? ' token' : ' tokens'), '#ffd23f', 18);
+      else if (what === 'classToken') this.text(p.x, p.y - p.r - 16, '+' + amount + (amount === 1 ? ' class token' : ' class tokens'), W.CRATES.classToken.color, 18);
       else if (what === 'key') this.text(p.x, p.y - p.r - 16, '+1 station key', '#c9a2ff', 18);
       else if (what === 'armor') this.text(p.x, p.y - p.r - 16, '+' + (C.armorPlate * (amount || 1)) + ' armor', '#9cc6ff', 18);
       else if (what === 'item' && item && W.ITEMS[item]) this.text(p.x, p.y - p.r - 16, '+' + amount + ' ' + W.ITEMS[item].name, W.TIERS[W.ITEMS[item].tier].color, 18);
@@ -1251,6 +1312,7 @@
     pk.alive = false;
     var total = 0;
     if (pk.type === 'token') { p.tokens += pk.amount; p.stats.tokens += pk.amount; total = p.tokens; }
+    else if (pk.type === 'classToken') { p.classTokens += pk.amount; total = p.classTokens; }
     else if (pk.type === 'key') { p.keys += 1; total = p.keys; }
     else if (pk.type === 'armor') { p.armor = Math.min(C.armorMax, p.armor + C.armorPlate * pk.amount); total = p.armor; }
     else if (pk.type === 'item') {
@@ -1265,20 +1327,21 @@
     return true;
   };
 
-  // Spend 5 tokens at a station. A station that is recharging needs a station key, which is used up.
+  // A class token pays for one legal upgrade. A recharging station still needs a key.
   World.prototype.upgrade = function (p, station, classId) {
     if (!p.alive || p.downed) return { ok: false, reason: 'dead' };
     if (!station || Math.hypot(station.x - p.x, station.y - p.y) > C.stationInteractRadius + p.r + 30) return { ok: false, reason: 'far' };
-    var check = Rules.upgradeCheck({ from: p.classId, to: classId, tokens: p.tokens, keys: p.keys, stationCooldown: station.cooldown });
+    var check = Rules.upgradeCheck({ from: p.classId, to: classId, tokens: p.tokens, classTokens: p.classTokens, keys: p.keys, stationCooldown: station.cooldown });
     if (!check.ok) return check;
     p.tokens -= check.cost;
+    if (check.useClassToken) p.classTokens--;
     if (check.useKey) p.keys -= 1;
-    this.applyUpgrade(p, station, classId, check.useKey);
-    return { ok: true, usedKey: check.useKey };
+    this.applyUpgrade(p, station, classId, check.useKey, check.useClassToken);
+    return { ok: true, usedKey: check.useKey, usedClassToken: check.useClassToken };
   };
 
   // Class change plus its fireworks. The client calls this for upgrades the server reports.
-  World.prototype.applyUpgrade = function (p, station, classId, usedKey) {
+  World.prototype.applyUpgrade = function (p, station, classId, usedKey, usedClassToken) {
     station.cooldown = C.stationCooldown;
     station.usedBy = p.id;
     if (!this.remote || p.classId !== classId) this.setClass(p, classId, false);
@@ -1290,7 +1353,7 @@
       this.text(p.x, p.y - p.r - 30, CLASSES[classId].name.toUpperCase() + '!', color, 28);
     }
     this.explosions.push({ x: station.x, y: station.y, r: 90, t: 0, dur: 0.6, ring: true, color: '#7fe9ff' });
-    this.emit({ type: 'upgrade', player: p, classId: classId, station: station, usedKey: !!usedKey });
+    this.emit({ type: 'upgrade', player: p, classId: classId, station: station, usedKey: !!usedKey, usedClassToken: !!usedClassToken });
   };
 
   World.prototype.land = function (p) {

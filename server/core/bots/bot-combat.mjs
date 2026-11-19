@@ -521,8 +521,8 @@ Object.assign(Bot.prototype, {
   // Would a sentry that is not ours (an enemy's, or a settlement's guard) shoot at somebody standing there?
   guarded(x, y) {
     for (const s of this.world.structures) {
-      if (s.kind !== 'sentry' || !s.alive || s.team === this.p.team) continue;
-      if (Math.hypot(s.x - x, s.y - y) < this.W.ITEMS[s.item].range + 20 && this.world.sentryLineClear(s, x, y)) return true;
+      const range = this.world.automaticGuardRange(s);
+      if (range && s.team !== this.p.team && Math.hypot(s.x - x, s.y - y) < range + 20 && this.world.sentryLineClear(s, x, y)) return true;
     }
     return false;
   },
@@ -530,8 +530,9 @@ Object.assign(Bot.prototype, {
   guardedWay(x, y) {
     const p = this.p, U = this.W.U;
     for (const s of this.world.structures) {
-      if (s.kind !== 'sentry' || !s.alive || s.team === p.team) continue;
-      const r = this.W.ITEMS[s.item].range + 40;
+      const range = this.world.automaticGuardRange(s);
+      if (!range || s.team === p.team) continue;
+      const r = range + 40;
       if (Math.hypot(s.x - p.x, s.y - p.y) < r || Math.hypot(s.x - x, s.y - y) < r || U.segCircle(p.x, p.y, x, y, s.x, s.y, r) >= 0) return true;
     }
     return false;
@@ -605,18 +606,18 @@ Object.assign(Bot.prototype, {
     const p = this.p, W = this.W, st = this.storm, storm = this.world.storm, now = this.now;
     let best = null, bd = Infinity;
     for (const s of this.world.structures) {
-      if (s.kind !== 'sentry' || !s.alive || s.team === p.team || (this.siegeBan.get(s.id) || 0) > now) continue;
-      const it = W.ITEMS[s.item];
-      if (this.smallSentry(s) && this.gunFor(it.range) >= 0) continue;                 // the basic one is shot on sight (see runMode)
+      const range = this.world.automaticGuardRange(s);
+      if (!range || s.team === p.team || (this.siegeBan.get(s.id) || 0) > now) continue;
+      if (this.smallSentry(s) && this.gunFor(range) >= 0) continue;                 // the basic one is shot on sight (see runMode)
       const d = this.dist(s);
-      if (d > it.range + 1000 || d >= bd) continue;
+      if (d > range + 1000 || d >= bd) continue;
       const circle = storm ? (storm.next || storm) : null;
-      const inTheWay = (st.fixed && Math.hypot(st.x - s.x, st.y - s.y) < it.range + 80) || (circle && circle.r < 1700 && Math.hypot(circle.x - s.x, circle.y - s.y) < circle.r + it.range * 0.5);
+      const inTheWay = (st.fixed && Math.hypot(st.x - s.x, st.y - s.y) < range + 80) || (circle && circle.r < 1700 && Math.hypot(circle.x - s.x, circle.y - s.y) < circle.r + range * 0.5);
       if (!inTheWay) continue;
       let slot = -1, reach = 0;
       for (let i = 0; i < p.weapons.length; i++) { const def = W.WEAPONS[p.weapons[i].id]; if (def.bulletSpeed && def.range > reach && !def.pellets) { reach = def.range; slot = i; } }
-      if (slot < 0 || reach < it.range + 150) continue;                                // nothing that outranges it by enough
-      best = { s, slot, reach, keep: Math.min(reach - 60, it.range + 150), range: it.range, spot: null, spotAt: 0, hp: s.hp, progAt: now }; bd = d;
+      if (slot < 0 || reach < range + 150) continue;                                // nothing that outranges it by enough
+      best = { s, slot, reach, keep: Math.min(reach - 60, range + 150), range, spot: null, spotAt: 0, hp: s.hp, progAt: now }; bd = d;
     }
     // The same job as a moment ago: keep the firing spot we were walking to.
     const cur = this.siege;
@@ -626,7 +627,7 @@ Object.assign(Bot.prototype, {
   },
   doSiege() {
     const S = this.siege, p = this.p, now = this.now;
-    if (!S || !S.s.alive) { this.siege = null; this.redecide = true; return; }
+    if (!S || !this.world.automaticGuardRange(S.s)) { this.siege = null; this.redecide = true; return; }
     const s = S.s, d = this.dist(s) || 1;
     // Getting nowhere (no clear line from anywhere we can stand, or someone keeps patching it up): leave it for now.
     if (s.hp < S.hp - 4 || now - (S.ranAt || 0) > 1) { S.hp = s.hp; S.progAt = now; }   // (back at it after doing something else: the clock starts again)

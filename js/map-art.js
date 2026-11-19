@@ -183,6 +183,14 @@
     });
     g.fillStyle = '#4aa3dc';
     map.ponds.forEach(function (p) { if (!visible(p.x, p.y, p.r)) return; g.beginPath(); g.arc(p.x, p.y, p.r, 0, U.TAU); g.fill(); });
+    (map.militaryBases || []).forEach(function (base) {
+      g.fillStyle = '#687661';
+      g.fillRect(base.x - base.halfW, base.y - base.halfH, base.halfW * 2, base.halfH * 2);
+      g.fillStyle = '#555e55';
+      g.fillRect(base.x - base.halfW, base.y - base.halfH, base.halfW, base.halfH * 2);
+      g.strokeStyle = '#d6d5ac'; g.lineWidth = big ? 35 : 80;
+      g.strokeRect(base.x - base.halfW, base.y - base.halfH, base.halfW * 2, base.halfH * 2);
+    });
     map.buildings.forEach(function (b) {
       if (!visible(b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, b.h))) return;
       if (b.ruined) {
@@ -234,8 +242,9 @@
     if (big) {
       var townFont = Math.round(labelPx * (compact ? .72 : 1)), pad = Math.min(px * .085, 40 * dpr);
       g.font = 'bold ' + townFont + 'px Trebuchet MS, sans-serif'; g.textBaseline = 'middle';
-      map.towns.forEach(function (town) {
-        var label, original = labelPosition(town.name, town.x * k, town.y * k - 4 * dpr, townFont, pad);
+      map.towns.concat(map.militaryBases || []).forEach(function (town) {
+        var labelY = town.pingRadius ? (town.y - town.halfH) * k - townFont : town.y * k - 4 * dpr;
+        var label, original = labelPosition(town.name, town.x * k, labelY, townFont, pad);
         for (var attempt = 0; attempt < 15; attempt++) {
           var offset = attempt === 0 ? 0 : Math.ceil(attempt / 2) * (townFont + 4 * dpr) * (attempt % 2 ? -1 : 1);
           label = labelPosition(town.name, original.x, original.y + offset, townFont, pad);
@@ -310,11 +319,11 @@
         g.beginPath(); g.arc(r.x * k, r.y * k, r.r * k, 0, U.TAU); g.fill();
       });
     }
-    var dot = (big ? 4 : 1.5) * dpr;
     for (i = 0; i < st.length; i++) {
+      var dot = (st[i].militaryBase ? Math.min(big ? 4 : 1.5, 80 * k / dpr) : big ? 4 : 1.5) * dpr;
       var ready = st[i].cooldown <= 0;
       if (big) {
-        g.beginPath(); g.arc(st[i].x * k, st[i].y * k, dot + 1.5 * dpr, 0, U.TAU);
+        g.beginPath(); g.arc(st[i].x * k, st[i].y * k, dot + Math.min(dot / 2, 1.5 * dpr), 0, U.TAU);
         g.fillStyle = '#161c28'; g.fill();
       }
       g.fillStyle = ready ? '#5ee7ff' : '#ff7a8f';
@@ -347,6 +356,7 @@
         if (!opts.allVehicles && ids.length && !ids.some(function (id) { var rider = world.playerById(id); return rider && rider.team === p.team; })) return;
         var tracked = v.type === 'tank' || v.type === 'artillery';
         var carSize = (big ? (tracked ? 7.5 : 6) : (tracked ? 3.5 : 2.5)) * dpr;
+        if (v.militaryBase && !ids.length) carSize = Math.min(carSize, Math.max(.8 * dpr, v.r * k));
         vehicleGlyph(g,v,v.x*k,v.y*k,carSize,ids.length>0);
       });
       world.structures.forEach(function (st) {
@@ -420,6 +430,20 @@
       if (world.remote && p && p.hidden) return; // Rejoin sync precedes the first authoritative player snapshot.
       if (crate.tier === 'legendary' && crate.alive && crate.hp > 0) legendaryMarker(g, crate, k, px, big, dpr);
     });
+    if (p && world.militaryPingsFor) {
+      g.save(); g.lineWidth = (big ? 2 : 1.5) * dpr;
+      world.militaryPingsFor(p).forEach(function (contact) {
+        if (!visible(contact.x, contact.y, 20)) return;
+        var x = contact.x * k, y = contact.y * k, radius = (big ? 7 : 4) * dpr;
+        var color = contact.team === p.team ? '#73beff' : '#ff584b';
+        var pulse = (world.time % 1.5) / 1.5;
+        g.globalAlpha = 1 - pulse * .65; g.strokeStyle = color;
+        g.beginPath(); g.arc(x, y, radius * (1 + pulse), 0, U.TAU); g.stroke();
+        g.globalAlpha = 1; g.fillStyle = color; g.strokeStyle = '#282724';
+        g.beginPath(); g.arc(x, y, radius * .52, 0, U.TAU); g.fill(); g.stroke();
+      });
+      g.restore();
+    }
   }
 
   W.MapArt = { base: base, paintBase: paintBase, overlay: overlay, vehicleGlyph: vehicleGlyph };

@@ -250,11 +250,13 @@
 
   var TOKEN = '<svg class="token-icon" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="13" fill="#ffd23f" stroke="#b8860b" stroke-width="3"/>' +
     '<polygon points="16,7.5 18.2,13.6 24.5,13.8 19.5,17.7 21.3,24 16,20.3 10.7,24 12.5,17.7 7.5,13.8 13.8,13.6" fill="#fff2b0"/></svg>';
+  var CLASS_TOKEN = '<svg class="token-icon" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="13" fill="#ff9546" stroke="#85400f" stroke-width="3"/>' +
+    '<path d="m9 16 7-6 7 6m-14 6 7-6 7 6" fill="none" stroke="#fff0cb" stroke-width="3" stroke-linejoin="round"/></svg>';
   var KEY = '<svg class="key-icon" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><g fill="none" stroke-linecap="round" stroke-linejoin="round">' +
     '<path d="M14 16h14M23 16v5M27 16v4" stroke="#4b2a80" stroke-width="7"/><circle cx="9" cy="16" r="6" stroke="#4b2a80" stroke-width="7"/>' +
     '<path d="M14 16h14M23 16v5M27 16v4" stroke="#c9a2ff" stroke-width="3.5"/><circle cx="9" cy="16" r="6" stroke="#c9a2ff" stroke-width="3.5"/></g></svg>';
   var LOCK = '<svg class="lock-icon" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M10 14v-3a6 6 0 0 1 12 0v3" fill="none" stroke="currentColor" stroke-width="3"/>' +
     '<rect x="7" y="14" width="18" height="13" rx="3" fill="currentColor"/></svg>';
 
-  W.Icons = { classIcon: classIcon, weaponIcon: weaponIcon, itemIcon: itemIcon, itemImage: itemImage, TOKEN: TOKEN, KEY: KEY, LOCK: LOCK };
+  W.Icons = { classIcon: classIcon, weaponIcon: weaponIcon, itemIcon: itemIcon, itemImage: itemImage, TOKEN: TOKEN, CLASS_TOKEN: CLASS_TOKEN, KEY: KEY, LOCK: LOCK };
 }());

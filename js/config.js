@@ -163,7 +163,7 @@
     projectileSpeed: 1100, projectileRadius: 12, range: CONFIG.worldSize * 2, unlimitedRange: true, recoil: 90,
     explosion: { minDamage: 10, maxDamage: 200, radius: WEAPONS.grenade.explosion.radius * 0.9 },
     vehicleDamage: { humvee: { minDamage: 10, maxDamage: 500 }, tank: { minDamage: 10, maxDamage: 1000 } },
-    blurb: 'A straight-flying rocket with unlimited range. 10–200 blast damage to players, 10–500 to Humvees and 10–1000 to tanks. One rocket per 3-second reload; unlimited reserve. Blast radius is 10% smaller than a grenade.' };
+    blurb: 'A straight-flying rocket with unlimited range. 10–200 blast damage to players, 10–500 to Humvees and 10–1000 to tanks. Destroys hostile sentries in one blast. One rocket per 3-second reload with unlimited reserve. Blast radius is 10% smaller than a grenade.' };
   WEAPONS.shotgun3 = Object.assign({}, WEAPONS.shotgun2, { id: 'shotgun3', name: 'Shotgun III', damageNear: 500, damageFar: 50,
     tankDefensePenetration: 0.10, blurb: '50–500 base damage by distance, with one hit per target per blast. Five shells per reload.' });
   WEAPONS.dualrevolver = Object.assign({}, WEAPONS.revolver, { id: 'dualrevolver', name: 'Dual Heavy Revolvers', mag: 10, roundsPerShot: 2,
@@ -263,7 +263,11 @@
     mythic: { id: 'mythic', name: 'Mythic Crate', share: 0.02, tokens: [4, 6], armor: 0.05, key: 0.12, hp: 160,
       loot: { rare: 0.40, epic: 0.30, mythic: 0.20, legendary: 0.10 }, color: '#ff5a8a', edge: '#b02a58', dark: '#e0456f' },
     legendary: { id: 'legendary', name: 'Legendary Crate', share: 0, tokens: [6, 8], armor: 0.05, key: 0.15, hp: 200,
-      loot: { legendary: 1 }, color: '#ffb020', edge: '#b86a00', dark: '#e59a10' }
+      loot: { legendary: 1 }, color: '#ffb020', edge: '#b86a00', dark: '#e59a10' },
+    token: { id: 'token', name: 'Token Crate', share: 0, tokens: [7, 23], armor: 0, key: 0, hp: 120,
+      loot: {}, color: '#ffe344', edge: '#85630b', dark: '#d1a91c' },
+    classToken: { id: 'classToken', name: 'Class Token Crate', share: 0, tokens: [0, 0], armor: 0, key: 0, hp: 180,
+      loot: {}, color: '#ff8238', edge: '#843a11', dark: '#d65319' }
   };
   W.CRATE_ORDER = ['common', 'rare', 'epic', 'mythic', 'legendary'];
   W.TIERS = {
@@ -291,7 +295,8 @@
       blurb: '+15% movement speed for 20 s.' },
 
     firenade: { id: 'firenade', name: 'Molotov', tier: 'rare', kind: 'throw', fuse: 0, radius: G * 2, duration: 5, dps: 25, stack: 3, found: 1,
-      blurb: 'Bursts on landing: 25 damage per second for 5 s. Tundra: 75% less damage, half duration. Desert/Savannah: double damage and duration.' },
+      sentryDamageMul: 5,
+      blurb: 'Bursts on landing for 25 damage per second for 5 s. Deals 5× damage to enemy and neutral sentries. Tundra halves duration and cuts damage by 75%. Desert and savannah double both.' },
     shieldo: { id: 'shieldo', name: 'Shieldo Shieldo', tier: 'rare', kind: 'consume', effect: 'shieldo', immune: 1, reduce: 0.5, reduceFor: 5, stack: 3, found: 1,
       blurb: 'Immune to all weapons (not the storm) for 1 s, then 50% less damage for 5 s.' },
     firstaid: { id: 'firstaid', name: 'First Aid Kit', tier: 'rare', kind: 'consume', heal: 100, over: 15, stack: 3, found: 1,
@@ -472,10 +477,10 @@
       if (!CLASSES[o.to] || !CLASSES[o.from]) return { ok: false, reason: 'unknown' };
       var rel = Rules.relation(o.from, o.to);
       if (rel !== 'available') return { ok: false, reason: rel };
-      var cost = Rules.upgradeCostFor(o.to);
+      var useClassToken = o.classTokens > 0, cost = useClassToken ? 0 : Rules.upgradeCostFor(o.to);
       if (o.tokens < cost) return { ok: false, reason: 'tokens', need: cost - o.tokens, cost: cost };
       if (o.stationCooldown > 0 && o.keys < 1) return { ok: false, reason: 'cooldown' };
-      return { ok: true, useKey: o.stationCooldown > 0, cost: cost };
+      return { ok: true, useKey: o.stationCooldown > 0, useClassToken: useClassToken, cost: cost };
     },
     itemsOfTier: function (tier) {
       return W.ITEM_ORDER.filter(function (id) { return ITEMS[id].tier === tier; });

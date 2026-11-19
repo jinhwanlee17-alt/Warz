@@ -174,13 +174,14 @@ export class Bot {
     const half = viewHalf(this.W, p), blind = p.fx.flash > 0.5;
     const reveal = world.revealedEnemies(p);
     const revealed = reveal && reveal.length ? new Set(reveal.map((o) => o.id)) : null;
+    const basePings = new Set(world.militaryPingsFor(p).map(o => o.id));
     this.mates.length = 0;
     for (let i = 0; i < world.players.length; i++) {
       const o = world.players[i];
       if (o === p || !o.alive) continue;
       if (o.team === p.team) { this.mates.push(o); continue; }
       let rec = known.get(o.id);
-      const marked = !!revealed && revealed.has(o.id);
+      const marked = (!!revealed && revealed.has(o.id)) || basePings.has(o.id);
       let seen = !blind && canSee(this.W, cover, p, o, half, revealed);
       // Somebody we were already watching steps under leaves: the eyes stay on them.
       if (!seen && !blind && rec && rec.noticed && rec.visible && onlyLeaves(this.W, cover, p, o, half)) seen = true;
@@ -353,12 +354,13 @@ export class Bot {
     // wherever it reaches us; a bigger one (or one we have nothing to answer with) is a circle to stay out of.
     this.sentryFoe = null;
     for (const s of world.structures) {
-      if (s.kind !== 'sentry' || !s.alive || s.team === p.team) continue;
-      const it = this.W.ITEMS[s.item], d = Math.hypot(s.x - p.x, s.y - p.y);
-      if (d > it.range + 420) continue;
-      const inSight = d < it.range && world.sentryLineClear(s, p.x, p.y);
-      if (this.smallSentry(s) && this.gunFor(it.range) >= 0) { if (inSight && (!this.sentryFoe || d < this.dist(this.sentryFoe))) this.sentryFoe = s; }
-      else if (d >= it.range || inSight) add('t' + s.id, s.x, s.y, it.range + (now < this.guardMarginUntil ? 0 : 60), 0, 'sentry', true);
+      const range = world.automaticGuardRange(s);
+      if (!range || s.team === p.team) continue;
+      const d = Math.hypot(s.x - p.x, s.y - p.y);
+      if (d > range + 420) continue;
+      const inSight = d < range && world.sentryLineClear(s, p.x, p.y);
+      if (this.smallSentry(s) && this.gunFor(range) >= 0) { if (inSight && (!this.sentryFoe || d < this.dist(this.sentryFoe))) this.sentryFoe = s; }
+      else if (d >= range || inSight) add('t' + s.id, s.x, s.y, range + (now < this.guardMarginUntil ? 0 : 60), 0, 'sentry', true);
     }
     // Pick the escape: out of whatever we are standing in (or about to be standing in), most urgent first.
     let worst = null;

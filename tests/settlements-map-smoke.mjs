@@ -8,7 +8,7 @@ const totals = { houses: 0, ruined: 0, extra: { common: 0, rare: 0, epic: 0 } };
 const observed = { villages: new Set(), towns: new Set(), counts: new Set() };
 function overlaps(a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
 function footprint(town) { return { x: town.x - town.halfW, y: town.y - town.halfH, w: town.halfW * 2, h: town.halfH * 2 }; }
-for (const seed of [1, 2, 3, 7, 9, 42, 57, 991, 2024]) {
+for (const seed of [1, 2, 3, 4, 7, 9, 42, 57, 991, 2024]) {
   const map = W.MapGen.generate(seed, 2), villages = map.towns.filter(town => town.kind === 'village'),
     towns = map.towns.filter(town => town.kind === 'town');
   const signature = JSON.stringify(map);
@@ -20,15 +20,16 @@ for (const seed of [1, 2, 3, 7, 9, 42, 57, 991, 2024]) {
     seed + ': only four to six villages and exactly two towns spawn');
   t.check(map.towns.every((town, index) => map.towns.slice(index + 1).every(other => !overlaps(footprint(town), footprint(other)))),
     seed + ': all settlement footprints are separated');
-  t.check(map.buildings.every(b => b.style === 'house' && map.towns.some(town => town.id === b.settlement)),
+  const settlementBuildings = map.buildings.filter(b => b.militaryBase === undefined);
+  t.check(settlementBuildings.every(b => b.style === 'house' && map.towns.some(town => town.id === b.settlement)),
     seed + ': old settlements and stray houses are absent');
   t.check(map.buildings.every((b, index) => map.buildings.slice(index + 1).every(other => !overlaps(b, other))),
     seed + ': house footprints never overlap');
-  t.check(map.buildings.every(b => b.w >= 200 && b.w <= 280 && b.h >= 180 && b.h <= 240),
+  t.check(settlementBuildings.every(b => b.w >= 200 && b.w <= 280 && b.h >= 180 && b.h <= 240),
     seed + ': houses use compact rectangular footprints');
   const world = new W.World({ map, teams: true, storm: false });
   let entrancesClear = true;
-  for (const b of map.buildings) {
+  for (const b of settlementBuildings) {
     const crates = map.crates.filter(c => c.building === b.id);
     t.check(crates.length === 1 && crates[0].settlement === b.settlement && crates[0].x > b.x + W.MapGen.WALL &&
       crates[0].x < b.x + b.w - W.MapGen.WALL && crates[0].y > b.y + W.MapGen.WALL && crates[0].y < b.y + b.h - W.MapGen.WALL,
@@ -93,7 +94,7 @@ for (const seed of [1, 2, 3, 7, 9, 42, 57, 991, 2024]) {
     seed + ': settlement interiors stay clear of scattered terrain and upgrade stations');
   }
   const bonusCount = towns.filter(town => town.houseCount === 30).length, center = map.crates[map.legendaryCrateId];
-  t.check(map.crates.length === C.regularCrateCount + 1 + bonusCount && center.tier === 'legendary' &&
+  t.check(map.crates.filter(c => c.militaryBase === undefined).length === C.regularCrateCount + bonusCount && center.tier === 'legendary' &&
     center.x === map.size / 2 && center.y === map.size / 2 && center.legendaryDrops === undefined,
   seed + ': ordinary crate count and central four-item reward survive town bonuses');
   const vehicleIds = [].concat(map.vehicles, map.tanks, map.artillery, map.groundArtillery, map.settlementVehicles).map(v => v.id);

@@ -13,6 +13,7 @@
     return VEHICLE_ROLES[seat] || 'Passenger';
   }
   var BUFF_LABELS = {
+    baseLocal: 'Base alert · nearby players see your location', baseGlobal: 'Turret alert · everyone sees your location',
     command: 'Command boost · +25% damage, speed, fire rate',
     energy: 'Energy bar · +15% speed', speed: 'Speed potion · +15%', strength: 'Strength · +10% dmg', shield: 'Shield · −15% dmg taken', poison: 'Poisoned · −10 HP/s, slowed',
     invisible: 'Invisible', power: 'Power potion', immune: 'Immune', reduce: 'Shieldo · −50% dmg taken', deathImmune: 'Death immunity', radar: 'Radar',
@@ -32,7 +33,7 @@
   }
 
   function init() {
-    ['hud', 'hud-tokens', 'hud-token-count', 'hud-token-pips', 'hud-key-count', 'hud-upgrade-ready', 'hud-storm', 'hud-storm-text',
+    ['hud', 'hud-tokens', 'hud-token-count', 'hud-token-pips', 'hud-key-count', 'hud-class-tokens', 'hud-class-token-icon', 'hud-class-token-count', 'hud-upgrade-ready', 'hud-storm', 'hud-storm-text',
       'hud-lobby', 'hud-feed', 'minimap', 'hud-class-icon', 'hud-class-name', 'hud-class-tier', 'hud-hp-fill', 'hud-hp-text',
       'hud-stamina', 'hud-stamina-fill', 'hud-stamina-text', 'hud-prompt', 'hud-ammo', 'hud-ammo-max', 'hud-ammo-label', 'hud-reload',
       'hud-reload-fill', 'hud-slots', 'hud-banner', 'vignette', 'hud-token-icon', 'hud-key-icon', 'hud-keys', 'hud-team', 'hud-spectate',
@@ -43,6 +44,7 @@
     });
     el['hud-token-icon'].innerHTML = Icons.TOKEN;
     el['hud-key-icon'].innerHTML = Icons.KEY;
+    el['hud-class-token-icon'].innerHTML = Icons.CLASS_TOKEN;
     refreshHints();
   }
 
@@ -86,6 +88,10 @@
     if ((world.reveal[p.team] || 0) > 0) parts.push('drone:' + Math.ceil(world.reveal[p.team]));
     if (p.inSnow && p.alive) parts.push(p.snowFrozen ? 'frozen:' : 'snow:');
     if (p.mount) parts.push('mount:');
+    var signal = p.alive && p.baseSignal;
+    if (signal && (!signal.until || signal.until > world.time)) {
+      parts.push((signal.global ? 'baseGlobal:' : 'baseLocal:') + (signal.until ? Math.ceil(signal.until - world.time) : ''));
+    }
     var pyroBurn = world.pyroBurnTime ? world.pyroBurnTime(p) : p.pyroBurning || 0;
     if (pyroBurn > 0 && p.alive) parts.push('pyroburn:' + Math.ceil(pyroBurn));
     var key = parts.join('|');
@@ -243,8 +249,10 @@
     set('pipsc', el['hud-token-pips'], 'class', 'pips' + (upgradeCost > 20 ? ' is-many' : ''));
     set('pipsh', el['hud-token-pips'], 'hidden', upgradeCost === 0);
     set('keys', el['hud-key-count'], 'text', String(p.keys));
+    set('classTokens', el['hud-class-token-count'], 'text', String(p.classTokens || 0));
+    set('classTokensVisible', el['hud-class-tokens'], 'hidden', !p.classTokens);
     var canUpgrade = W.Rules.childClasses(p.classId).length > 0;
-    set('ready', el['hud-upgrade-ready'], 'hidden', !(canUpgrade && p.tokens >= upgradeCost && p.alive && !p.downed));
+    set('ready', el['hud-upgrade-ready'], 'hidden', !(canUpgrade && (p.classTokens > 0 || p.tokens >= upgradeCost) && p.alive && !p.downed));
 
     var storm = world.storm, stormText = 'No storm', stormClass = 'pill';
     if (storm) {
@@ -382,12 +390,14 @@
       (world.canTake(p, pickup.item) ? '' : ' · full · ' + dropKey + ' drop held item');
     else if (recoverable) prompt = '<kbd>' + key + '</kbd> Pick up team rock' + (world.canTake(p, 'rock') ? '' : ' · full · ' + dropKey + ' drop held item');
     else if (vehicleSeat) prompt = '<kbd>' + key + '</kbd> ' + (vehicleSeat.vehicle.fixed ? 'Operate ' + vehicleName(vehicleSeat.vehicle) : vehicleSeat.seat === 'driver' ? 'Drive ' + vehicleName(vehicleSeat.vehicle) : vehicleSeat.vehicle.type === 'tank' ? 'Enter Tank · ' + vehicleRole(world, vehicleSeat.vehicle, vehicleSeat.seat) : vehicleSeat.seat === 'gunner' ? 'Use Humvee Turret I' : 'Ride Humvee · ' + VEHICLE_ROLES[vehicleSeat.seat]);
-    else if (mountable) prompt = '<kbd>' + key + '</kbd> Mount the ' + esc(ITEMS[mountable.item].name);
+    else if (mountable) prompt = '<kbd>' + key + '</kbd> Mount the ' + esc(ITEMS[mountable.item].name) +
+      (mountable.aiRider ? ' · reveals you island-wide until you leave the base' : '');
     else if (p.alive && p.fullNoteT > 0) prompt = 'Items full · select an item and ' + dropKey + ' drop its stack';
     else if (p.alive && p.dropT <= 0 && p.nearStation) {
       var st = p.nearStation;
       if (!canUpgrade) prompt = '<kbd>' + key + '</kbd> Upgrade Station · maximum class level';
       else if (st.cooldown > 0) prompt = '<kbd>' + key + '</kbd> Upgrade Station recharging · ' + U.formatTime(st.cooldown) + (p.keys > 0 ? ' · you have a station key' : '');
+      else if (p.classTokens > 0) prompt = '<kbd>' + key + '</kbd> Open Upgrade Station · free class upgrade';
       else if (p.tokens >= upgradeCost) prompt = '<kbd>' + key + '</kbd> Open Upgrade Station · upgrade ready!';
       else prompt = '<kbd>' + key + '</kbd> Open Upgrade Station · ' + p.tokens + '/' + upgradeCost + ' tokens';
     }

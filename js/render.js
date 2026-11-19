@@ -266,6 +266,16 @@
 
     this.drawOcean(ctx, v, t);
     this.drawIsland(ctx, v, t, map);
+    (map.militaryBases || []).forEach(function (base) {
+      if (!visible(v, base.x, base.y, Math.max(base.halfW, base.halfH))) return;
+      var x = base.x - base.halfW, y = base.y - base.halfH, w = base.halfW * 2, h = base.halfH * 2;
+      ctx.fillStyle = '#676e60'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#565c54'; ctx.fillRect(x, y, base.halfW, h);
+      ctx.strokeStyle = '#adb19b'; ctx.lineWidth = 10; ctx.strokeRect(x + 5, y + 5, w - 10, h - 10);
+      ctx.save(); ctx.textAlign = 'center'; ctx.font = 'bold 32px ' + FONT; ctx.fillStyle = '#dce0ca';
+      ctx.fillText(base.name.toUpperCase(), base.x, y + 160);
+      ctx.restore();
+    });
     for (i = 0; i < map.drops.length; i++) if (visible(v, map.drops[i].x, map.drops[i].y, 140)) this.drawDrop(ctx, map.drops[i], t);
     for (i = 0; i < map.buildings.length; i++) {
       var b = map.buildings[i];
@@ -500,7 +510,7 @@
     if (b.ruined) { this.drawBuildingDebris(ctx, b); return; }
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fillRect(b.x + 6, b.y + 8, b.w, b.h);
-    ctx.fillStyle = PAL.floor;
+    ctx.fillStyle = b.style === 'barracks' ? '#808773' : PAL.floor;
     ctx.fillRect(b.x, b.y, b.w, b.h);
     ctx.strokeStyle = PAL.floorLine;
     ctx.lineWidth = 2;
@@ -607,7 +617,7 @@
         ctx.fillStyle = '#c2c5bd';
         for (var crenel = 18; crenel < w - 12; crenel += 48) { ctx.fillRect(x + crenel, y - 5, 22, 24); ctx.fillRect(x + crenel, y + h - 19, 22, 24); }
         for (var merlon = 30; merlon < h - 12; merlon += 48) { ctx.fillRect(x - 5, y + merlon, 24, 22); ctx.fillRect(x + w - 19, y + merlon, 24, 22); }
-      } else if (b.kind === 'military-base') {
+      } else if (b.style === 'barracks' || b.kind === 'military-base') {
         ctx.strokeStyle = '#ded8b0'; ctx.lineWidth = 6;
         ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, 32, 0, TAU); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(x + w / 2 - 18, y + h / 2); ctx.lineTo(x + w / 2 + 18, y + h / 2); ctx.moveTo(x + w / 2, y + h / 2 - 18); ctx.lineTo(x + w / 2, y + h / 2 + 18); ctx.stroke();
@@ -698,10 +708,30 @@
     }
   };
 
+  // Both the dropped currency and its supply crate carry the same stamped coin.
+  function drawCoin(ctx, classToken) {
+    ctx.beginPath(); ctx.arc(0, 0, 12, 0, TAU);
+    ctx.fillStyle = classToken ? '#ff9546' : '#ffd23f'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = classToken ? '#85400f' : '#9f700c'; ctx.stroke();
+    if (classToken) {
+      ctx.strokeStyle = '#fff0cb'; ctx.lineWidth = 2.6; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (var y = -2; y <= 3; y += 5) { ctx.moveTo(-6, y + 3); ctx.lineTo(0, y - 2); ctx.lineTo(6, y + 3); }
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#fff2b0'; ctx.beginPath();
+      for (var i = 0; i < 10; i++) {
+        var a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 3.2 : 7.6;
+        if (i) ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
   Renderer.prototype.drawPickup = function (ctx, pk, t) {
     var bob = Math.sin(t * 3 + pk.id) * 3, x = pk.x, y = pk.y + bob;
     var it = pk.type === 'item' && pk.item ? W.ITEMS[pk.item] : null, tier = it ? W.TIERS[it.tier] : null;
-    var glowColor = pk.type === 'token' ? '#ffd646' : pk.type === 'key' ? '#be8cff' : pk.type === 'armor' ? '#9cc6ff' : tier ? tier.color : '#ffffff';
+    var glowColor = pk.type === 'token' ? '#ffd646' : pk.type === 'classToken' ? W.CRATES.classToken.color : pk.type === 'key' ? '#be8cff' : pk.type === 'armor' ? '#9cc6ff' : tier ? tier.color : '#ffffff';
     var big = tier && (it.tier === 'mythic' || it.tier === 'legendary');
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.beginPath(); ctx.ellipse(pk.x, pk.y + (it ? 24 : 14), it ? 23 : 11, it ? 7 : 4, 0, 0, TAU); ctx.fill();
@@ -739,21 +769,12 @@
       ctx.restore();
       return;
     }
-    if (pk.type === 'token') {
+    if (pk.type === 'token' || pk.type === 'classToken') {
       var squash = 0.75 + 0.25 * Math.abs(Math.cos(t * 2.2 + pk.id));
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(squash, 1);
-      ctx.beginPath(); ctx.arc(0, 0, 12, 0, TAU);
-      ctx.fillStyle = '#ffd23f'; ctx.fill();
-      ctx.lineWidth = 3; ctx.strokeStyle = '#b8860b'; ctx.stroke();
-      ctx.fillStyle = '#fff2b0';
-      ctx.beginPath();
-      for (var i = 0; i < 8; i++) {
-        var a = -Math.PI / 2 + i * Math.PI / 4, r = i % 2 ? 2.6 : 6.5;
-        if (i) ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); else ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-      }
-      ctx.closePath(); ctx.fill();
+      drawCoin(ctx, pk.type === 'classToken');
       ctx.restore();
     } else {
       ctx.save();
@@ -789,7 +810,10 @@
     ctx.strokeStyle = tier.dark; ctx.lineWidth = 3;
     ctx.strokeRect(-h + 7, -h + 7, s - 14, s - 14);
     ctx.beginPath(); ctx.moveTo(-h + 9, -h + 9); ctx.lineTo(h - 9, h - 9); ctx.moveTo(h - 9, -h + 9); ctx.lineTo(-h + 9, h - 9); ctx.stroke();
-    if (rare) {
+    if (cr.tier === 'token' || cr.tier === 'classToken') {
+      ctx.scale(s / 40, s / 40);
+      drawCoin(ctx, cr.tier === 'classToken');
+    } else if (rare) {
       // A white gem on the lid: the rarer the crate, the more facets.
       var n = cr.tier === 'rare' ? 4 : cr.tier === 'epic' ? 5 : cr.tier === 'mythic' ? 6 : 8;
       ctx.beginPath();
@@ -1383,7 +1407,7 @@
   Renderer.prototype.drawEmplacement = function (ctx, s, tier, mine) {
     var r = s.r, sentry = s.kind === 'sentry', item = W.ITEMS[s.item], variant = item && item.sentryVariant;
     var iv = variant && W.SENTRY_IV && W.SENTRY_IV[variant], level = iv ? 4 : /3$/.test(s.item) ? 3 : /2$/.test(s.item) ? 2 : 1;
-    var teamColor = mine ? '#8cff6a' : s.neutral && !sentry ? '#f2c230' : '#ff5a4f', edge = '#172130';
+    var teamColor = mine ? '#8cff6a' : s.neutral && !sentry && !s.aiRider ? '#f2c230' : '#ff5a4f', edge = '#172130';
     var visualScale = iv && iv.visualScale || 1;
     if (visualScale !== 1) { ctx.save(); ctx.scale(visualScale, visualScale); }
     ctx.fillStyle = 'rgba(0,0,0,0.24)'; ctx.beginPath(); ctx.ellipse(4, 7, r + 10, r + 6, 0, 0, TAU); ctx.fill();
@@ -1449,6 +1473,15 @@
       ctx.fillStyle = '#253043'; ctx.fill(); ctx.stroke();
       ctx.strokeStyle = '#b8c8d6'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(-r * 0.4, -r * 0.6); ctx.lineTo(-r * 0.4, r * 0.6); ctx.stroke();
+      if (s.aiRider && !s.mounted) {
+        // An olive helmet and red visor distinguish the automated rider from an empty seat.
+        ctx.fillStyle = '#687751'; ctx.strokeStyle = edge; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(-r * 0.36, 0, r * 0.43, r * 0.51, 0, 0, TAU); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#212c32';
+        roundRect(ctx, -r * 0.31, -r * 0.39, r * 0.29, r * 0.78, 4); ctx.fill();
+        ctx.fillStyle = '#ff6556';
+        roundRect(ctx, -r * 0.19, -r * 0.26, 3, r * 0.52, 1.5); ctx.fill();
+      }
       ctx.restore();
     }
     // Rank lights sit along the back of the chassis, apart from the weapon.
@@ -1779,10 +1812,10 @@
         ctx.fillStyle = k > 0.5 ? '#7ee05c' : k > 0.25 ? '#ffd23f' : '#ff5a4f'; roundRect(ctx, s.x - bw / 2, barY + 2, Math.max(2, bw * k), 5, 2.5); ctx.fill();
       }
       if (it && s.kind !== 'rock' && s.kind !== 'teleporter') {
-        var label = s.neutral && s.kind === 'turret' ? 'Neutral ' + it.name : it.name;
+        var label = s.aiRider ? it.name + (s.mounted ? '' : ' · AI gunner') : s.neutral && s.kind === 'turret' ? 'Neutral ' + it.name : it.name;
         ctx.font = '13px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,22,30,0.8)'; ctx.strokeText(label, s.x, s.y + (s.r + 24) * visualScale);
-        ctx.fillStyle = mine ? '#8cff6a' : s.neutral && s.kind === 'turret' ? '#f2c230' : '#ffb3ad'; ctx.fillText(label, s.x, s.y + (s.r + 24) * visualScale);
+        ctx.fillStyle = mine ? '#8cff6a' : s.neutral && s.kind === 'turret' && !s.aiRider ? '#f2c230' : '#ffb3ad'; ctx.fillText(label, s.x, s.y + (s.r + 24) * visualScale);
       }
     }
   };

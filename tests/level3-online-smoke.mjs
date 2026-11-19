@@ -15,8 +15,9 @@ const match = new Match({ W: ServerW, id: 'level3-check', seed: 23, mode: 'solo'
 const [p, foe] = match.players, world = match.world;
 function clear(world) {
   for (const key of ['rocks', 'trees', 'buildings', 'crates', 'pickups', 'ponds']) world.map[key] = [];
-  // Isolate player construction from the island's pre-existing settlement defenses.
+  // Isolate player construction from the island's pre-existing defenses.
   world.map.settlementStructures = []; world.map.settlementVehicles = [];
+  world.map.militaryStructures = []; world.map.militaryVehicles = []; world.map.militaryBases = [];
   world.structures = [];
   world.solids = new W.U.SpatialHash(256);
   world.vehicles.forEach((v, i) => { v.x = 2000 + i * 300; v.y = 2000; });
@@ -95,12 +96,34 @@ try {
   foe.x = tank.x + tank.r + 20; foe.y = tank.y;
   t.check(world.enterVehicle(foe, tank, 'driver'), 'opponent enters a tank in sentry range');
   connect(p);
-  const hullHp = tank.hp, crewHp = foe.hp; s.cooldown = 0;
-  world.updateSentry(s, 0.05);
+  const hullHp = tank.hp, crewHp = foe.hp;
+  // The earlier grenade destroyed the constructed sentry. Place a fresh one for the hull check.
+  const tankGuard = world.addStruct({ kind: s.kind, item: s.item, x: s.x, y: s.y, r: s.r, owner: p.id, team: p.team, hp: s.maxHp, maxHp: s.maxHp });
+  world.updateSentry(tankGuard, 0.05);
   const events = world.events.splice(0); match.sendSnapshots(events);
   t.equal(tank.hp, hullHp - ServerW.ITEMS.sentry.damage * .25, 'sentry damages occupied enemy tank hull with75% resistance');
   t.equal(foe.hp, crewHp, 'tank occupants retain their personal health');
   t.equal(state.world.vehicleById(tank.id).hp, tank.hp, 'sentry hull damage reaches client vehicle state');
   t.check(state.world.events.some(e => e.type === 'sentry-shot'), 'sentry shot effect also reaches the client');
+  // The pickup, reconnect snapshot and purchase all use authoritative wallet state.
+  world.setClass(p, 'armorcrew', true); p.x = station.x; p.y = station.y; p.tokens = 0; p.nearStation = station; station.cooldown = 0;
+  conn = connect(p);
+  match.onMessage(conn, JSON.stringify({ t: 'upgrade', cls: 'engineer', classTokens: 10 }));
+  t.check(!responses.at(-1).ok && !p.classTokens, 'upgrade packet cannot supply a class token');
+  world.crateLoot({ tier: 'classToken', x: p.x, y: p.y }, p);
+  const token = world.map.pickups.at(-1);
+  t.check(world.collect(p, token), 'class token is collected on the server');
+  match.sendSnapshots(world.events.splice(0));
+  t.equal(state.me.classTokens, 1, 'owner receives class token from an orange crate');
+  conn = connect(p, true);
+  t.equal(state.me.classTokens, 1, 'class token survives reconnection');
+  t.check(upgrade(conn, 'engineer').usedClassToken, 'eligible level-three upgrade accepts a single class token with zero currency');
+  match.sendSnapshots(world.events.splice(0));
+  t.check(state.me.classId === 'engineer' && !state.me.classTokens && !state.me.tokens, 'client sees the upgraded class and cleared balance');
+  world.setClass(p, 'armorcrew', true); station.cooldown = 0;
+  world.collect(p, world.spawnPickup('classToken', p.x, p.y, 1, false));
+  upgrade(conn, 'shieldoperator');
+  match.sendSnapshots(world.events.splice(0));
+  t.check(state.me.classId === 'shieldoperator' && !state.me.classTokens, 'a pickup and redemption delivered together leave no extra credit on the client');
 } finally { match.destroy(); }
 t.done();

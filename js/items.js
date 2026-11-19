@@ -449,14 +449,23 @@
       z.tick -= dt;
       if (z.tick > 0) continue;
       z.tick += FIRE_TICK;
+      var damage = z.dps * FIRE_TICK;
       for (j = 0; j < players.length; j++) {
         p = players[j];
         if (!p.alive || p.vehicle || p.dropT > 0 || (p.id !== z.owner && z.team !== null && z.team !== undefined && p.team === z.team)) continue;
         inside = Math.hypot(p.x - z.x, p.y - z.y) - p.r * 0.5 < z.r;
-        if (inside) this.damagePlayer(p, z.dps * FIRE_TICK, z.owner, 'fire', p.x, p.y - p.r);
+        if (inside) this.damagePlayer(p, damage, z.owner, 'fire', p.x, p.y - p.r);
       }
-      if (this.damageVehiclesInArea) this.damageVehiclesInArea(z.x, z.y, z.r, z.dps * FIRE_TICK, z.owner, 'fire', { team: z.team });
-      this.damageFoliageInArea(z.x, z.y, z.r, z.dps * FIRE_TICK, z.owner, 'fire');
+      if (this.damageVehiclesInArea) this.damageVehiclesInArea(z.x, z.y, z.r, damage, z.owner, 'fire', { team: z.team });
+      this.damageFoliageInArea(z.x, z.y, z.r, damage, z.owner, 'fire');
+      // Damage can remove a sentry from the array, so work backward.
+      for (j = this.structures.length - 1; j >= 0; j--) {
+        var sentry = this.structures[j];
+        if (sentry.kind !== 'sentry' || (z.team != null && sentry.team === z.team)) continue;
+        if (Math.hypot(sentry.x - z.x, sentry.y - z.y) < z.r + sentry.r) {
+          this.damageStruct(sentry, damage * ITEMS.firenade.sentryDamageMul, z.owner, sentry.x, sentry.y - sentry.r, 'fire');
+        }
+      }
     }
     this.zones = out;
     for (j = 0; j < players.length; j++) {
@@ -493,12 +502,13 @@
   // ---------------------------------------------------------------- structures: rock, turret, sentry, teleporter
   World.prototype.initSettlementStructures = function () {
     var self = this;
-    (this.map.settlementStructures || []).forEach(function (seed, index) {
+    (this.map.settlementStructures || []).concat(this.map.militaryStructures || []).forEach(function (seed, index) {
       var item = ITEMS[seed.item];
       if (!item || (item.struct !== 'sentry' && item.struct !== 'turret')) return;
       self.addStruct({ id: index + 1, kind: item.struct, item: item.id, x: seed.x, y: seed.y,
         r: item.radius || W.STRUCT_RADIUS[item.struct], owner: 0, team: null, hp: item.hp, maxHp: item.hp,
-        angle: seed.angle || 0, neutral: true, seeded: true, settlement: seed.settlement });
+        angle: seed.angle || 0, neutral: true, seeded: true, settlement: seed.settlement,
+        militaryBase: seed.militaryBase, guardRole: seed.guardRole, aiRider: seed.aiRider });
     });
   };
   World.prototype.structById = function (id) {
@@ -559,6 +569,11 @@
     };
     s.neutral = !!o.neutral; s.seeded = !!o.seeded;
     s.settlement = o.settlement === undefined ? null : o.settlement;
+    if (o.militaryBase) {
+      s.militaryBase = o.militaryBase;
+      s.guardRole = o.guardRole;
+      s.aiRider = !!o.aiRider;
+    }
     if (o.id) this.nextStructId = Math.max(this.nextStructId, o.id + 1);
     this.structures.push(s);
     if (s.kind !== 'teleporter') {
@@ -595,7 +610,8 @@
       if (m && m.alive) { this.damagePlayer(m, amount, sourceId, cause || 'turret', hx, hy); return; }
     }
     var src = sourceId ? this.playerById(sourceId) : null;
-    amount *= this.outgoingClassDamageMul(src);
+    if (s.kind === 'sentry' && (cause === 'rpg' || cause === 'sentry-rockets')) amount = s.hp;
+    else amount *= this.outgoingClassDamageMul(src);
     s.hp -= amount;
     s.shake = 1;
     if (src) src.stats.damage += amount;
@@ -620,7 +636,8 @@
     var s = this.structById(m.id);
     if (m.op === 'add' && !s) {
       return this.addStruct({ id: m.id, kind: m.k, item: m.it, x: m.x, y: m.y, r: m.r, owner: m.o, team: m.tm, hp: m.hp, maxHp: m.mhp, angle: m.a, mounted: m.m, pair: m.pr,
-        neutral: m.nt, seeded: m.seeded, settlement: m.settlement });
+        neutral: m.nt, seeded: m.seeded, settlement: m.settlement,
+        militaryBase: m.militaryBase, guardRole: m.guardRole, aiRider: m.aiRider });
     }
     if (!s) return null;
     if (m.nt !== undefined) s.neutral = !!m.nt;
@@ -690,6 +707,7 @@
     if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     p.mount = s.id; s.mounted = p.id;
     p.x = s.x; p.y = s.y; p.vx = p.vy = p.ox = p.oy = 0; p.held = -1; p.scoping = false; p.shieldUp = false; p.sprinting = false; p.nearStation = null; p.wantsRevive = false;
+    if (s.militaryBase) this.updateBaseSignal(p);
     var w = p.weapons[p.slot];
     if (w && w.reloading) { w.reloading = false; w.reloadT = 0; }
     this.emit({ type: 'mounted', player: p, struct: s });
@@ -756,20 +774,31 @@
     s.flash = 1;
     s.angle = a;
   };
+  World.prototype.automaticGuardRange = function (s) {
+    if (!s.alive) return 0;
+    if (s.kind === 'sentry') return ITEMS[s.item].range;
+    return s.aiRider && !s.mounted ? ITEMS.sentry3.range : 0;
+  };
   World.prototype.updateSentry = function (s, dt) {
-    var it = ITEMS[s.item], target = null, targetCrate = false, targetVehicle = false, bd = it.range;
+    var it = ITEMS[s.item], target = null, targetCrate = false, targetVehicle = false;
+    var bd = this.automaticGuardRange(s);
+    if (this.remote || !bd) return;
     s.cooldown -= dt;
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
       if (!p.alive || p.vehicle || p.dropT > 0 || p.fx.invisible > 0 || (s.team !== null && p.team === s.team)) continue;
-      var d = Math.hypot(p.x - s.x, p.y - s.y) || 1;
+      var dx = p.x - s.x, dy = p.y - s.y;
+      if (Math.abs(dx) > bd || Math.abs(dy) > bd) continue;
+      var d = Math.hypot(dx, dy) || 1;
       if (d < bd && this.sentryLineClear(s, p.x, p.y, null, null, p.mount ? this.structById(p.mount) : null)) { bd = d; target = p; }
     }
     // Vehicle hulls protect their occupants, so target the occupied hull itself.
     // A passenger's invisibility does not hide a tank or Humvee.
     for (var vi = 0; vi < (this.vehicles || []).length; vi++) {
-      var v = this.vehicles[vi], team = this.vehicleTeam(v);
-      if (v.wreck || !(v.hp > 0) || team === null || (s.team !== null && team === s.team)) continue;
+      var v = this.vehicles[vi];
+      if (v.wreck || !(v.hp > 0) || Math.abs(v.x - s.x) > bd + v.r || Math.abs(v.y - s.y) > bd + v.r) continue;
+      var team = this.vehicleTeam(v);
+      if (team === null || (s.team !== null && team === s.team)) continue;
       var dv = Math.max(0, Math.hypot(v.x - s.x, v.y - s.y) - v.r);
       if (dv < bd && this.sentryLineClear(s, v.x, v.y, null, v.id)) { bd = dv; target = v; targetVehicle = true; }
     }
@@ -797,13 +826,13 @@
     var distance = Math.hypot(tx - s.x, ty - s.y) || 1;
     var x = s.x + (tx - s.x) / distance * (s.r + 2), y = s.y + (ty - s.y) / distance * (s.r + 2);
     if (!this.lineClear(x, y, tx, ty, targetMount || s, false, vehicleId && this.vehicleById ? this.vehicleById(vehicleId) : null)) return false;
-    for (var i = 0; i < this.map.crates.length; i++) {
-      var c = this.map.crates[i];
-      if (!c.alive || c === targetCrate) continue;
-      var hit = U.segRect(x, y, tx, ty, c.x - c.size / 2, c.y - c.size / 2, c.size, c.size);
-      if (hit >= 0 && hit < 0.999) return false;
-    }
-    return true;
+    var clear = true;
+    this.solids.query(Math.min(x, tx), Math.min(y, ty), Math.max(x, tx), Math.max(y, ty), function (s) {
+      if (!clear || !s.crate || !s.crate.alive || s.crate === targetCrate) return;
+      var hit = U.segRect(x, y, tx, ty, s.x, s.y, s.w, s.h);
+      if (hit >= 0 && hit < 0.999) clear = false;
+    });
+    return clear;
   };
   World.prototype.sentryTracer = function (s, tx, ty) {
     this.particles.push({ kind: 'tracer', x: s.x, y: s.y, tx: tx, ty: ty, vx: 0, vy: 0, life: 0.09, max: 0.09, size: 3, color: '#ff5a4f', drag: 0 });
@@ -941,7 +970,7 @@
       s.age += dt;
       s.shake = Math.max(0, s.shake - dt * 5);
       s.flash = Math.max(0, s.flash - dt * 9);
-      if (!this.remote && s.alive && s.kind === 'sentry') this.updateSentry(s, dt);
+      if (!this.remote && (s.kind === 'sentry' || s.aiRider)) this.updateSentry(s, dt);
     }
     this.updateZones(dt);
     this.updateStrikes(dt);
@@ -971,7 +1000,15 @@
   // ---------------------------------------------------------------- crate loot
   World.prototype.crateLoot = function (c, src) {
     var tier = CRATES[c.tier] || CRATES.common, rng = this.rng, t;
+    if (tier.id === 'classToken') {
+      this.spawnPickup('classToken', c.x, c.y, 1, true);
+      return { tokens: 0, classTokens: 1, item: null };
+    }
     var tokens = Rules.crateTokens(tier.id, rng.next());
+    if (tier.id === 'token') {
+      this.spawnPickup('token', c.x, c.y, tokens, true);
+      return { tokens: tokens, item: null };
+    }
     for (t = 0; t < tokens; t++) this.spawnPickup('token', c.x, c.y, 1, true);
     if (rng.next() < tier.armor) this.spawnPickup('armor', c.x, c.y, 1, true);
     if (rng.next() < tier.key) this.spawnPickup('key', c.x, c.y, 1, true);

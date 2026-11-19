@@ -35,11 +35,11 @@
   World.prototype.initVehicles = function () {
     var self = this;
     this.tankShells = []; this.nextTankShellId = 1;
-    this.vehicles = this.demo ? [] : (this.map.vehicles || []).concat(this.map.tanks || [], this.map.artillery || [], this.map.groundArtillery || [], this.map.settlementVehicles || []).map(function (s, i) {
+    this.vehicles = this.demo ? [] : (this.map.vehicles || []).concat(this.map.tanks || [], this.map.artillery || [], this.map.groundArtillery || [], this.map.settlementVehicles || [], this.map.militaryVehicles || []).map(function (s, i) {
       var tank = s.type === 'tank', artillery = s.type === 'artillery', def = W.vehicleDef(s);
       return { id: s.id || i + 1, x: s.x, y: s.y, vx: 0, vy: 0, angle: s.angle || 0,
         type: artillery ? 'artillery' : tank ? 'tank' : 'humvee', fixed: artillery && !!s.fixed, r: def.radius, hp: def.hp, maxHp: def.hp, wreck: false, armed: tank || (!artillery && (s.armed === true || (self.teams && i < 2))),
-        settlement: s.settlement === undefined ? null : s.settlement,
+        settlement: s.settlement === undefined ? null : s.settlement, militaryBase: s.militaryBase || null,
         seats: { driver: 0, gunner: 0, rearLeft: 0, rearRight: 0 }, gunAngle: s.angle || 0,
         cannonAngle: s.angle || 0, cannonCooldown: 0, cannonAmmo: 1, cannonMaxAmmo: 1, cannonReload: 0, cannonUpgraded: false,
         cannonFlash: 0, mgAmmo: tank ? T.mgMagazine : 0, mgReload: 0,
@@ -466,9 +466,9 @@
     for (var i = 0; i < list.length; i++) {
       var v = list[i];
       if ((this.remote && v.hidden) || v.id === p.vehicleCollider) continue;
-      var dx = p.x - v.x, dy = p.y - v.y, d = Math.hypot(dx, dy), min = p.r + v.r;
-      if (d >= min) continue;
-      var angle = d < 0.0001 ? 0 : Math.atan2(dy, dx), spot = null;
+      var dx = p.x - v.x, dy = p.y - v.y, distanceSq = dx * dx + dy * dy, min = p.r + v.r;
+      if (distanceSq >= min * min) continue;
+      var angle = distanceSq < 1e-8 ? 0 : Math.atan2(dy, dx), spot = null;
       // The nearest radial push can point through a wall when a vehicle pins a body against it.
       // Find a clear exit around the hull and verify the whole displacement against terrain.
       for (var ring = 0; ring < 4 && !spot; ring++) for (var turn = 0; turn < 24; turn++) {
@@ -504,8 +504,9 @@
       if (v.wreck) continue;
       var def = W.vehicleDef(v), maxSpeed = this.vehicleMaxSpeed(v), speed = Math.min(maxSpeed, Math.hypot(v.x - oldX, v.y - oldY) / dt);
       for (var j = 0; j < this.players.length; j++) {
-        var p = this.players[j], contact = Math.hypot(p.x - v.x, p.y - v.y) <= v.r + p.r + 12;
-        if (!contact) delete v.contacts[p.id];
+        var p = this.players[j], dx = p.x - v.x, dy = p.y - v.y, reach = v.r + p.r + 12;
+        var contact = dx * dx + dy * dy <= reach * reach;
+        if (!contact && v.contacts[p.id]) delete v.contacts[p.id];
         if (!p.alive || p.dropT > 0 || p.vehicle) continue;
         var hit = speed > 1 && U.segCircle(oldX, oldY, v.x, v.y, p.x, p.y, v.r + p.r) >= 0;
         if (hit && !v.contacts[p.id] && !(v.ramUntil[p.id] > this.time)) {

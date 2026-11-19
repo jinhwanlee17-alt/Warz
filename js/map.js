@@ -170,6 +170,97 @@
       y: (part === 1 || part === 7 ? top + r : bottom - r) + Math.sin(angle) * r };
   }
 
+  // Centerlines and half-widths of the three angled rectangles on the annotated map.
+  var MILITARY_ZONES = [
+    { id: 'north', x1: .397, y1: .215, x2: .744, y2: .255, halfWidth: .044 },
+    { id: 'east', x1: .708, y1: .356, x2: .667, y2: .644, halfWidth: .047 },
+    { id: 'southwest', x1: .349, y1: .484, x2: .489, y2: .742, halfWidth: .043 }
+  ];
+  function settlementInMilitaryZone(town, zone, size) {
+    var dx = zone.x2 - zone.x1, dy = zone.y2 - zone.y1, length = Math.hypot(dx, dy);
+    var ux = dx / length, uy = dy / length, half = length * size / 2, width = zone.halfWidth * size;
+    var x = town.x - (zone.x1 + zone.x2) * size / 2, y = town.y - (zone.y1 + zone.y2) * size / 2;
+    // Separating-axis test of the complete town footprint against the drawn rectangle.
+    return Math.abs(x) <= town.halfW + Math.abs(ux) * half + Math.abs(uy) * width &&
+      Math.abs(y) <= town.halfH + Math.abs(uy) * half + Math.abs(ux) * width &&
+      Math.abs(x * ux + y * uy) <= half + town.halfW * Math.abs(ux) + town.halfH * Math.abs(uy) &&
+      Math.abs(y * ux - x * uy) <= width + town.halfW * Math.abs(uy) + town.halfH * Math.abs(ux);
+  }
+  function militaryBase(x, y, zone, big, size) {
+    var center = zone === 'center';
+    return { id: center ? 1 : 2, zone: zone, center: center, big: big, x: x, y: y,
+      halfW: big ? 3220 : 1540, halfH: 1250, name: big ? 'Big Military Base' : 'Military Base',
+      pingRadius: size * (big ? .36 : .18), pingCycles: big ? 2 : 1 };
+  }
+  function reserveBase(space, base) {
+    space.addRect(base.x - base.halfW, base.y - base.halfH, 2 * base.halfW, 2 * base.halfH);
+  }
+  function populateBase(map, base, rng, firstVehicleId, addStation, addCrate) {
+    var big = base.big, multiple = big ? 2 : 1, columns = big ? 5 : 2, houses = [], count = columns * 5;
+    // A 440 by 360 barracks has three times the floor area of a 240 by 220 house.
+    for (var i = 0; i < count; i++) {
+      var x = base.x + 345 + (i % columns) * 550, y = base.y - 1080 + Math.floor(i / columns) * 450;
+      var b = makeBuilding(rng, map.buildings.length, x, y, 440, 360, 'left');
+      b.kind = 'military'; b.style = 'barracks'; b.militaryBase = base.id;
+      b.roof = rng.pick(['#40583c', '#394f38', '#435c41']);
+      map.buildings.push(b); houses.push(b);
+      var station = addStation(x + 345, y + 180);
+      station.building = b.id; station.militaryBase = base.id;
+    }
+
+    // Seed rewards into separate interior slots, with a clear entrance and station approach.
+    var rewards = houses.map(function () { return ['epic', 'epic', 'rare', 'common']; });
+    var shuffled = rng.shuffle(houses.map(function (_, i) { return i; }));
+    // A big base has 60 epic, 30 rare and 30 common crates across 25 barracks.
+    if (big) ['epic', 'epic', 'rare', 'common'].forEach(function (tier, group) {
+      for (var j = 0; j < 5; j++) rewards[shuffled[group * 5 + j]].push(tier);
+    });
+    var tokens = big ? 9 : 3, classCrates = big ? 6 : 2;
+    for (var j = 0; j < tokens; j++) rewards[shuffled[j]].push('token');
+    for (j = 0; j < classCrates - (base.center ? 0 : 1); j++) rewards[shuffled[tokens + j]].push('classToken');
+    var locations = [[120,70], [220,70], [120,290], [220,290], [340,65], [340,295]];
+    houses.forEach(function (b, i) {
+      rng.shuffle(rewards[i]).forEach(function (tier, index) {
+        var loc = locations[index], crate = addCrate(b.x + loc[0], b.y + loc[1], tier);
+        crate.building = b.id; crate.militaryBase = base.id;
+      });
+    });
+    if (base.center) {
+      map.crates[map.legendaryCrateId].militaryBase = base.id;
+      if (big) [-340, 340].forEach(function (dy) { addCrate(base.x, base.y + dy, 'legendary').militaryBase = base.id; });
+    } else {
+      addCrate(base.x, base.y, 'classToken').militaryBase = base.id;
+    }
+
+    // Parking rows face west onto the apron. All four access points remain clear.
+    var parkingCols = big ? 8 : 4, vehicles = 25 * multiple;
+    for (i = 0; i < vehicles; i++) {
+      map.militaryVehicles.push({ id: ++firstVehicleId, militaryBase: base.id,
+        type: i < 10 * multiple ? 'tank' : 'artillery', fixed: i >= 20 * multiple,
+        x: base.x - 405 - (i % parkingCols) * 305, y: base.y + (Math.floor(i / parkingCols) - 3) * 305, angle: Math.PI });
+    }
+    // Space the sentries and turrets around the full perimeter, with separate courtyard guards.
+    function guard(item, x, y, angle, role) {
+      map.militaryStructures.push({ kind: item === 'turret3' ? 'turret' : 'sentry', item: item, x: base.x + x, y: base.y + y,
+        angle: angle, guardRole: role, aiRider: item === 'turret3', neutral: true, militaryBase: base.id });
+    }
+    var w = 2 * (base.halfW - 56), h = 2 * (base.halfH - 56), perimeterCount = 11 * multiple;
+    for (i = 0; i < perimeterCount; i++) {
+      var d = (i + .5) / perimeterCount * 2 * (w + h), px, py;
+      if (d < w) { px = d - w / 2; py = -h / 2; }
+      else if (d < w + h) { px = w / 2; py = d - w - h / 2; }
+      else if (d < 2 * w + h) { px = w / 2 - (d - w - h); py = h / 2; }
+      else { px = -w / 2; py = h / 2 - (d - 2 * w - h); }
+      var turret = [0, 3, 6, 8].indexOf(i % 11) >= 0;
+      guard(turret ? 'turret3' : 'sentry3', px, py, Math.atan2(py, px), 'perimeter');
+    }
+    for (i = 0; i < 3 * multiple; i++) {
+      var angle = Math.PI / 2 + i / (3 * multiple) * U.TAU;
+      guard('sentry3', Math.cos(angle) * (big ? 195 : 285), Math.sin(angle) * (big ? 545 : 390), angle, 'vault');
+    }
+    return firstVehicleId;
+  }
+
   function generate(seed, teamSize) {
     seed = (seed >>> 0) || 1;
     teamSize = teamSize === 2 || teamSize === 3 || teamSize === 4 ? teamSize : 1;
@@ -179,7 +270,7 @@
     var map = {
       seed: seed, teamSize: teamSize, size: S, coast: null, ponds: [], patches: [], tufts: [], towns: [], buildings: [],
       rocks: [], trees: [], bushes: [], cacti: [], crates: [], stations: [], drops: [], vehicles: [], tanks: [], artillery: [], groundArtillery: [],
-      settlementStructures: [], settlementVehicles: [], pickups: [], nextPickupId: 1
+      settlementStructures: [], settlementVehicles: [], militaryBases: [], militaryStructures: [], militaryVehicles: [], pickups: [], nextPickupId: 1
     };
     map.biomes = W.Biomes.generate(seed, S);
     map.biomeCells = W.Biomes.cells(map);
@@ -253,6 +344,18 @@
     map.tanks = spawnVehicles('tank', W.TANK.count, 0x3f98c671, W.TANK, W.VEHICLE.count).list;
     map.artillery = spawnVehicles('artillery', Math.min(4, W.ARTILLERY.count), 0x71ac438f, W.ARTILLERY, W.VEHICLE.count + W.TANK.count).list;
 
+    // Keep a potential site in each box dry. Settlements are free to occupy any of
+    // the boxes, and only the selected base footprints exclude the later scatter.
+    var brng = U.rng((seed ^ 0x3197dfa3) >>> 0), potentialSites = new Occupancy();
+    var centerReserve = militaryBase(S / 2, S / 2, 'center', true, S);
+    reserveBase(potentialSites, centerReserve);
+    var candidates = MILITARY_ZONES.map(function (zone) {
+      var fraction = brng.range(.22, .78);
+      return militaryBase((zone.x1 + fraction * (zone.x2 - zone.x1)) * S,
+        (zone.y1 + fraction * (zone.y2 - zone.y1)) * S, zone.id, false, S);
+    });
+    candidates.forEach(function (base) { reserveBase(potentialSites, base); });
+
     // Two anchored cannons on opposite sides of each hand-drawn ring. Their own
     // seeded stream preserves crate rarity rolls and keeps every approach clear.
     var grng = U.rng((seed ^ 0x4c158ab3) >>> 0), groundDef = W.GROUND_ARTILLERY;
@@ -263,7 +366,8 @@
       for (var attempt = 0; attempt < 1024; attempt++) {
         var f = phase + attempt * .61803398875;
         points = [groundArtilleryRingPoint(ring, f), groundArtilleryRingPoint(ring, f + .5)];
-        if (points.every(function (p) { return inside(p.x, p.y, parking) && occ.circleFree(p.x, p.y, parking); })) break;
+        if (points.every(function (p) { return inside(p.x, p.y, parking) && occ.circleFree(p.x, p.y, parking) &&
+          potentialSites.circleFree(p.x, p.y, parking); })) break;
       }
       if (attempt === 1024) throw new Error('No clear ground artillery position on ring ' + ring);
       points.forEach(function (p) {
@@ -277,7 +381,7 @@
     for (tries = 0; map.ponds.length < pondTarget && tries < 500; tries++) {
       var pr = rng.range(150, 300);
       x = rng.range(600, S - 600); y = rng.range(600, S - 600);
-      if (!inside(x, y, pr + 420) || !occ.circleFree(x, y, pr + 60)) continue;
+      if (!inside(x, y, pr + 420) || !occ.circleFree(x, y, pr + 60) || !potentialSites.circleFree(x, y, pr + 60)) continue;
       var pond = { x: x, y: y, r: pr, pts: blob(rng, x, y, pr, 22, 0.12) };
       map.ponds.push(pond);
       // The query stamp belongs to a private proxy, never to the seeded map data.
@@ -298,6 +402,7 @@
       for (var attempt = 0; attempt < 3000; attempt++) {
         x = srng.range(radius + 500, S - radius - 500); y = srng.range(radius + 500, S - radius - 500);
         if (!inside(x, y, radius + 420) || !occ.rectFree(x - halfW - 100, y - halfH - 100, halfW * 2 + 200, halfH * 2 + 200) ||
+          (Math.abs(x - centerReserve.x) < halfW + centerReserve.halfW + 100 && Math.abs(y - centerReserve.y) < halfH + centerReserve.halfH + 100) ||
           map.drops.some(function (drop) {
             var dx = Math.max(0, Math.abs(drop.x - x) - halfW), dy = Math.max(0, Math.abs(drop.y - y) - halfH);
             return Math.hypot(dx, dy) < drop.clearRadius + Math.max(W.ITEMS.sentry.range, W.ITEMS.sentry2.range, W.ITEMS.sentry3.range);
@@ -365,10 +470,19 @@
       occ.addRect(t.x - halfW, t.y - halfH, halfW * 2, halfH * 2);
     });
 
+    var eligible = candidates.filter(function (base, index) {
+      return !map.towns.some(function (town) { return settlementInMilitaryZone(town, MILITARY_ZONES[index], S); });
+    });
+    map.militaryBases.push(eligible.length ? militaryBase(S / 2, S / 2, 'center', false, S) : centerReserve);
+    if (eligible.length) map.militaryBases.push(brng.pick(eligible));
+    map.militaryBases.forEach(function (base) { reserveBase(occ, base); });
+
     // Upgrade stations: one per cell of a jittered grid, topped up randomly if a cell was blocked.
     function addStation(sx, sy) {
-      map.stations.push({ id: map.stations.length, number: map.stations.length + 1, x: sx, y: sy, cooldown: 0 });
+      var station = { id: map.stations.length, number: map.stations.length + 1, x: sx, y: sy, cooldown: 0 };
+      map.stations.push(station);
       occ.addCircle(sx, sy, 92);
+      return station;
     }
     function stationFits(sx, sy) { return inside(sx, sy, 360) && occ.circleFree(sx, sy, 96) && !near(map.stations, sx, sy, C.stationMinGap); }
     var sm = 520, sgrid = Math.max(1, Math.round(Math.sqrt(C.stationCount))), scell = (S - sm * 2) / sgrid;
@@ -427,7 +541,7 @@
     function addCrate(cx, cy, tier) {
       tier = tier || 'common';
       var hp = W.CRATES[tier].hp;
-      var crate = { id: map.crates.length, x: cx, y: cy, size: C.crateSize, tier: tier, hp: hp, maxHp: hp, alive: true, shake: 0 };
+      var crate = { id: map.crates.length, x: cx, y: cy, size: C.crateSize * (tier === 'classToken' ? 1.5 : 1), tier: tier, hp: hp, maxHp: hp, alive: true, shake: 0 };
       map.crates.push(crate);
       return crate;
     }
@@ -490,6 +604,9 @@
       bonus.settlement = town.id; bonus.legendaryDrops = 1;
       town.legendaryCrateId = bonus.id;
     });
+    map.militaryBases.forEach(function (base) {
+      settlementVehicleId = populateBase(map, base, brng, settlementVehicleId, addStation, addCrate);
+    });
     scatter(C.tokenLoose, 4000, function (px, py) {
       if (!inside(px, py, 300) || !occ.circleFree(px, py, 22) || inPond(px, py, 20)) return false;
       addPickup('token', px, py, 1);
@@ -515,5 +632,6 @@
   }
 
   W.MapGen = { generate: generate, inside: inside, edgePoint: edgePoint, edgeLength: edgeLength,
+    militaryZones: MILITARY_ZONES, settlementInMilitaryZone: settlementInMilitaryZone,
     vehicleRings: VEHICLE_RINGS, vehicleRingPoint: vehicleRingPoint, groundArtilleryRingPoint: groundArtilleryRingPoint, WALL: WALL, DOOR: DOOR };
 }());

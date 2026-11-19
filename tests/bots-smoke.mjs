@@ -705,6 +705,22 @@ function escape(items, k, o = {}) {
   b.hazards = []; b.now = 4.1;
   t.check(b.pickStation() && b.station.st === near && !b.badStation.has(near.id), 'temporary danger does not permanently blacklist the station');
 }
+  {
+    const barracks = { id: 0, x: 10000, y: 9000, cooldown: 0, militaryBase: 1, building: 3 };
+    const field = { id: 1, x: 6800, y: 9000, cooldown: 0 };
+    const a = arena({ extra: { stations: [barracks, field] } });
+    const b = a.bot(9000, 9000, {}, { tokens: 8 });
+    const guard = a.world.addStruct({ kind: 'sentry', item: 'sentry3', x: 9540, y: 9000, r: 20, hp: 100, maxHp: 100, neutral: true });
+    t.check(b.pickStation() && b.station.st === field, 'a distant bot chooses the open station over a guarded barracks approach');
+    guard.alive = false; b.now += 3;
+    t.check(b.pickStation() && b.station.st === barracks, 'clearing the guard opens the approach to the nearer barracks station');
+    guard.alive = true; b.station = null;
+    a.dir.cover.info.set(b.p.id, { building: barracks.building });
+    b.p.x = barracks.x - 180;
+    t.check(b.pickStation() && b.station.st === barracks, 'a bot already inside the barracks can finish approaching its station');
+    b.station = null; a.dir.cover.info.delete(b.p.id); b.p.x = barracks.x - 62;
+    t.check(b.pickStation() && b.station.st === barracks, 'a bot within interaction range can use the barracks station');
+  }
 {
   const a = arena({ extra: { crates: [crate(0, 9600, 9100)] } });
   a.crowd();

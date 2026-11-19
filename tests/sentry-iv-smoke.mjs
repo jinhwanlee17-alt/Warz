@@ -83,6 +83,13 @@ for (const portable of [false, true]) {
   t.equal(a.target.hp, 9975, 'rocket acquires and physically reaches an enemy thousands of units beyond ordinary sentry range');
   t.equal(W.SENTRY_IV.rockets.blastRadius, W.WEAPONS.grenade.explosion.radius / 2, 'rocket splash radius is half a grenade');
 }
+{
+  const a = arena(), launcher = shot(a, 'rockets'), def = W.SENTRY_IV.cannons;
+  const r = W.STRUCT_RADIUS.sentry;
+  const target = a.w.addStruct({ kind: 'sentry', item: def.item, x: X + 175, y: Y, r, hp: def.hp, maxHp: def.hp, team: a.target.team });
+  flight(a, .25);
+  t.check(!target.alive && launcher.alive, 'a single Rocket Sentry IV projectile destroys a full-health Cannon Sentry IV');
+}
 for (const distance of [0, 37.5, 74, 75, 100]) {
   const a = arena(); a.target.x = X; a.target.y = Y + a.target.r + distance;
   a.w.sentryProjectileImpact({ id: 4, kind: 'rockets', owner: a.owner.id, team: 1, dx: 1, dy: 0 }, null, X, Y);

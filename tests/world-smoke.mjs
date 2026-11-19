@@ -10,16 +10,17 @@ const DT = 1 / 60;
 const started = Date.now();
 for (const seed of [1, 42, 9001, 123456, 777777]) {
   const m = MapGen.generate(seed);
-  t.equal(m.stations.length, C.stationCount, 'seed ' + seed + ': ' + C.stationCount + ' upgrade stations');
+  const outdoorStations = m.stations.filter(s => !s.militaryBase);
+  t.equal(outdoorStations.length, C.stationCount, 'seed ' + seed + ': ' + C.stationCount + ' outdoor upgrade stations');
   t.equal(m.drops.length, 50, 'seed ' + seed + ': 50 Solo edge drop stations');
   t.check(m.stations.every((s) => W.U.insideIsland(s.x, s.y, 300, C.worldSize, C.cornerRadius)), 'seed ' + seed + ': stations on land');
   let minGap = Infinity;
-  for (let i = 0; i < m.stations.length; i++) for (let j = i + 1; j < m.stations.length; j++) {
-    minGap = Math.min(minGap, Math.hypot(m.stations[i].x - m.stations[j].x, m.stations[i].y - m.stations[j].y));
+  for (let i = 0; i < outdoorStations.length; i++) for (let j = i + 1; j < outdoorStations.length; j++) {
+    minGap = Math.min(minGap, Math.hypot(outdoorStations[i].x - outdoorStations[j].x, outdoorStations[i].y - outdoorStations[j].y));
   }
   t.check(minGap >= C.stationMinGap, 'seed ' + seed + ': stations spread out (closest pair ' + Math.round(minGap) + ')');
   t.check(m.buildings.length >= 18, 'seed ' + seed + ': towns have buildings (' + m.buildings.length + ')');
-  t.equal(m.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': regular crate quota alongside legendary rewards');
+  t.equal(m.crates.filter(c => !c.militaryBase && c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': regular crate quota outside military bases');
   const tokens = m.pickups.filter((p) => p.type === 'token').length;
   t.check(tokens >= C.tokenLoose && tokens <= C.tokenLoose + m.buildings.length, 'seed ' + seed + ': loose tokens plus at most one per building (' + tokens + ')');
   t.check(m.pickups.filter((p) => p.type === 'key').length >= 3, 'seed ' + seed + ': a few station keys');
@@ -38,6 +39,7 @@ function range(extra) {
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = [];
   map.stations = []; map.biomes = []; map.cacti = [];
   map.settlementStructures = []; map.settlementVehicles = [];
+  map.militaryBases = []; map.militaryVehicles = []; map.militaryStructures = [];
   Object.assign(map, extra || {});
   return map;
 }

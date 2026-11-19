@@ -38,7 +38,10 @@ try {
     const label=online?'Online':'Practice';
     if(online){await evaluate(()=>{Warz.App.leaveMatch();Warz.Lobby.queue('solo');});await b.waitFor('Warz.App.state()==="play" && Warz.debug.match().online && Warz.debug.online().snapCount>2');}
     else await evaluate(()=>Warz.App.startPractice());
-    check(await evaluate(()=>{const w=Warz.debug.match().world;return w.vehicles.filter(v=>v.fixed).length===6&&w.vehicles.filter(v=>v.type==='artillery'&&!v.fixed).length===4;}),label+': six fixed and four mobile artillery coexist');
+    check(await evaluate(() => {
+      const guns = Warz.debug.match().world.vehicles.filter(v => v.type === 'artillery' && !v.militaryBase);
+      return guns.filter(v => v.fixed).length === 6 && guns.filter(v => !v.fixed).length === 4;
+    }), label + ': six fixed and four mobile artillery coexist outside military bases');
     const live=online?app.matches.get(String(await evaluate(()=>Warz.debug.match().id))):null;
     const owner=live?live.byId.get(await evaluate(()=>Warz.debug.player().id)):null;
     const mutate=async(fn,...args)=>live?fn(live.W,live.world,owner,...args):evaluate((source,args)=>{const m=Warz.debug.match();return(0,eval)('('+source+')')(Warz,m.world,m.player,...args);},fn.toString(),args);

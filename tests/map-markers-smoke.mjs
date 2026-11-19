@@ -55,6 +55,15 @@ t.equal(icons(joining).length, 0, 'remote join waits for authoritative state rat
 viewer.hidden = false;
 const joined = drawing(); W.MapArt.overlay(joined.g, world, viewer, 600, { big: true });
 t.equal(icons(joined).length, 1, 'authoritative local presence reveals an unbroken Legendary marker');
+for (const big of [true, false]) {
+  const px = big ? 900 : 190, d = drawing(), rings = [];
+  d.g.arc = function (x, y, r) { if (this.strokeStyle === '#ff584b') rings.push([x, y, r]); };
+  world.baseContacts = [{ id: 'visitor', team: 2, x: map.size / 4, y: map.size / 2 }];
+  W.MapArt.overlay(d.g, world, viewer, px, { big });
+  t.check(rings.some(([x, y, r]) => Math.hypot(x - px / 4, y - px / 2) < .001 && r > 0),
+    'base contact at the reported position on the ' + (big ? 'full map' : 'minimap'));
+}
+world.baseContacts = [];
 world.remote = false;
 for (const [px, dpr] of [[863, 1], [716, 2]]) {
   for (const [x, y] of [[0, 0], [map.size / 2, 0], [map.size, 0], [0, map.size], [map.size, map.size]]) {

@@ -61,7 +61,8 @@ try {
     const owner = live ? live.byId.get(await evaluate(() => Warz.debug.player().id)) : null;
     check(await evaluate(() => {
       const w = Warz.debug.match().world;
-      return w.vehicles.length === 8 && w.vehicles.every(v => v.hp === 1000) && w.vehicles.filter(v => v.armed).length === (w.teams ? 2 : 0);
+      const humvees = w.vehicles.filter(v => v.type === 'humvee' && v.settlement === null);
+      return humvees.length === 8 && humvees.every(v => v.hp === 1000) && humvees.filter(v => v.armed).length === (w.teams ? 2 : 0);
     }), label + ': eight 1000-HP Humvees spawn with the correct mode-specific turret count');
     let events = [];
     if (live) {

@@ -428,8 +428,8 @@
           var townLoot = e.crate && e.crate.legendaryDrops === 1;
           W.Hud.banner('Legendary crate opened!', (e.player ? e.player.name : 'Someone') + (townLoot
             ? ' opened a town crate · one legendary item dropped'
-            : ' broke the center crate · all four legendary items dropped'), 5, '#ffd23f');
-          W.Hud.feed(townLoot ? 'A town legendary crate has been opened.' : 'The legendary crate at the center has been broken.', 'key');
+            : ' opened a center crate · all legendary items dropped'), 5, '#ffd23f');
+          W.Hud.feed(townLoot ? 'A town legendary crate has been opened.' : 'A legendary crate at the center has been opened.', 'key');
           play('crate'); break;
         }
         case 'command':
@@ -437,12 +437,13 @@
           break;
         case 'pickup':
           if (!mine) break;
-          play(e.what === 'token' ? 'token' : e.what === 'item' ? 'item' : 'key');
+          play(e.what === 'token' || e.what === 'classToken' ? 'token' : e.what === 'item' ? 'item' : 'key');
           var nextCost = W.Rules.nextUpgradeCost(p.classId);
           if (e.what === 'token' && nextCost > 0 && e.total >= nextCost && e.total - e.amount < nextCost) {
             W.Hud.banner('Upgrade ready', 'Find an Upgrade Station (glowing blue hexagon) and press ' + Controls.primary('interact'), 2.8, '#ffd23f');
           }
           if (e.what === 'key') W.Hud.feed('Station key found: it skips one station recharge.', 'key');
+          if (e.what === 'classToken') W.Hud.feed('Class token found. Choose a free class upgrade at any ready station.', 'upgrade');
           if (e.what === 'armor') W.Hud.feed('Armor plate: +' + C.armorPlate + ' armor (' + Math.round(e.total) + '/' + C.armorMax + '). Armor soaks up damage before your HP.', 'key');
           if (e.what === 'item' && e.item && ITEMS[e.item]) {
             W.Hud.feed('Found ' + e.amount + '× ' + ITEMS[e.item].name + ' (' + W.TIERS[ITEMS[e.item].tier].name + ').', 'key');

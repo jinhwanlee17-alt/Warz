@@ -7,6 +7,7 @@ function arena(extra = {}, remote = false) {
   const map = W.MapGen.generate(19);
   map.biomes = []; map.cacti = [];
   map.settlementStructures = []; map.settlementVehicles = [];
+  map.militaryBases = []; map.militaryVehicles = []; map.militaryStructures = [];
   Object.assign(map, { rocks: [{ x: 9200, y: 9000, r: 60 }], buildings: [], trees: [], bushes: [], crates: [], pickups: [], ponds: [], stations: [], vehicles: [], tanks: [] }, extra);
   const world = new W.World({ map, storm: false, remote });
   const p = world.addPlayer({ x: 8800, y: 9000 });

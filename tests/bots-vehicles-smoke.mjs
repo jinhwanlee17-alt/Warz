@@ -49,6 +49,19 @@ const entered = (a, p) => a.events.find((e) => e.type === 'vehicle' && e.op === 
 
 // ---------------------------------------------------------------- the race for an empty tank or gun
 {
+  const a = arena({ extra: { towns: [], militaryVehicles: [{ ...tank(12000, 12000), militaryBase: 1 }],
+    militaryStructures: [{ item: 'turret3', militaryBase: 1, aiRider: true, x: 12100, y: 12300 }] } });
+  a.crowd();
+  const b = a.bot(9000, 12000), v = a.world.vehicles[0];
+  a.step(1);
+  t.check(!b.ride && !b.p.vehicle, 'a distant military tank does not draw a bot into an opening vehicle race');
+  b.p.x = 11500; b.p.y = 12000;
+  t.equal(b.vehicleUse(v, false), null, 'a nearby military tank is passed over while an AI gunner covers its approach');
+  a.world.destroyStruct(a.world.structures[0], b.p.id);
+  t.equal(b.vehicleUse(v, false), 'tank', 'a bot can claim a nearby military tank once its guard is gone');
+  t.check(a.until(() => b.p.vehicle === v.id, 8) >= 0, 'the bot boards a secured military tank through the regular interact action');
+}
+{
   // Straight off the drop no tank is too far, and the few bots who would be there first are the ones who run.
   const a = arena({ extra: { tanks: [tank(12000, 12000)] } });
   a.crowd();
@@ -104,7 +117,7 @@ const entered = (a, p) => a.events.find((e) => e.type === 'vehicle' && e.op === 
 }
 {
   // In a fight, an empty tank a few steps away comes first.
-  const a = arena({ extra: { tanks: [tank(8780, 9150)] } });
+  const a = arena({ extra: { towns: [], tanks: [tank(8780, 9150)] } });
   a.crowd();
   const b = a.bot(9000, 9300, { skill: 0.6, aggression: 0.7 });
   const v = a.world.vehicles[0], h = a.human(9620, 9330, still, { hp: 5000 });
@@ -113,9 +126,11 @@ const entered = (a, p) => a.events.find((e) => e.type === 'vehicle' && e.op === 
   b.rides = true;
   const boarded = a.until(() => b.p.vehicle === v.id, 5);
   t.check(fighting >= 0 && boarded >= 0, 'a bot that has just squared up to a player, an empty tank a few steps away, breaks off to get into the tank (' + boarded.toFixed(1) + ' s)');
-  t.check(a.until(() => dmg(a, h, 'tank-cannon') > 0, 12) >= 0, 'and fights from there');
+  t.check(a.until(() => dmg(a, h, 'tank-cannon') + dmg(a, h, 'tankmg') > 0, 12) >= 0 && b.p.vehicle === v.id,
+    'and promptly damages its opponent from the tank');
+  t.check(a.until(() => dmg(a, h, 'tank-cannon') > 0, 15) >= 0, 'the tank also lands a cannon hit during the fight');
   // Farther off it is not worth turning its back for.
-  const a2 = arena({ extra: { tanks: [tank(8000, 9300)] } });
+  const a2 = arena({ extra: { towns: [], tanks: [tank(8000, 9300)] } });
   a2.crowd();
   const b2 = a2.bot(9000, 9300, { skill: 0.6, aggression: 0.7 });
   const h2 = a2.human(9620, 9330, still, { hp: 5000 });

@@ -125,14 +125,20 @@
 
   function applyVehicles(rows, time, driver, sync) {
     if (!rows) return;
-    var world = state.world, seen = {};
+    var world = state.world, seen = {}, hulls = {};
     world.vehicles = world.vehicles || [];
+    world.vehicles.forEach(function (v) { hulls[v.id] = v; });
     // Seat occupancy is a complete authoritative list, including vehicles outside
     // player interest range. Never leave a stale passenger attached to an empty seat.
     world.players.forEach(function (p) { if (p !== state.me) { p.vehicle = 0; p.vehicleSeat = null; } });
     rows.forEach(function (row) {
-      var v = world.vehicles.find(function (it) { return it.id === row.id; });
-      if (!v) { v = { id: row.id, r: W.VEHICLE.radius, seats: {}, flash: 0, cooldown: 0 }; world.vehicles.push(v); }
+      var v = hulls[typeof row === 'number' ? row : row.id];
+      if (typeof row === 'number') {
+        row = v && v.lastMilitaryRow;
+        if (!row) return;
+      }
+      if (!v) { v = { id: row.id, r: W.VEHICLE.radius, seats: {}, flash: 0, cooldown: 0 }; world.vehicles.push(v); hulls[v.id] = v; }
+      if (row.militaryBase) { v.militaryBase = row.militaryBase; v.lastMilitaryRow = row; }
       seen[v.id] = true;
       var predicted = v.id === driver && row.seats[0] === state.me.id && !row.wreck, history = v.snaps || [], prev = history.length ? history[history.length - 1] : null;
       if (sync || !!v.predicted !== predicted || !!v.wreck !== !!row.wreck || (prev && (time - prev.t > 0.4 || Math.hypot(prev.x - row.x, prev.y - row.y) > 500))) history = [];
@@ -211,6 +217,7 @@
     state.serverTime = s.time;
     state.recvAt = now;
     state.snapCount++;
+    world.baseContacts = (s.basePings || []).map(function (row) { return { id: row[0], x: row[1], y: row[2], team: row[3] }; });
     applySentryProjectiles(s.sp);
     applyRpgRockets(s.rp);
     applyMedicStaffMarkers(s.ms);
@@ -218,12 +225,14 @@
     // before a crate broke must not collide with its obsolete client hitbox.
     for (var ci = 0; ci < s.e.length; ci++) if (terrainEvent(s.e[ci])) applyEvent(s.e[ci]);
     if (s.structs) applySentryStructures(s.structs);
-    var legendary = world.map.crates[world.map.legendaryCrateId];
-    if (legendary && typeof s.lc === 'number' &&
-        (legendary.hp !== s.lc || legendary.alive !== (s.lc > 0))) {
-      if (s.lc > 0) legendary.alive = true;
-      applyEvent({ t: 'crate', id: legendary.id, hp: s.lc, x: legendary.x, y: legendary.y, n: 0, src: 0 });
+    function syncLegendary(id, hp) {
+      var crate = world.map.crates[id];
+      if (!crate || typeof hp !== 'number' || (crate.hp === hp && crate.alive === (hp > 0))) return;
+      if (hp > 0) crate.alive = true;
+      applyEvent({ t: 'crate', id: id, hp: hp, x: crate.x, y: crate.y, n: 0, src: 0 });
     }
+    syncLegendary(world.map.legendaryCrateId, s.lc);
+    (s.extraLc || []).forEach(function (row) { syncLegendary(row[0], row[1]); });
     var y = s.you;
     applyVehicles(s.vehicles, s.time, y && y.seat === 'driver' ? y.veh : 0, false);
     if (y) {
@@ -232,12 +241,14 @@
       me.emoteReadyAt = world.time + U.clamp(y.emcd || 0, 0, W.Cosmetics.EMOTE_COOLDOWN);
       me.seenAt = s.time;
       me.hidden = false;
+      me.baseSignal = y.baseSignal ? { base: y.baseSignal[0], global: !!y.baseSignal[1],
+        until: y.baseSignal[2] ? world.time + y.baseSignal[2] : 0 } : null;
       setClassIfChanged(me, y.cls);
       var prevX = me.x + state.corr.x, prevY = me.y + state.corr.y;
       me.x = y.x; me.y = y.y; me.vx = y.vx; me.vy = y.vy;
       state.pending = state.pending.filter(function (i) { return i.seq > y.ack; });
       me.alive = y.alive; me.dropT = y.drop; me.downed = y.down; me.downT = y.downT; me.revive = y.rev; me.team = y.team;
-      me.hp = y.hp; me.maxHp = y.mhp; me.armor = y.ar; me.tokens = y.tok; me.keys = y.keys;
+      me.hp = y.hp; me.maxHp = y.mhp; me.armor = y.ar; me.tokens = y.tok; me.keys = y.keys; me.classTokens = y.classTokens || 0;
       if (y.snow) { me.inSnow = y.snow.inside; me.snowSlow = y.snow.slow; me.snowT = y.snow.time; me.tundraSnowT = y.snow.cold; me.snowFrozen = y.snow.frozen; }
       me.upgradeFrom = y.from || null;
       me.upgradePath = Array.isArray(y.path) ? y.path.filter(function (id) { return !!W.CLASSES[id]; }) : [];
@@ -311,9 +322,9 @@
     // bodies before applying those events, not only on the next render frame.
     world.players.forEach(updatePresence);
     for (var k = 0; k < s.e.length; k++) if (!terrainEvent(s.e[k])) applyEvent(s.e[k]);
-    // Events can contain a knock, revive and heal from the same tick. Their
-    // feedback must not replace the final health already sent by the authority.
-    if (y) me.hp = y.hp;
+    // Effects describe individual pickups, purchases and hits within the tick.
+    // The owner snapshot carries the balances and health after all those events.
+    if (y) { me.hp = y.hp; me.tokens = y.tok; me.keys = y.keys; me.classTokens = y.classTokens || 0; }
     s.p.forEach(function (row) { var other = byId(row[0]); if (other && other !== me) other.hp = row[4]; });
   }
 
@@ -720,7 +731,7 @@
         return;
       case 'pick':
         p = byId(e.by);
-        if (p === me) { if (e.what === 'token') me.tokens = e.tot; else if (e.what === 'key') me.keys = e.tot; else if (e.what === 'armor') me.armor = e.tot; }
+        if (p === me) { if (e.what === 'token') me.tokens = e.tot; else if (e.what === 'classToken') me.classTokens = e.tot; else if (e.what === 'key') me.keys = e.tot; else if (e.what === 'armor') me.armor = e.tot; }
         world.removePickup(e.id, p, e.what, e.n, e.tot, e.it);
         return;
       case 'pkspawn':
@@ -737,7 +748,7 @@
       case 'upg':
         p = byId(e.id); station = world.map.stations[e.st];
         if (!p || !station) return;
-        world.applyUpgrade(p, station, e.cls, e.key);
+        world.applyUpgrade(p, station, e.cls, e.key, e.classToken);
         return;
       case 'land':
         p = byId(e.id);

@@ -92,12 +92,13 @@ try {
   match.world.bullets.push(oldBullet); pa.sentryBurn = { owner: pb.id, until: match.world.time + 20, next: match.world.time + 10 };
   t.check((await cmd(ma, 'friendly-fire', { enabled: false })).ok && pa.team === pb.team && match.world.teams, 'cooperative teammate play can be restored');
   t.check(oldBullet.team === pa.team && !pa.sentryBurn, 'returning to cooperative play retags old bullets and ends hostile burn damage');
-  match.world.setClass(pa, 'engineer', true); pa.tokens = 80; pa.keys = 2; pa.items[1] = { id: 'bandage', n: 3 }; match.tick();
+  match.world.setClass(pa, 'engineer', true); pa.tokens = 80; pa.keys = 2; pa.classTokens = 1; pa.items[1] = { id: 'bandage', n: 3 }; match.tick();
   match.world.killPlayer(pa, pb, 'test'); match.tick();
   t.check(!match.ended && !pa.alive, 'a practice elimination does not end the session');
   await sleep(2250);
   t.check(pa.alive && pa.hp === pa.maxHp && pa.classId === 'engineer' && pa.weapons.length === 3, 'practice automatically respawns after two seconds with class equipment');
   t.check(pa.tokens === 80 && pa.keys === 2 && pa.items.length === 8 && pa.items[0] === null && pa.items[1].id === 'bandage' && pa.items[1].n === 3, 'practice respawn preserves tokens, keys and carried item stacks on their slots');
+  t.check(pa.classTokens === 1 && !match.world.map.pickups.some(pk => pk.alive && pk.type === 'classToken'), 'practice respawn restores the free upgrade without duplicating its pickup');
   match.world.map.stations = [{ id: 0, number: 1, x: 6000, y: 6000, cooldown: 0 }];
   t.check((await cmd(ma, 'station')).ok && Math.hypot(pa.x - 6000, pa.y - 6000) < W.CONFIG.stationInteractRadius + pa.r, 'station tool finds a clear authoritative landing');
   match.world.setClass(pa, 'pyromaniac', true); pa.tokens = 50;

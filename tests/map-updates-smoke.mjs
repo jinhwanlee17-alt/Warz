@@ -30,12 +30,12 @@ for (const seed of seeds) {
   const map = W.MapGen.generate(seed), center = map.size / 2;
   const legendary = map.crates.find(c => c.id === map.legendaryCrateId), bonuses = map.crates.filter(c => c.legendaryDrops === 1);
   t.equal(map.size, 48000, `seed ${seed}: generated map uses the expanded dimensions`);
-  t.equal(map.crates.length, 421 + bonuses.length, `seed ${seed}: 420 regular crates, the central legendary and earned town bonuses`);
-  t.equal(map.crates.filter(c => c.tier === 'legendary').length, 1 + bonuses.length, `seed ${seed}: legendary crates are the centre reward and thirty-house town bonuses`);
+  t.equal(map.crates.filter(c => c.militaryBase === undefined).length, 420 + bonuses.length, `seed ${seed}: 420 regular crates and earned town bonuses outside bases`);
+  t.equal(map.crates.filter(c => c.tier === 'legendary').length, (map.militaryBases[0].big ? 3 : 1) + bonuses.length, `seed ${seed}: central base and thirty-house town Legendary rewards`);
   t.check(legendary.x === center && legendary.y === center, `seed ${seed}: primary legendary is at the exact centre`);
   t.equal(map.legendaryCrateId, legendary.id, `seed ${seed}: centre crate identifier is stable`);
   t.check(map.crates.every((c, i) => c.id === i && c.hp === W.CRATES[c.tier].hp), `seed ${seed}: crate IDs and health match their tiers`);
-  const outdoor = map.crates.filter(c => c.settlement === undefined && c.id !== map.legendaryCrateId), q = W.Rules.crateQuota(outdoor.length + 1);
+  const outdoor = map.crates.filter(c => c.settlement === undefined && c.militaryBase === undefined), q = W.Rules.crateQuota(outdoor.length + 1);
   t.check(W.CRATE_ORDER.filter(id => id !== 'legendary').every(id => outdoor.filter(c => c.tier === id).length === q[id]), `seed ${seed}: outdoor rarity quota is exact without rerolling settlement rewards`);
   t.check(map.buildings.every(b => !(center >= b.x - C.legendaryClearRadius && center <= b.x + b.w + C.legendaryClearRadius && center >= b.y - C.legendaryClearRadius && center <= b.y + b.h + C.legendaryClearRadius) || Math.hypot(center - W.U.clamp(center,b.x,b.x+b.w),center - W.U.clamp(center,b.y,b.y+b.h)) >= C.legendaryClearRadius), `seed ${seed}: centre is outside every building`);
   t.check(map.ponds.every(p => Math.hypot(p.x-center,p.y-center) >= p.r + C.legendaryClearRadius), `seed ${seed}: centre approaches are dry`);
@@ -52,7 +52,7 @@ for (const seed of seeds) {
     if(Math.abs(a.x-b.x)<gap && Math.abs(a.y-b.y)<gap) separated=false;
   }
   t.check(separated, `seed ${seed}: crate hitboxes never overlap`);
-  t.equal(map.stations.length,C.stationCount,`seed ${seed}: upgrade station count preserved`);
+  t.equal(map.stations.filter(s => s.militaryBase === undefined).length,C.stationCount,`seed ${seed}: outdoor upgrade station count preserved`);
   t.equal(map.drops.length,50,`seed ${seed}: fifty coastal Solo drop stations`);
   t.equal(map.teamSize,1,`seed ${seed}: omitted mode defaults toSolo`);
   for (const list of [map.drops,map.stations,map.crates]) {

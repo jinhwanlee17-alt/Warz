@@ -19,12 +19,15 @@ for (const [ids, fireDamage, fireDuration, snowDamage, slow, duration, frozen] o
   [['forest', 'grassland'], 1, 1, 1, .5, 20, false]
 ]) {
   const label = ids.join('+') || 'normal', { world, p } = arena(ids);
+  const sentry = world.addStruct({ kind: 'sentry', item: 'sentry3', x: p.x + 100, y: p.y, r: 20,
+    hp: W.ITEMS.sentry3.hp, maxHp: W.ITEMS.sentry3.hp, neutral: true });
   world.itemBurst('firenade', p.x, p.y, p.id);
   const fire = world.zones[0];
   t.equal(fire.dur, W.ITEMS.firenade.duration * fireDuration, label + ': Molotov lifetime follows climate');
   t.equal(fire.dps, W.ITEMS.firenade.dps * fireDamage, label + ': Molotov damage follows climate');
   world.updateZones(.05);
   t.near(1000 - p.hp, fire.dps * .25, .051, label + ': actual fire applies the modified damage (tenths-of-HP rounding)');
+  t.equal(sentry.maxHp - sentry.hp, 5 * fire.dps * W.ItemRules.FIRE_TICK, label + ': sentries take five times the climate-adjusted Molotov damage');
   world.zones = []; p.hp = 1000;
   world.itemBurst('snowbomb', p.x, p.y, p.id);
   t.equal(world.zones[0].dur, duration, label + ': snow lifetime follows climate');
@@ -42,6 +45,21 @@ for (const [ids, fireDamage, fireDuration, snowDamage, slow, duration, frozen] o
   }
   tick(world, duration);
   t.check(!p.inSnow && !p.snowFrozen && p.snowT === 0 && world.speedMul(p) === 1, label + ': expiration releases slow and freeze');
+}
+{
+  const { world, p } = arena();
+  const x = p.x, y = p.y, r = 20, radius = W.ITEMS.firenade.radius;
+  const first = world.addStruct({ kind: 'sentry', item: 'sentry', x: x + 70, y, r, team: 2, hp: 50, maxHp: 50 });
+  const second = world.addStruct({ kind: 'sentry', item: 'sentry', x: x + radius + r - 1, y, r, team: 2, hp: 50, maxHp: 50 });
+  const ally = world.addStruct({ kind: 'sentry', item: 'sentry', x, y: y + 70, r, team: p.team, hp: 50, maxHp: 50 });
+  const outside = world.addStruct({ kind: 'sentry', item: 'sentry', x, y: y + radius + r + 1, r, team: 2, hp: 50, maxHp: 50 });
+  const turret = world.addStruct({ kind: 'turret', item: 'turret', x: x - 70, y, r, team: 2, hp: 100, maxHp: 100 });
+  world.itemBurst('firenade', x, y, p.id);
+  tick(world, .05);
+  t.check(first.hp === 18.75 && second.hp === 18.75, 'fire deals 31.25 HP per tick to enemy sentries that overlap the flames');
+  tick(world, W.ItemRules.FIRE_TICK);
+  t.check(!world.structById(first.id) && !world.structById(second.id), 'one fire tick can destroy and remove multiple sentries');
+  t.check(ally.hp === 50 && outside.hp === 50 && turret.hp === 100, 'allied and out-of-range sentries and turrets take no Molotov structure damage');
 }
 {
   const { world, p } = arena(['tundra']);

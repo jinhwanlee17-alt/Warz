@@ -4,7 +4,7 @@
 import { Bot, TAU } from './bot.mjs';
 import { ITEM_VALUE } from './profile.mjs';
 
-const CRATE_VALUE = { common: 4, rare: 7, epic: 10, mythic: 13, legendary: 20 };
+const CRATE_VALUE = { common: 4, rare: 7, epic: 10, mythic: 13, legendary: 20, token: 11, classToken: 15 };
 // Best tool for opening a crate, and how close to stand ([preference, distance, minimum distance]).
 const CRATE_GUN = { shotgun: [5, 92, 0], shotgun2: [5, 92, 0], flamethrower: [5, 170, 0], minigun: [4, 260, 0], ar: [4, 280, 0], deagle: [3, 280, 0],
   commandpistol: [3, 260, 0], launcher2: [3, 320, 225], revolver: [2.5, 280, 0], pistol: [2.5, 260, 0], launcher: [2, 320, 225], sniper2: [1.2, 300, 0], sniper: [1, 300, 0],
@@ -24,7 +24,7 @@ Object.assign(Bot.prototype, {
   funds() { return this.p.tokens + Math.floor(this.credit); },
   tokenNeed() {
     const next = this.nextClass();
-    return next ? Math.max(0, this.W.Rules.upgradeCostFor(next) - this.funds()) : 0;
+    return next && !this.p.classTokens ? Math.max(0, this.W.Rules.upgradeCostFor(next) - this.funds()) : 0;
   },
 
   // ---------------------------------------------------------------- what is an item worth to me?
@@ -59,6 +59,7 @@ Object.assign(Bot.prototype, {
   pickupValue(pk, need) {
     const p = this.p, C = this.W.CONFIG;
     if (pk.type === 'token') return (need > 0 ? 3 : this.W.CLASSES[p.classId].tier < 3 ? 1.2 : 0.3) * Math.min(3, pk.amount);
+    if (pk.type === 'classToken') return this.nextClass() ? 15 : 0;
     if (pk.type === 'key') return p.keys < 1 ? 4 : p.keys < 2 ? 1.5 : 0.2;
     if (pk.type === 'armor') return p.armor < C.armorMax ? 5 : 0;
     if (pk.type === 'item') return pk.item ? this.wantItem(pk.item) / 12 : 0;
@@ -269,16 +270,17 @@ Object.assign(Bot.prototype, {
     for (const m of this.mates) {
       if (!m.bot || !m.ai || m.downed || this.dist(m) > 1000) continue;
       const next = m.ai.nextClass();
-      if (next && m.tokens >= this.W.Rules.upgradeCostFor(next)) return m;
+      if (next && (m.classTokens > 0 || m.tokens >= this.W.Rules.upgradeCostFor(next))) return m;
     }
     return null;
   },
   pickStation() {
     const p = this.p, now = this.now, next = this.nextClass();
-    const mine = !!next && this.funds() >= this.W.Rules.upgradeCostFor(next), mate = mine ? null : this.mateWantsStation();
+    const mine = !!next && (p.classTokens > 0 || this.funds() >= this.W.Rules.upgradeCostFor(next)), mate = mine ? null : this.mateWantsStation();
     if (!mine && !mate) { this.station = null; return false; }
     if (this.station && this.station.cls === (mine ? next : null) && now < this.station.checkAt && !this.inHazard(this.station.st.x, this.station.st.y)) return true;
     const speed = Math.max(120, this.speed()), lead = this.following(), keys = mine ? p.keys : mate.keys;
+    const inside = this.cover.info.get(p.id)?.building;
     let best = null, bt = Infinity;
     for (const st of this.world.map.stations) {
       if ((this.badStation.get(st.id) || 0) > now) continue;
@@ -289,7 +291,11 @@ Object.assign(Bot.prototype, {
       if (this.inHazard(st.x, st.y)) continue;                      // steering cannot enter a known sentry/fire danger zone
       if (lead && Math.hypot(st.x - lead.x, st.y - lead.y) > (lead.bot ? 1500 : 1300)) continue;   // a follower does not go shopping on its own
       const t = travel + wait * 1.3 + (this.station && this.station.st === st ? -2 : 0);
-      if (t < bt) { bt = t; best = st; }
+      if (t >= bt) continue;
+      // The barracks roof can shield the station while guards still cover the way in.
+      // Once inside the building or close enough to use it, that approach is behind us.
+      if (st.militaryBase && inside !== st.building && d > this.W.CONFIG.stationInteractRadius + p.r && this.guardedWay(st.x, st.y)) continue;
+      bt = t; best = st;
     }
     if (!best) { this.station = null; return false; }
     if (!this.station || this.station.st !== best) this.station = { st: best, cls: null, browseAt: 0, fails: 0, checkAt: 0, since: now };
@@ -338,7 +344,7 @@ Object.assign(Bot.prototype, {
     if (!S.browseAt) S.browseAt = now + this.rng.range(0.7, 2.1) * this.prof.hesitation;   // reading the class tree
     if (now < S.browseAt) return;
     // Credit covers what the tokens do not: it is spent here and nowhere else (it is never a token anyone can pick up).
-    const short = this.W.Rules.upgradeCostFor(S.cls) - p.tokens, lent = short > 0 && short <= this.credit ? short : 0;
+    const short = p.classTokens > 0 ? 0 : this.W.Rules.upgradeCostFor(S.cls) - p.tokens, lent = short > 0 && short <= this.credit ? short : 0;
     if (lent) { p.tokens += lent; this.credit -= lent; }
     const r = this.d.upgrade(p, st, S.cls);
     if (lent && !(r && r.ok)) { p.tokens -= lent; this.credit += lent; }

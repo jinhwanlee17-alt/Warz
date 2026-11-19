@@ -10,7 +10,7 @@ const DT = 1 / 60;
 function range(extra) {
   const map = MapGen.generate(5);
   map.biomes = []; map.cacti = [];
-  map.settlementStructures = []; map.settlementVehicles = [];
+  map.settlementStructures = []; map.settlementVehicles = []; map.militaryStructures = []; map.militaryVehicles = [];
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = []; map.stations = [];
   Object.assign(map, extra || {});
   return map;
@@ -56,8 +56,9 @@ const pickups = (world, type) => world.map.pickups.filter((pk) => pk.alive && pk
 for (const seed of [1, 42, 9001]) {
   const m = MapGen.generate(seed), tiers = {};
   m.crates.forEach((c) => { tiers[c.tier] = (tiers[c.tier] || 0) + 1; });
-  const outdoor = m.crates.filter(c => c.settlement === undefined && c.id !== m.legendaryCrateId), q = Rules.crateQuota(outdoor.length + 1);
-  t.equal(m.crates.filter(c => c.tier !== 'legendary').length, C.regularCrateCount, 'seed ' + seed + ': 420 regular crates plus legendary rewards');
+  const ordinary = m.crates.filter(c => c.militaryBase === undefined && c.tier !== 'legendary');
+  const outdoor = ordinary.filter(c => c.settlement === undefined), q = Rules.crateQuota(outdoor.length + 1);
+  t.equal(ordinary.length, C.regularCrateCount, 'seed ' + seed + ': 420 regular crates outside military bases');
   t.check(W.CRATE_ORDER.filter(id => id !== 'legendary').every(id => outdoor.filter(c => c.tier === id).length === q[id]), 'seed ' + seed + ': outdoor crates retain their rarity shares');
   t.check((tiers.legendary || 0) >= 1 && (tiers.mythic || 0) >= 1 && (tiers.epic || 0) >= 5, 'seed ' + seed + ': rare crates exist');
   t.check(m.crates.filter((c) => c.tier === 'legendary').every((c) => c.hp === CRATES.legendary.hp), 'seed ' + seed + ': legendary crates are tougher');
@@ -95,6 +96,36 @@ for (const seed of [1, 42, 9001]) {
   t.check(legendary.items === 200 && legendary.byTier.legendary === 200, 'each legendary crate drops all four legendary items');
   const myth = stats('mythic', 300);
   t.check(myth.items === 300 && (myth.byTier.legendary || 0) > 15, 'mythic crates: legendary about 10% of the time (' + (myth.byTier.legendary || 0) + ' of 300)');
+}
+
+// ---------------------------------------------------------------- military crate rewards
+{
+  const station = { id: 0, number: 1, x: 3200, y: 3200, cooldown: 0 };
+  const world = new World({ map: range({ stations: [station] }), storm: false });
+  const p = world.addPlayer({ x: station.x, y: station.y });
+  const open = (tier) => {
+    const box = crate(0, p.x, p.y, tier), before = world.map.pickups.length;
+    world.damageCrate(box, 999, p.id, p.x, p.y);
+    world.damageCrate(box, 999, p.id, p.x, p.y);
+    return world.map.pickups.slice(before);
+  };
+  t.check(Rules.crateTokens('token', 0) === 7 && Rules.crateTokens('token', 0.99999) === 23, 'yellow crate range includes 7 and 23 tokens');
+  const [money] = open('token');
+  t.check(money.type === 'token' && money.amount >= 7 && money.amount <= 23 && world.collect(p, money), 'yellow crate drops collectible currency in the promised range');
+  t.equal(p.tokens, money.amount, 'the whole yellow crate award reaches the wallet');
+  const orange = open('classToken');
+  t.check(orange.length === 1 && orange[0].type === 'classToken' && orange[0].amount === 1, 'breaking an orange crate grants one class token only once');
+  t.check(world.collect(p, orange[0]) && !world.collect(p, orange[0]) && p.classTokens === 1, 'a class token can only be collected once');
+  t.check(!world.upgrade(p, station, 'engineer').ok && p.classTokens === 1, 'a free class upgrade still requires its prerequisite');
+  station.cooldown = 10;
+  t.check(!world.upgrade(p, station, 'sniper').ok && p.classTokens === 1, 'a cooling station preserves the class token on failure');
+  p.keys = 1;
+  const upgrade = world.upgrade(p, station, 'sniper');
+  t.check(upgrade.usedClassToken && upgrade.usedKey && !p.classTokens && !p.keys && p.tokens === money.amount, 'an eligible upgrade consumes the class token and required key while preserving currency');
+  p.classTokens = 2;
+  world.killPlayer(p, null, 'storm');
+  const dropped = world.map.pickups.filter(pk => pk.alive && pk.type === 'classToken');
+  t.check(!p.classTokens && dropped.length === 1 && dropped[0].amount === 2, 'unspent class tokens drop with the wallet on elimination');
 }
 
 // ---------------------------------------------------------------- hotbar

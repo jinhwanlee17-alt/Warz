@@ -5,7 +5,8 @@ const W = loadWarz(), t = suite('projectiles');
 const { World, MapGen, WEAPONS, ITEMS, CONFIG: C } = W;
 const DT = 1 / 120;
 function map(extra = {}) {
-  return Object.assign(MapGen.generate(22), { settlementStructures: [], settlementVehicles: [], biomes: [], cacti: [], rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], stations: [], ponds: [] }, extra);
+  return Object.assign(MapGen.generate(22), { militaryBases: [], militaryVehicles: [], militaryStructures: [],
+    settlementStructures: [], settlementVehicles: [], biomes: [], cacti: [], rocks: [], trees: [], bushes: [], buildings: [], crates: [], pickups: [], stations: [], ponds: [] }, extra);
 }
 function steps(world, seconds) { for (let i = 0; i < Math.ceil(seconds / DT); i++) world.update(DT); }
 function crate(id, x, y) { return { id, x, y, size: 52, hp: 180, maxHp: 180, tier: 'epic', alive: true, shake: 0 }; }

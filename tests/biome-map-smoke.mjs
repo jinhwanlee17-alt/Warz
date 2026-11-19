@@ -31,7 +31,7 @@ for (const seed of [1, 42, 57, 79, 991, 9001]) {
     return houses.length >= 6 && houses.length <= 12 && houses.length === town.buildingCount && houses.every(b => b.style === 'house');
   }), seed + ': villages contain six to twelve actual houses');
   t.check(map.towns.every(town => town.buildingCount === map.buildings.filter(b => b.settlement === town.id).length), seed + ': all settlement counts match collision buildings');
-  t.check(map.buildings.every(b => b.style === 'house') && map.towns.filter(town => town.kind === 'town').every(town => town.houseCount >= 20 && town.houseCount <= 30), seed + ': towns contain twenty to thirty house plots without old castles or bases');
+  t.check(map.buildings.filter(b => b.militaryBase === undefined).every(b => b.style === 'house') && map.towns.filter(town => town.kind === 'town').every(town => town.houseCount >= 20 && town.houseCount <= 30), seed + ': towns contain twenty to thirty house plots');
   t.check(map.trees.every((tree, i) => tree.id === i && tree.hp === undefined && tree.maxHp === undefined && tree.alive), seed + ': leafy cover has stable IDs without health pools');
   t.check(map.trees.every(tree => tree.biome === at(tree) && tree.conceals === ['forest', 'tundra-forest', 'savannah'].includes(tree.biome)), seed + ': forest and savannah trees conceal players');
   t.check(map.bushes.length > 0 && map.bushes.every(bush => !['grassland', 'desert'].includes(at(bush))), seed + ': bushes return except in grassland and desert');

@@ -16,10 +16,10 @@ for (const mode of [1,2,3,4]) for (const seed of [1,57,0xffffffff]) {
   const world = new W.World({map,teams:mode>1,storm:false});
   const tag = mode+' players per team, seed '+seed;
   t.equal(map.groundArtillery.length,6,tag+': six fixed cannons');
-  t.equal(world.vehicles.filter(v=>v.type==='artillery'&&!v.fixed).length,4,tag+': four mobile SP artillery remain');
-  t.equal(world.vehicles.filter(v=>v.fixed).length,6,tag+': fixed flags survive initialization');
+  t.equal(world.vehicles.filter(v=>v.type==='artillery'&&!v.fixed&&!v.militaryBase).length,4,tag+': four mobile SP artillery remain on their ring');
+  t.equal(world.vehicles.filter(v=>v.fixed&&!v.militaryBase).length,6,tag+': fixed flags survive initialization on all six ring cannons');
   t.equal(JSON.stringify(map.groundArtillery),JSON.stringify(repeated.groundArtillery),tag+': deterministic cannon positions');
-  t.equal(new Set(world.vehicles.map(v=>v.id)).size,22 + (map.settlementVehicles || []).length,tag+': ring and town hull IDs are unique');
+  t.equal(new Set(world.vehicles.map(v=>v.id)).size,22 + map.settlementVehicles.length + map.militaryVehicles.length,tag+': ring, town and military hull IDs are unique');
   for (const [i,r] of rings.entries()) {
     const pair = map.groundArtillery.filter(v=>v.ring===i);
     t.equal(pair.length,2,tag+': two cannons on ring '+i);

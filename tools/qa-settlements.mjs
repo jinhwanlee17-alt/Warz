@@ -32,7 +32,7 @@ try {
     const m = Warz.debug.match(), towns = m.world.map.towns;
     return { villages: towns.filter(t => t.kind === 'village').length, towns: towns.filter(t => t.kind === 'town').length,
       other: towns.filter(t => !['village','town'].includes(t.kind)).length,
-      guards: m.world.structures.filter(s => s.neutral).length, expected: m.world.map.settlementStructures.length };
+      guards: m.world.structures.filter(s => s.neutral && !s.militaryBase).length, expected: m.world.map.settlementStructures.length };
   });
   check(counts.villages >= 4 && counts.villages <= 6 && counts.towns === 2 && counts.other === 0, 'only four to six villages and two towns replace the old settlements');
   check(counts.guards === counts.expected && counts.guards > 0, 'offline play initializes every seeded neutral guard');

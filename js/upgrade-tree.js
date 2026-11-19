@@ -35,11 +35,13 @@
   function branchChoices(branch) {
     return Rules.childClasses(branch);
   }
+  function priceLabel(p, cost) { return p.classTokens > 0 ? '1 class token' : cost + ' tokens'; }
   function refreshBranch(p) {
     var levelThree = previewLevel === 3, branch = levelThree ? levelThreeBranch : previewBranch;
     var choices = branchChoices(branch), pipes = '', key = previewLevel + ':' + branch;
     if (levelThree) choices = W.TREE_SOON.filter(function (s) { return s.parent === branch; }).map(function (s) { return s.id; }).concat(choices);
-    $('ut-branch-label').textContent = CLASSES[branch].name + ' upgrades · choose one · ' + (levelThree ? 40 : Rules.upgradeCostFor(choices[0])) + ' tokens';
+    $('ut-branch-label').textContent = CLASSES[branch].name + ' upgrades · choose one · ' + priceLabel(p, levelThree ? 40 : Rules.upgradeCostFor(choices[0]));
+    $('ut-level3').textContent = 'Level 3 · ' + priceLabel(p, 40);
     $('ut-level2').setAttribute('aria-pressed', String(!levelThree));
     $('ut-level3').setAttribute('aria-pressed', String(levelThree));
     $('ut-parent-wrap').hidden = !levelThree;
@@ -77,6 +79,7 @@
         '<div class="ut-title-wrap"><span class="ut-station-chip" id="ut-station-name">UPGRADE STATION</span><h2 id="ut-title" class="ut-title">Class Tree</h2></div>' +
         '<div class="ut-header-chips">' +
           '<span class="ut-hchip ut-hchip-token" title="Tokens">' + Icons.TOKEN + '<b id="ut-wallet-tokens">0</b></span>' +
+          '<span class="ut-hchip" id="ut-class-token-chip" title="Class tokens" hidden>' + Icons.CLASS_TOKEN + '<b id="ut-class-tokens">0</b></span>' +
           '<span class="ut-hchip ut-hchip-key" title="Station keys">' + Icons.KEY + '<b id="ut-wallet-keys">0</b></span>' +
           '<span class="ut-hchip is-ready" id="ut-station-state">STATION READY</span>' +
         '</div>' +
@@ -213,6 +216,8 @@
     state.textContent = cooling ? 'RECHARGING · ' + U.formatTime(st.cooldown) : 'STATION READY';
     state.className = 'ut-hchip ' + (cooling ? 'is-cooling' : 'is-ready');
     $('ut-wallet-tokens').textContent = String(p.tokens);
+    $('ut-class-token-chip').hidden = !p.classTokens;
+    $('ut-class-tokens').textContent = String(p.classTokens || 0);
     $('ut-wallet-keys').textContent = String(p.keys);
 
     // Left: loadout
@@ -235,8 +240,8 @@
       var rel = Rules.relation(p, id), node = $('ut-node-' + id), sub = $('ut-node-sub-' + id), badge = $('ut-node-badge-' + id), cost = Rules.upgradeCostFor(id);
       node.className = 'ut-node is-' + rel + (id === selected ? ' is-selected' : '');
       node.setAttribute('aria-pressed', String(id === selected));
-      sub.textContent = rel === 'current' ? 'Current class' : rel === 'owned' ? 'Unlocked' : rel === 'available' ? 'LVL ' + CLASSES[id].tier + ' · ' + cost + ' tokens' : 'Locked';
-      badge.innerHTML = rel === 'available' ? Icons.TOKEN + cost : rel === 'current' ? 'YOU' : rel === 'owned' ? '✓' : Icons.LOCK;
+      sub.textContent = rel === 'current' ? 'Current class' : rel === 'owned' ? 'Unlocked' : rel === 'available' ? 'LVL ' + CLASSES[id].tier + ' · ' + priceLabel(p, cost) : 'Locked';
+      badge.innerHTML = rel === 'available' ? (p.classTokens > 0 ? Icons.CLASS_TOKEN + '1' : Icons.TOKEN + cost) : rel === 'current' ? 'YOU' : rel === 'owned' ? '✓' : Icons.LOCK;
       node.setAttribute('aria-label', CLASSES[id].name + ', level ' + CLASSES[id].tier + ', ' + sub.textContent);
       var pipe = panel.querySelector('[data-pipe="' + id + '"]');
       if (pipe) {
@@ -274,7 +279,7 @@
     $('ut-detail-title').textContent = cls.name;
     $('ut-detail-state').textContent = rel === 'current' ? 'CURRENT CLASS · LVL ' + cls.tier
       : rel === 'owned' ? 'UNLOCKED · LVL ' + cls.tier
-      : rel === 'available' ? 'LVL ' + cls.tier + ' · ' + cost + ' TOKENS'
+      : rel === 'available' ? 'LVL ' + cls.tier + ' · ' + priceLabel(p, cost).toUpperCase()
       : rel === 'locked' && (parents.length > 1 || Rules.relation(p, cls.parent) !== 'branch') ? 'REQUIRES ' + required.toUpperCase() : 'LOCKED · OTHER BRANCH';
     $('ut-detail-desc').textContent = cls.description;
     var rows = '<li><strong>HP</strong><span><b>' + cls.hp + '</b>' + (cls.hp !== current.hp && rel === 'available' ? ' (' + (cls.hp - current.hp) + ' from now)' : '') + '</span></li>' +
@@ -293,17 +298,17 @@
     $('ut-stats').innerHTML = rows;
 
     if (rel === 'available') {
-      var check = Rules.upgradeCheck({ from: p.classId, to: selected, tokens: p.tokens, keys: p.keys, stationCooldown: st.cooldown });
+      var check = Rules.upgradeCheck({ from: p.classId, to: selected, tokens: p.tokens, classTokens: p.classTokens, keys: p.keys, stationCooldown: st.cooldown });
       if (check.ok) {
         action.disabled = false;
-        action.textContent = check.useKey ? 'Use station key + upgrade · ' + cost + ' tokens' : 'Upgrade to ' + cls.name + ' · ' + cost + ' tokens';
+        action.textContent = (check.useKey ? 'Use station key + upgrade' : 'Upgrade to ' + cls.name) + ' · ' + priceLabel(p, cost);
         if (check.useKey) action.classList.add('is-key');
       } else {
         action.disabled = true;
         action.textContent = check.reason === 'tokens' ? 'Need ' + cost + ' tokens · you have ' + p.tokens
           : 'Station recharging · ' + U.formatTime(st.cooldown);
       }
-      note.textContent = 'Upgrading costs ' + cost + ' tokens and refills your weapons. Your HP carries over (capped at the new max). ' +
+      note.textContent = (p.classTokens > 0 ? 'One class token covers this upgrade.' : 'Upgrading costs ' + cost + ' tokens.') + ' Your weapons refill and your HP carries over (capped at the new max). ' +
         'This station then recharges for ' + U.formatTime(C.stationCooldown) + '.' +
         (cooling ? ' A station key skips the recharge and is used up.' : '');
     } else {
@@ -311,6 +316,7 @@
       action.textContent = rel === 'current' ? 'Your current class' : rel === 'owned' ? 'Already unlocked'
         : rel === 'locked' && (parents.length > 1 || Rules.relation(p, cls.parent) !== 'branch') ? 'Choose ' + required + ' first' : 'Locked · you chose ' + current.name;
       note.textContent = rel === 'branch' ? 'You can choose one class at each level per match. Start a new match to try another branch.'
+        : rel === 'current' && p.classTokens > 0 && Rules.childClasses(cls.id).length ? 'Choose your next class to use one class token.'
         : rel === 'current' && Rules.childClasses(cls.id).length ? 'Collect ' + Rules.nextUpgradeCost(cls.id) + ' tokens, then choose the next upgrade on your branch.'
         : rel === 'current' && cls.tier >= 3 ? 'You have reached the final upgrade on this class branch.'
         : rel === 'current' ? 'Collect ' + Rules.nextUpgradeCost(cls.id) + ' tokens, then pick a Lvl 1 class here.' : '';
@@ -333,7 +339,7 @@
   function finishAct(result) {
     var status = $('ut-status');
     if (result && result.ok) {
-      status.textContent = 'Upgraded to ' + CLASSES[selected].name + '!' + (result.usedKey ? ' Station key used.' : '');
+      status.textContent = 'Upgraded to ' + CLASSES[selected].name + '!' + (result.usedClassToken ? ' Class token redeemed.' : '') + (result.usedKey ? ' Station key used.' : '');
       refresh();
       closeTimer = setTimeout(close, 900);
     } else if (result) {

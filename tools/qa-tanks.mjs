@@ -101,7 +101,8 @@ try {
     }, fn.toString(), args);
     check(await evaluate(() => {
       const w = Warz.debug.match().world;
-      return w.vehicles.filter(v => v.type === 'tank' && v.hp === 5000).length === 4 && w.vehicles.filter(v => v.type === 'humvee').length === 8;
+      return w.vehicles.filter(v => v.type === 'tank' && !v.militaryBase && v.hp === 5000).length === 4 &&
+        w.vehicles.filter(v => v.type === 'humvee' && v.settlement === null).length === 8;
     }), label + ': four 5000-HP tanks join the eight Humvees');
     if (live) {
       for (const p of live.players) if (p !== owner) p.controller = () => ({ mx: 0, my: 0 });

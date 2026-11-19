@@ -40,6 +40,22 @@ function vehicleArena(type) {
   t.equal(a.w.grenades.length, 0, 'RPG does not enter grenade arcs or delayed-fuse storage');
 }
 {
+  const wall = { x: X + 150, y: Y - 70, w: 135, h: 12 };
+  const a = arena({ buildings: [{ walls: [wall] }] });
+  a.target.x = X + 1000;
+  const r = W.STRUCT_RADIUS.sentry, hp = W.ITEMS.sentry3.hp;
+  function placeSentry(x, y, team) {
+    return a.w.addStruct({ kind: 'sentry', item: 'sentry3', x, y, r, hp, maxHp: hp, team, neutral: team === null });
+  }
+  const direct = placeSentry(X + 250, Y, 2);
+  const splash = placeSentry(X + 218, Y + 105, null);
+  const protectedSentry = placeSentry(X + 218, Y - 125, 2);
+  const ally = placeSentry(X + 110, Y + 55, a.p.team);
+  a.w.trigger(a.p, { firePressed: true }); fly(a, .5);
+  t.check(!direct.alive && !splash.alive, 'one RPG destroys full-health sentries by direct hit and splash');
+  t.check(protectedSentry.hp === hp && ally.hp === hp, 'solid cover and team protection apply to RPG splash against sentries');
+}
+{
   const a = arena(); a.target.x = X + 6000; a.w.trigger(a.p, { fire: true }); fly(a, 6);
   t.equal(a.target.hp, 9800, 'rocket physically crosses thousands of units without range falloff');
 }

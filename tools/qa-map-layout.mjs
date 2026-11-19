@@ -73,8 +73,8 @@ try {
 
   await evaluate(() => { Warz.App.startPractice(); Warz.debug.player().dropT = 0; });
   await pressMap(); await browser.waitFor('Warz.MapScreen.isOpen()');
-  check(await evaluate(() => { const w = Warz.debug.match().world; return w.map.drops.length === 50 && w.map.crates.filter(c => c.tier !== 'legendary').length === 420; }),
-    'Practice uses fifty coastal drops and 420 regular crates alongside Legendary rewards');
+  check(await evaluate(() => { const w = Warz.debug.match().world; return w.map.drops.length === 50 && w.map.crates.filter(c => c.militaryBase === undefined && c.tier !== 'legendary').length === 420; }),
+    'Practice uses fifty coastal drops and 420 regular crates outside military bases');
   await layout('practice', 50, 1440, 900); await layout('practice', 50, 390, 844);
   await evaluate(() => { const w = Warz.debug.match().world, c = w.map.crates.find(c => c.tier === 'legendary' && c.legendaryDrops !== 1); w.damageCrate(c, c.hp, null, c.x, c.y); });
   await browser.waitFor('mapLayoutQA.full.length===Warz.debug.match().world.map.crates.filter(c=>c.tier==="legendary"&&c.alive).length && mapLayoutQA.mini.length===mapLayoutQA.full.length');
@@ -91,7 +91,7 @@ try {
     const state = await evaluate(() => {
       const w = Warz.debug.match().world, m = w.map, S = m.size;
       const extent = v => Math.max(Math.abs(v.x - S / 2), Math.abs(v.y - S / 2)) / S;
-      return { teamSize: m.teamSize, dropCount: m.drops.length, crates: m.crates.filter(c => c.tier !== 'legendary').length,
+      return { teamSize: m.teamSize, dropCount: m.drops.length, crates: m.crates.filter(c => c.militaryBase === undefined && c.tier !== 'legendary').length,
         drops: m.drops.map(d => [d.x, d.y]), vehicles: m.vehicles.map(v => [v.x, v.y]),
         tanks: m.tanks.map(v => [v.x, v.y]), artillery: m.artillery.map(v => [v.x, v.y]),
         ring: m.vehicles.length === 8 && m.tanks.length === 4 && m.artillery.length === 4 &&

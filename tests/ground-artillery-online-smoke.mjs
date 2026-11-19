@@ -27,7 +27,7 @@ try {
   p.x=v.x-v.r-30;p.y=v.y;ally.x=p.x;ally.y=p.y+10;enemy.x=11000;enemy.y=5000;enemy.hp=enemy.maxHp=10000;
   let replica=connect();
   t.equal(last.vehicles.length,world.vehicles.length,'all ring hulls, town Humvees and six fixed cannons reach snapshots');
-  t.equal(last.vehicles.filter(v=>v.fixed).length,6,'snapshots identify exactly six fixed cannons');
+  t.equal(last.vehicles.filter(v=>v.fixed&&!v.militaryBase).length,6,'snapshots identify exactly six fixed ring cannons');
   t.check(replica.fixed&&replica.type==='artillery','client keeps fixed identity and artillery weapon family');
   t.equal(state.world.vehicleMaxSpeed(replica),0,'replica uses immovable cannon definition');
   t.check(world.enterVehicle(p,v,'driver'),'authority allows ground cannon boarding');match.sendSnapshots([]);

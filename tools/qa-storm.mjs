@@ -94,7 +94,8 @@ try {
       m.crates.forEach(c => { counts[c.tier] = (counts[c.tier] || 0) + 1; });
       const legendary = m.crates.filter(c => c.tier === 'legendary');
       const center = m.crates.find(c => c.id === m.legendaryCrateId);
-      return { size: m.size, counts, total: m.crates.length, regular: m.crates.filter(c => c.tier !== 'legendary').length,
+      const originalPool = m.crates.filter(c => !c.militaryBase || c === center);
+      return { size: m.size, counts, total: originalPool.length, regular: originalPool.filter(c => c.tier !== 'legendary').length,
         bonus: legendary.filter(c => c.legendaryDrops === 1).length, center: center && center.x === m.size / 2 && center.y === m.size / 2 };
     });
     check(map.size === 48000 && data.size === 48000 && map.regular === 420 && map.center && map.total === 421 + map.bonus,

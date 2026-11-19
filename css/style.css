@@ -518,6 +518,7 @@ body.online-match:not(.practice-match) #test-tools-section { display: none; }
 .buff-power, .buff-deathImmune, .buff-strength { border-color: var(--gold); }
 .buff-invisible { border-style: dashed; }
 .buff-mount { border-color: #ff8a3c; }
+.buff-baseLocal, .buff-baseGlobal { border-color: #ff695b; color: #ffe2d7; }
 #flash { position: absolute; inset: 0; background: #ffffff; opacity: 0; pointer-events: none; transition: opacity 0.12s; }
 .inv-card { width: min(960px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; position: relative; }
 .inv-card header { padding-right: 56px; }

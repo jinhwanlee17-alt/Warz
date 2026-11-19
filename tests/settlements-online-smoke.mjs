@@ -4,7 +4,7 @@ import { Warz as ServerW } from '../server/core/sim.mjs';
 import { Match } from '../server/core/match.mjs';
 const t = suite('Settlement online');
 const W = loadWarz(['config', 'util', 'map', 'world', 'items', 'controls', 'online']);
-const match = new Match({ W: ServerW, id: 'settlement-replication', seed: 42, mode: 'duo', teamSize: 2,
+const match = new Match({ W: ServerW, id: 'settlement-replication', seed: 4, mode: 'duo', teamSize: 2,
   clock: false, emptyTimeout: Infinity, teams: [{ members: [{ name: 'Visitor' }] }, { members: [{ name: 'OtherVisitor' }] }] });
 const world = match.world, [p, other] = match.players;
 const message = event => match.encodeEvent(event).msg;

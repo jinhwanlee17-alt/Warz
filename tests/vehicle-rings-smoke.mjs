@@ -39,7 +39,7 @@ for (const teamSize of [1, 2, 3, 4]) for (const seed of [1, 42, 57, 9001, 123456
   t.check(Math.min(...extents[0]) > Math.max(...extents[1]) && Math.min(...extents[1]) > Math.max(...extents[2]), tag + ': red Humvees outside yellow artillery outside blue tanks');
   const radial = map.vehicles.map(v => Math.hypot(v.x - S / 2, v.y - S / 2));
   t.check(Math.max(...radial) / Math.min(...radial) > 1.15, tag + ': Humvees follow square sides and corners rather than a circular ring');
-  t.equal(new Set(world.vehicles.map(v => v.id)).size, 22 + (map.settlementVehicles || []).length, tag + ': ring and settlement vehicles have unique IDs');
+  t.equal(new Set(world.vehicles.map(v => v.id)).size, 22 + map.settlementVehicles.length + map.militaryVehicles.length, tag + ': ring, settlement and military vehicles have unique IDs');
   for (const v of world.vehicles) {
     t.check(W.U.insideIsland(v.x, v.y, v.r + 60, S, C.cornerRadius), tag + ': ' + v.type + ' hull stays inland');
     t.check(world.vehicles.every(o => o === v || Math.hypot(o.x - v.x, o.y - v.y) > o.r + v.r + 80), tag + ': no overlapping vehicle parking');
