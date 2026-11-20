@@ -8,7 +8,7 @@
   var VEHICLE_SEATS = ['driver', 'gunner', 'rearLeft', 'rearRight'];
 
   function byId(id) { return id && state ? state.world.playerById(id) : null; }
-  function freshLatch() { return { fp: false, ch: 0, r: false, sl: null, cy: 0, sw: false, u: false, uch: 0, ht: null, ip: false, dp: false, use: false }; }
+  function freshLatch() { return { fp: false, ch: 0, r: false, sl: null, cy: 0, sw: false, u: false, uch: 0, ht: null, ip: false, dp: false, use: false, trenchPress: 0 }; }
 
   function init(callbacks) { cbs = callbacks || {}; }
 
@@ -46,6 +46,7 @@
 
   function start(info) {
     var map = W.MapGen.generate(info.seed, info.teamSize), world = new W.World({ map: map, remote: true, teams: info.teamSize > 1 });
+    applyCrushedWires(map, info.crushedWires);
     world.practice = !!info.practice;
     (world.vehicles || []).forEach(function (v) { v.hidden = true; v.snaps = []; v.ox = v.oy = v.oa = 0; });
     info.players.forEach(function (o) {
@@ -200,7 +201,23 @@
   }
 
   function terrainEvent(e) {
-    return e.t === 'crate' || e.t === 'rock-gone' || e.t === 'foliage' || e.t === 'struct';
+    return e.t === 'crate' || e.t === 'rock-gone' || e.t === 'wire-crushed' || e.t === 'foliage' || e.t === 'struct';
+  }
+
+  function applyCrushedWires(map, rows) {
+    (rows || []).forEach(function (row) { W.Trenches.crushWire(map, row[0], row[1]); });
+  }
+
+  function resetDisplacedPlayer(p, x, y) {
+    if (!p) return;
+    p.x = p.px = x; p.y = p.py = y; p.ox = p.oy = 0;
+    p.snaps.length = 0;
+    setTrench(p, null);
+    if (p === state.me) {
+      state.pending = []; state.latch.trenchPress = 0; state.corr.x = state.corr.y = 0;
+    } else {
+      p.seenAt = -1; p.hidden = true;
+    }
   }
 
   function applySnapshot(s) {
@@ -234,6 +251,15 @@
     syncLegendary(world.map.legendaryCrateId, s.lc);
     (s.extraLc || []).forEach(function (row) { syncLegendary(row[0], row[1]); });
     var y = s.you;
+    // A teleport or pull discards the old climb and movement history. The
+    // snapshot then supplies the position and trench state at the destination.
+    for (var di = 0; di < s.e.length; di++) {
+      var displacement = s.e[di];
+      if (displacement.t === 'tele' || displacement.t === 'pulled') {
+        var displaced = byId(displacement.id), position = displaced === me && y ? y : displacement;
+        resetDisplacedPlayer(displaced, position.x, position.y);
+      }
+    }
     applyVehicles(s.vehicles, s.time, y && y.seat === 'driver' ? y.veh : 0, false);
     if (y) {
       if (y.cosmetics) world.applyCosmetics(me, y.cosmetics);
@@ -248,6 +274,7 @@
       me.x = y.x; me.y = y.y; me.vx = y.vx; me.vy = y.vy;
       state.pending = state.pending.filter(function (i) { return i.seq > y.ack; });
       me.alive = y.alive; me.dropT = y.drop; me.downed = y.down; me.downT = y.downT; me.revive = y.rev; me.team = y.team;
+      setTrench(me, y.trench);
       me.hp = y.hp; me.maxHp = y.mhp; me.armor = y.ar; me.tokens = y.tok; me.keys = y.keys; me.classTokens = y.classTokens || 0;
       if (y.snow) { me.inSnow = y.snow.inside; me.snowSlow = y.snow.slow; me.snowT = y.snow.time; me.tundraSnowT = y.snow.cold; me.snowFrozen = y.snow.frozen; }
       me.upgradeFrom = y.from || null;
@@ -321,7 +348,7 @@
     // Global events can refer to players outside our interest range. Hide stale
     // bodies before applying those events, not only on the next render frame.
     world.players.forEach(updatePresence);
-    for (var k = 0; k < s.e.length; k++) if (!terrainEvent(s.e[k])) applyEvent(s.e[k]);
+    for (var k = 0; k < s.e.length; k++) if (!terrainEvent(s.e[k])) applyEvent(s.e[k], true);
     // Effects describe individual pickups, purchases and hits within the tick.
     // The owner snapshot carries the balances and health after all those events.
     if (y) { me.hp = y.hp; me.tokens = y.tok; me.keys = y.keys; me.classTokens = y.classTokens || 0; }
@@ -341,7 +368,8 @@
     // blending from an old body that left our view or turned invisible.
     if (prev && (changedSeat || changedMount || p.hidden || time - prev.t > 0.4 || Math.hypot(prev.x - a[1], prev.y - a[2]) > 500)) p.snaps.length = 0;
     if (changedSeat || changedMount) p.ox = p.oy = 0;
-    p.snaps.push({ t: time, x: a[1], y: a[2], a: a[3], vehicle: a[16] || 0, seat: a[17] || null, mounted: !!(a[8] & 32) });
+    var trench = a[22] && a[22].trench;
+    p.snaps.push({ t: time, x: a[1], y: a[2], a: a[3], vehicle: a[16] || 0, seat: a[17] || null, mounted: !!(a[8] & 32), trench: trench });
     if (p.snaps.length > 16) p.snaps.shift();
     p.seenAt = time;
     p.hidden = false;
@@ -376,7 +404,17 @@
       p.repairVehicle = a[19] || 0;
       if (p.vehicle && !vehicleFor(p)) { p.vehicle = 0; p.vehicleSeat = null; }
     }
-    if (p.snaps.length === 1) { p.x = a[1]; p.y = a[2]; p.angle = a[3]; }
+    if (p.snaps.length === 1) { p.x = a[1]; p.y = a[2]; p.angle = a[3]; setTrench(p, trench); }
+  }
+
+  function setTrench(p, trench) {
+    p.trenchId = trench && trench.id || 0;
+    p.trenchPhase = trench && trench.phase || '';
+    p.trenchDepth = trench && trench.depth || 0;
+    p.trenchPeeking = !!(trench && trench.peek);
+    p.trenchTapT = trench && trench.tap || 0;
+    p.trenchExitX = trench && trench.x || 0;
+    p.trenchExitY = trench && trench.y || 0;
   }
 
   function setSentryBuild(p, row) {
@@ -435,12 +473,12 @@
       var s = p.snaps, i = s.length - 1;
       while (i > 0 && s[i - 1].t > rt) i--;
       var b = s[i], a = i > 0 ? s[i - 1] : b;
-      if (rt <= a.t || a === b) { p.x = a.x; p.y = a.y; p.angle = a.a; return; }
-      if (rt >= b.t) { p.x = b.x; p.y = b.y; p.angle = b.a; return; }
-      var k = (rt - a.t) / (b.t - a.t);
+      var k = a === b ? 0 : U.clamp((rt - a.t) / (b.t - a.t), 0, 1);
       p.x = a.x + (b.x - a.x) * k;
       p.y = a.y + (b.y - a.y) * k;
-      p.angle = a.a + U.angleDiff(a.a, b.a) * k;
+      p.angle = k === 1 ? b.a : a.a + U.angleDiff(a.a, b.a) * k;
+      setTrench(p, k >= 1 ? b.trench : a.trench || (k > 0 && b.trench));
+      p.trenchDepth = U.lerp(a.trench && a.trench.depth || 0, b.trench && b.trench.depth || 0, k);
     });
     (state.world.vehicles || []).forEach(function (v) {
       if (v.hidden) return;
@@ -509,7 +547,7 @@
     if (wasAlive !== plant.alive) map.foliageVersion = (map.foliageVersion || 0) + 1;
   }
 
-  function applyEvent(e) {
+  function applyEvent(e, fromSnapshot) {
     var world = state.world, me = state.me, p, def, station, crate, s, pr;
     switch (e.t) {
       case 'pyro-upgrade':
@@ -592,9 +630,9 @@
         if (!p || !def) return;
         pr = proxy(p, e.x, e.y, e.a[0]);
         if (e.st) { s = world.structById(e.st); pr.r = W.STRUCT_RADIUS.turret; if (s) { s.flash = 1; s.angle = e.a[0]; } }
-        world.spawnShot(pr, def, e.a);
+        world.spawnShot(pr, def, e.a, e.tr || 0);
         p.recoil = 1;
-        world.emit({ type: 'shot', player: p, weapon: e.w, x: e.x, y: e.y });
+        world.emit({ type: 'shot', player: p, weapon: e.w, x: e.x, y: e.y, trenchId: e.tr || 0 });
         return;
       case 'launch':
         p = byId(e.id);
@@ -625,6 +663,9 @@
         return;
       case 'rock-gone':
         if (world.map.rocks[e.id]) world.map.rocks[e.id].alive = false;
+        return;
+      case 'wire-crushed':
+        W.Trenches.crushWire(world.map, e.tr, e.w);
         return;
       case 'foliage':
         applyFoliage(e.k, e.id, e.hp);
@@ -662,13 +703,13 @@
         p = byId(e.id);
         if (!p) return;
         world.teleportFx(e.fx, e.fy, e.x, e.y);
-        if (p === me) { me.x = e.x; me.y = e.y; me.px = e.x; me.py = e.y; state.corr.x = 0; state.corr.y = 0; state.pending = []; }
+        if (!fromSnapshot) resetDisplacedPlayer(p, e.x, e.y);
         world.emit({ type: 'teleport', player: p, x: e.x, y: e.y });
         return;
       case 'pulled':
         p = byId(e.id);
         if (!p) return;
-        if (p === me) { me.x = e.x; me.y = e.y; me.px = e.x; me.py = e.y; state.corr.x = 0; state.corr.y = 0; state.pending = []; }
+        if (!fromSnapshot) resetDisplacedPlayer(p, e.x, e.y);
         world.emit({ type: 'pulled', player: p });
         return;
       case 'sshot':
@@ -774,6 +815,7 @@
     m.crates.forEach(function (c) { var crate = map.crates[c[0]]; if (!crate) return; crate.hp = c[1]; if (c[1] <= 0) crate.alive = false; });
     m.gone.forEach(function (id) { var pk = world.pickupById(id); if (pk) pk.alive = false; });
     (m.rocks || []).forEach(function (id) { if (map.rocks[id]) map.rocks[id].alive = false; });
+    applyCrushedWires(map, m.crushedWires);
     (m.foliage || []).forEach(function (row) { applyFoliage(row[0], row[1], row[2]); });
     (m.strikes || []).forEach(function (s) { applyEvent(Object.assign({ t: 'strike' }, s)); });
     if (m.tankShells) { world.tankShells = []; m.tankShells.forEach(function (shell) { world.spawnTankShell(shell); }); }
@@ -782,7 +824,15 @@
     applyRpgRockets(m.rpgRockets);
     applyMedicStaffMarkers(m.medicStaffs);
     m.added.forEach(function (pk) { world.spawnPickupAt({ id: pk.id, type: pk.type, item: pk.it, x: pk.x, y: pk.y, amount: pk.n, lockT: pk.lk || 0 }); });
-    if (Array.isArray(m.structs)) applySentryStructures(m.structs);
+    if (Array.isArray(m.structs)) {
+      applySentryStructures(m.structs);
+      // Restore both ends of each occupied turret before the next live snapshot.
+      world.players.forEach(function (p) { p.mount = 0; });
+      m.structs.forEach(function (s) {
+        var rider = s.m && world.playerById(s.m);
+        if (rider) rider.mount = s.id;
+      });
+    }
     (m.zones || []).forEach(function (z) { if (!world.zoneById(z.id)) world.addZone({ id: z.id, kind: z.k, x: z.x, y: z.y, r: z.r, dur: z.dur, t: z.tl, age: z.dur - z.tl, owner: z.o, team: z.tm, dps: z.dps,
       slow: z.slow, damageMul: z.damageMul, freezeAfter: z.freezeAfter }); });
     m.stations.forEach(function (s) { if (map.stations[s[0]]) map.stations[s[0]].cooldown = s[1]; });
@@ -797,6 +847,7 @@
       setSentryBuild(p, row[10]);
       setMedicStaff(p, row[11]);
       setPyroState(p, row[12]);
+      setTrench(p, row[13]);
       if (p.vehicle && !vehicleFor(p)) { p.vehicle = 0; p.vehicleSeat = null; }
       // Sync restores the entire roster, including distant or invisible enemies.
       // Only interest-filtered snapshots may reveal their bodies again.
@@ -838,6 +889,7 @@
       return;
     }
     var L = state.latch;
+    L.trenchPress = Math.min(2, L.trenchPress + Controls.pressCount(input, 'trench'));
     var projectile = state.world.aimedProjectile(state.me), fire = projectiles && projectiles.fire, gear = projectiles && projectiles.gear;
     var released = projectile ? !!(fire && fire.released) : Controls.hit(input, 'fire');
     if (released) { L.fp = true; L.ch = projectile ? fire.seconds : 0; }
@@ -867,8 +919,11 @@
     };
     if (art && art.mode === 1) intent.mx = intent.my = 0;
     var act = !blocked && !mapOpen;
+    intent.trenchHeld = act && !seated && Controls.down(input, 'trench');
+    intent.trenchPress = act && !seated ? L.trenchPress : 0;
     var msg = {
       t: 'in', s: ++state.seq, mx: intent.mx, my: intent.my, sp: !!intent.sprint, a: Math.round(a * 1000) / 1000, d: Math.round(d),
+      th: intent.trenchHeld, tp: intent.trenchPress,
       f: act && (seated ? tankOperator || (!!ride && ride.armed && me.vehicleSeat === 'gunner') : !state.world.aimedProjectile(me)) && Controls.down(input, 'fire'),
       fp: !seated && ((act && L.fp) || L.use), sc: !seated && !blocked && Controls.down(input, 'scope'),
       ch: seated || L.use ? 0 : L.ch, uch: seated ? 0 : L.uch,

@@ -300,6 +300,16 @@
     this.drawMedicStaffs(ctx, world, v, t, viewer);
     this.drawStructures(ctx, world, v, t, viewer);
     if (viewer && viewer.alive && !viewer.downed && !viewer.vehicle && viewer.sentryBuild) this.drawSentryBuild(ctx, viewer, t, true);
+    this.drawBullets(ctx, world, v, true);
+    // Anyone below the lip is drawn beneath the hull that can cross overhead.
+    for (i = 0; i < world.players.length; i++) {
+      var below = world.players[i];
+      if (below.trenchId && !below.hidden && visible(v, below.x, below.y, 90)) {
+        this.drawPlayer(ctx, below, t, opts);
+        this.drawSentryStatus(ctx, world, below, viewer);
+      }
+    }
+    this.drawParticles(ctx, world, v, true);
     this.drawVehicles(ctx, world, v, t, viewer);
     this.drawGrenades(ctx, world, v, t, false);
     this.drawBullets(ctx, world, v);
@@ -308,7 +318,7 @@
     this.drawSentryProjectiles(ctx, world, v, false);
     for (i = 0; i < world.players.length; i++) {
       var p = world.players[i];
-      if (p.dropT <= 0 && !p.hidden && visible(v, p.x, p.y, 90)) {
+      if (p.dropT <= 0 && !p.trenchId && !p.hidden && visible(v, p.x, p.y, 90)) {
         this.drawPlayer(ctx, p, t, opts);
         this.drawSentryStatus(ctx, world, p, viewer);
       }
@@ -413,6 +423,13 @@
     });
     ctx.restore();
 
+    var trenches = map.trenches || [];
+    for (i = 0; i < trenches.length; i++) {
+      var trench = trenches[i];
+      if (trench.x1 + 50 > v.x0 && trench.x0 - 50 < v.x1 && trench.y1 + 50 > v.y0 && trench.y0 - 50 < v.y1)
+        this.drawTrench(ctx, trench);
+    }
+
     for (i = 0; i < map.ponds.length; i++) {
       var pd = map.ponds[i];
       if (!visible(v, pd.x, pd.y, pd.r * 1.3)) continue;
@@ -434,6 +451,82 @@
       ctx.beginPath(); ctx.ellipse(pd.x - pd.r * 0.32, pd.y - pd.r * 0.38, pd.r * 0.34, pd.r * 0.13, -0.3, 0, TAU); ctx.fill();
       ctx.restore();
     }
+  };
+
+  function drawTrenchWire(ctx, wire) {
+    var dx = wire.b.x - wire.a.x, dy = wire.b.y - wire.a.y, len = Math.hypot(dx, dy);
+    var turns = Math.max(2, Math.round(len / 14)), pitch = len / turns;
+    ctx.save();
+    ctx.translate(wire.a.x, wire.a.y);
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // Small post shadows and a subdued strip of worn earth keep the wire
+    // visible against snow, sand and dense grass in the overhead view.
+    ctx.strokeStyle = 'rgba(62,46,32,.18)'; ctx.lineWidth = 14;
+    ctx.beginPath(); ctx.moveTo(2, 3); ctx.lineTo(len + 2, 3); ctx.stroke();
+    ctx.fillStyle = '#4b3b32';
+    for (var i = 0; i <= 2; i++) {
+      var post = len * i / 2;
+      ctx.fillRect(post - 3, -7, 6, 15);
+      ctx.fillStyle = '#9a7c5c'; ctx.fillRect(post - 2, -7, 4, 4);
+      ctx.fillStyle = '#4b3b32';
+    }
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0);
+    ctx.moveTo(0, -8);
+    for (i = 0; i < turns; i++) {
+      var x = pitch * i;
+      ctx.bezierCurveTo(x + 15, -10, x + 13, 11, x + 4, 9);
+      ctx.bezierCurveTo(x - 5, 7, x + 2, -9, x + pitch, -8);
+    }
+    ctx.strokeStyle = '#3b3430'; ctx.lineWidth = 3.5; ctx.stroke();
+    ctx.strokeStyle = '#b3a79b'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.beginPath();
+    for (i = 0; i < turns; i++) {
+      var bx = pitch * (i + .46), by = i % 2 ? 6 : -6;
+      ctx.moveTo(bx - 3, by - 4); ctx.lineTo(bx + 3, by + 4);
+      ctx.moveTo(bx - 3, by + 3); ctx.lineTo(bx + 4, by - 3);
+    }
+    ctx.strokeStyle = '#514239'; ctx.lineWidth = 2.3; ctx.stroke();
+    ctx.restore();
+  }
+
+  Renderer.prototype.drawTrench = function (ctx, trench) {
+    var banks = trench.outline, run = trench.points;
+    var snow = trench.biome === 'tundra' || trench.biome === 'tundra-forest';
+    var dry = trench.biome === 'desert' || trench.biome === 'savannah';
+    var spoil = snow ? '#c6d4c9' : dry ? '#c19b60' : '#95805b';
+    var clay = dry ? '#906c47' : '#756045', floor = dry ? '#765b40' : '#53483b';
+    (trench.wires || []).forEach(function (wire) { if (!wire.destroyed) drawTrenchWire(ctx, wire); });
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(banks[0].x, banks[0].y);
+    for (var i = 1; i < banks.length; i++) ctx.lineTo(banks[i].x, banks[i].y);
+    ctx.closePath();
+    // Raised spoil around the lip, followed by cut earth and the shadowed floor.
+    ctx.strokeStyle = 'rgba(45,38,28,.25)'; ctx.lineWidth = 32; ctx.stroke();
+    ctx.strokeStyle = spoil; ctx.lineWidth = 27; ctx.stroke();
+    ctx.strokeStyle = snow ? '#eaf0e8' : dry ? '#d3b47b' : '#b19a72';
+    ctx.setLineDash([18, 12, 42, 17]); ctx.lineWidth = 23; ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = clay; ctx.fill();
+    ctx.clip();
+    ctx.strokeStyle = '#493d31'; ctx.lineWidth = 7; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(run[0].x, run[0].y);
+    for (i = 1; i < run.length; i++) ctx.lineTo(run[i].x, run[i].y);
+    ctx.lineJoin = 'miter'; ctx.lineCap = 'butt'; ctx.strokeStyle = floor;
+    ctx.lineWidth = trench.width - 23; ctx.stroke();
+    // A row of timbers in alternating bays provides scale and shows the turns.
+    for (i = 1; i < run.length; i += 2) {
+      var a = run[i - 1], b = run[i], dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+      var nx = -dy / len, ny = dx / len;
+      ctx.beginPath();
+      for (var step = 18; step < len - 13; step += 16) {
+        var x = a.x + dx * step / len, y = a.y + dy * step / len;
+        ctx.moveTo(x - nx * 15, y - ny * 15); ctx.lineTo(x + nx * 15, y + ny * 15);
+      }
+      ctx.strokeStyle = '#43392e'; ctx.lineWidth = 13; ctx.stroke();
+      ctx.strokeStyle = dry ? '#a0855e' : '#89785c'; ctx.lineWidth = 9; ctx.stroke();
+    }
+    ctx.restore();
   };
 
   Renderer.prototype.drawBiomes = function (ctx, map, view) {
@@ -1209,6 +1302,11 @@
       scale = 1 + drop * 2.4;
       lift = drop * 46;
     }
+    var depth = p.trenchDepth || 0;
+    if (depth > 0) {
+      var eased = depth * depth * (3 - 2 * depth);
+      scale *= 1 - eased * (p.trenchPeeking ? 0.14 : 0.38);
+    }
     if (p.downed && p.alive) {
       // Knocked down: bleed-out ring (red, draining) and revive progress (green, filling).
       var kd = U.clamp(p.downT / 30, 0, 1), pulse = 0.55 + 0.45 * Math.sin(t * 6);
@@ -1237,6 +1335,7 @@
     ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
     var body = p.downed ? mix(p.color, '#6b7280', 0.55) : p.color;
     ctx.fillStyle = p.hitFlash > 0.02 ? mix(body, '#ffffff', p.hitFlash * 0.65) : body;
+    if (depth && !p.downed && !p.trenchPeeking && p.hitFlash <= 0.02) ctx.fillStyle = mix(p.color, '#282524', depth * 0.24);
     ctx.fill();
     ctx.lineWidth = 4; ctx.strokeStyle = p.outline;
     if (invisible) ctx.setLineDash([6, 6]);
@@ -1989,11 +2088,11 @@
   };
 
   // ---------------------------------------------------------------- projectiles & effects
-  Renderer.prototype.drawBullets = function (ctx, world, v) {
+  Renderer.prototype.drawBullets = function (ctx, world, v, trenchFloor) {
     var bs = world.bullets;
     for (var i = 0; i < bs.length; i++) {
       var b = bs[i];
-      if (!visible(v, b.x, b.y, 80)) continue;
+      if (!!b.trenchId !== !!trenchFloor || !visible(v, b.x, b.y, 80)) continue;
       if (b.weapon === 'firegun') {
         ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.dy, b.dx));
         var flameTail = Math.min(Math.max(0, b.traveled || 0), 42);
@@ -2199,11 +2298,11 @@
     }
   };
 
-  Renderer.prototype.drawParticles = function (ctx, world, v) {
+  Renderer.prototype.drawParticles = function (ctx, world, v, trenchFloor) {
     var ps = world.particles;
     for (var i = 0; i < ps.length; i++) {
       var p = ps[i];
-      if (!visible(v, p.x, p.y, 40)) continue;
+      if (!!p.trenchId !== !!trenchFloor || !visible(v, p.x, p.y, 40)) continue;
       var a = p.life / p.max;
       if (p.kind === 'dot') {
         ctx.globalAlpha = a;

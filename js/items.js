@@ -324,7 +324,7 @@
   // What happens where an item grenade comes to rest. Visuals run everywhere; effects only in the simulation.
   World.prototype.itemBurst = function (id, x, y, ownerId) {
     var it = ITEMS[id], self = this, owner = ownerId ? this.playerById(ownerId) : null, team = owner ? owner.team : null, sim = !this.remote;
-    var climate = this.biomeWeather(x, y);
+    var climate = this.biomeWeather(x, y), trenchId = this.blastTrenchAt(x, y);
     switch (id) {
       case 'grenade':
         this.explode(x, y, it.explosion, ownerId, 'grenade');
@@ -335,7 +335,7 @@
         this.burst(x, y, 18, '#ffffff', 320, 0.4, 5);
         if (sim) {
           this.players.forEach(function (p) {
-            if (!p.alive || p.dropT > 0 || Math.hypot(p.x - x, p.y - y) - p.r >= it.radius || !self.lineClear(x, y, p.x, p.y)) return;
+            if (!p.alive || p.dropT > 0 || Math.hypot(p.x - x, p.y - y) - p.r >= it.radius || !self.blastLineClear(trenchId, x, y, p)) return;
             if (self.shieldBlocks(p, x, y, 'flashbang')) {
               self.emit({ type: 'blocked', player: p, how: 'shield', source: owner });
               return;
@@ -365,7 +365,7 @@
         this.smoke(x, y, 10, '#7be35a', 20, 1, 110);
         if (sim) {
           this.players.forEach(function (p) {
-            if (!p.alive || p.dropT > 0 || (p.id !== ownerId && team !== null && p.team === team) || Math.hypot(p.x - x, p.y - y) - p.r >= it.radius) return;
+            if (!p.alive || p.dropT > 0 || (p.trenchId || 0) !== trenchId || (p.id !== ownerId && team !== null && p.team === team) || Math.hypot(p.x - x, p.y - y) - p.r >= it.radius) return;
             self.applyPoison(p, ownerId);
             self.emit({ type: 'buff', player: p, effect: 'poison', duration: it.duration, item: id, by: ownerId });
           });
@@ -387,8 +387,8 @@
   };
 
   World.prototype.pullEverything = function (x, y, R, team) {
-    var self = this, victims = this.players.filter(function (p) {
-      return p.alive && p.dropT <= 0 && !p.mount && !p.vehicle && (team === null || p.team !== team) && Math.hypot(p.x - x, p.y - y) - p.r < R;
+    var self = this, trenchId = this.blastTrenchAt(x, y), victims = this.players.filter(function (p) {
+      return p.alive && p.dropT <= 0 && !p.mount && !p.vehicle && (p.trenchId || 0) === trenchId && (team === null || p.team !== team) && Math.hypot(p.x - x, p.y - y) - p.r < R;
     });
     victims.forEach(function (p, i) {
       var a = i / Math.max(1, victims.length) * U.TAU, d = victims.length > 1 ? 28 : 0;
@@ -412,6 +412,7 @@
       snowDuration: hot ? 0.5 : 1, snowSlow: cold ? 1.25 : hot ? 0.5 : 1, snowDamage: cold ? 2 : hot ? 0.5 : 1 };
   };
   World.prototype.addZone = function (z) {
+    z.trenchId = this.blastTrenchAt(z.x, z.y);
     z.id = z.id || this.nextId++;
     if (z.t === undefined) z.t = z.dur;
     z.tick = 0; z.age = z.age || 0;
@@ -454,14 +455,14 @@
         p = players[j];
         if (!p.alive || p.vehicle || p.dropT > 0 || (p.id !== z.owner && z.team !== null && z.team !== undefined && p.team === z.team)) continue;
         inside = Math.hypot(p.x - z.x, p.y - z.y) - p.r * 0.5 < z.r;
-        if (inside) this.damagePlayer(p, damage, z.owner, 'fire', p.x, p.y - p.r);
+        if (inside && (p.trenchId || 0) === (z.trenchId || 0)) this.damagePlayer(p, damage, z.owner, 'fire', p.x, p.y - p.r);
       }
       if (this.damageVehiclesInArea) this.damageVehiclesInArea(z.x, z.y, z.r, damage, z.owner, 'fire', { team: z.team });
-      this.damageFoliageInArea(z.x, z.y, z.r, damage, z.owner, 'fire');
+      if (!z.trenchId) this.damageFoliageInArea(z.x, z.y, z.r, damage, z.owner, 'fire');
       // Damage can remove a sentry from the array, so work backward.
       for (j = this.structures.length - 1; j >= 0; j--) {
         var sentry = this.structures[j];
-        if (sentry.kind !== 'sentry' || (z.team != null && sentry.team === z.team)) continue;
+        if (sentry.kind !== 'sentry' || (sentry.trenchId || 0) !== (z.trenchId || 0) || (z.team != null && sentry.team === z.team)) continue;
         if (Math.hypot(sentry.x - z.x, sentry.y - z.y) < z.r + sentry.r) {
           this.damageStruct(sentry, damage * ITEMS.firenade.sentryDamageMul, z.owner, sentry.x, sentry.y - sentry.r, 'fire');
         }
@@ -521,7 +522,9 @@
     var dx = ax - p.x, dy = ay - p.y, d = Math.hypot(dx, dy) || 1;
     if (d > reach) { ax = p.x + dx / d * reach; ay = p.y + dy / d * reach; }
     var r = it.radius || W.STRUCT_RADIUS[it.struct] || 30, pad = it.struct === 'teleporter';
-    if (!this.spotFree(ax, ay, r, pad)) { this.emit({ type: 'deny', player: p, reason: 'blocked' }); return false; }
+    if (((it.struct === 'turret' || it.struct === 'sentry') && this.blastTrenchAt(ax, ay)) || !this.spotFree(ax, ay, r, pad)) {
+      this.emit({ type: 'deny', player: p, reason: 'blocked' }); return false;
+    }
     var s = this.addStruct({ kind: it.struct, item: it.id, x: ax, y: ay, r: r, owner: p.id, team: p.team, hp: it.hp || 0, maxHp: it.hp || 0, angle: p.angle });
     if (it.struct === 'turret') this.mountTurret(p, s);
     if (pad) {
@@ -536,26 +539,27 @@
   };
   World.prototype.spotFree = function (x, y, r, pad) {
     if (!U.insideIsland(x, y, r + 10, C.worldSize, C.cornerRadius)) return false;
-    var free = true, i;
+    var free = true, i, trenchId = this.blastTrenchAt(x, y);
     this.solids.query(x - r, y - r, x + r, y + r, function (s) {
+      if (((s.struct && s.struct.trenchId) || 0) !== trenchId) return;
       if (!free || (s.crate && !s.crate.alive) || (s.rock && !s.rock.alive) || (s.struct && !s.struct.alive)) return;
       if (s.shape === 'circle') { if (Math.hypot(s.x - x, s.y - y) < s.r + r) free = false; }
       else if (U.circleRectPush(x, y, r, s.x, s.y, s.w, s.h)) free = false;
     });
     if (!free) return false;
-    for (i = 0; i < (this.vehicles || []).length; i++) {
+    for (i = 0; !trenchId && i < (this.vehicles || []).length; i++) {
       var vehicle = this.vehicles[i];
       if (this.remote && vehicle.hidden) continue;
       if (Math.hypot(vehicle.x - x, vehicle.y - y) < vehicle.r + r) return false;
     }
     for (i = 0; i < this.structures.length; i++) {
       var st = this.structures[i];
-      if (st.alive && Math.hypot(st.x - x, st.y - y) < st.r + r) return false;
+      if (st.alive && (st.trenchId || 0) === trenchId && Math.hypot(st.x - x, st.y - y) < st.r + r) return false;
     }
     if (!pad) {
       for (i = 0; i < this.players.length; i++) {
         var p = this.players[i];
-        if (p.alive && p.dropT <= 0 && Math.hypot(p.x - x, p.y - y) < p.r + r) return false;
+        if (p.alive && (p.trenchId || 0) === trenchId && p.dropT <= 0 && Math.hypot(p.x - x, p.y - y) < p.r + r) return false;
       }
     }
     return true;
@@ -567,7 +571,14 @@
       hp: portableRock ? (Number.isFinite(o.hp) && o.hp > 0 ? Math.min(rockHp, o.hp) : rockHp) : o.hp || 0,
       maxHp: portableRock ? rockHp : o.maxHp || 0, alive: true, angle: o.angle || 0, cooldown: 0, mounted: o.mounted || 0, target: 0, pair: o.pair || 0, age: 0, shake: 0, flash: 0
     };
+    if (s.kind === 'turret') {
+      var turret = ITEMS[s.item] || ITEMS.turret;
+      s.item = turret.id;
+      if (!s.maxHp) s.maxHp = Math.max(turret.hp, s.hp);
+      if (o.hp === undefined) s.hp = s.maxHp;
+    }
     s.neutral = !!o.neutral; s.seeded = !!o.seeded;
+    s.trenchId = this.blastTrenchAt(s.x, s.y);
     s.settlement = o.settlement === undefined ? null : o.settlement;
     if (o.militaryBase) {
       s.militaryBase = o.militaryBase;
@@ -604,11 +615,6 @@
   };
   World.prototype.damageStruct = function (s, amount, sourceId, hx, hy, cause) {
     if (!s.alive || s.kind === 'rock' || amount <= 0 || !s.maxHp) return;
-    if (s.mounted && !s.neutral) {
-      // Whoever is on the turret takes the hit: a turret is not a shield.
-      var m = this.playerById(s.mounted);
-      if (m && m.alive) { this.damagePlayer(m, amount, sourceId, cause || 'turret', hx, hy); return; }
-    }
     var src = sourceId ? this.playerById(sourceId) : null;
     if (s.kind === 'sentry' && (cause === 'rpg' || cause === 'sentry-rockets')) amount = s.hp;
     else amount *= this.outgoingClassDamageMul(src);
@@ -653,10 +659,11 @@
 
   // ---------------------------------------------------------------- turrets (mounted) and sentries (automatic)
   World.prototype.nearestMountable = function (p) {
+    if (p.trenchId) return null;
     var best = null, bd = Infinity;
     for (var i = 0; i < this.structures.length; i++) {
       var s = this.structures[i];
-      if (!s.alive || s.kind !== 'turret' || s.mounted || (s.team !== null && s.team !== p.team)) continue;
+      if (!s.alive || s.kind !== 'turret' || s.trenchId || s.mounted || (s.team !== null && s.team !== p.team)) continue;
       var d = Math.hypot(s.x - p.x, s.y - p.y) - s.r - p.r;
       if (d < MOUNT_RANGE && d < bd && this.lineClear(p.x, p.y, s.x, s.y, s)) { bd = d; best = s; }
     }
@@ -667,9 +674,9 @@
     var best = null, bd = PICKUP_RANGE;
     for (var i = 0; i < this.structures.length; i++) {
       var s = this.structures[i];
-      if (!s.alive || s.kind !== 'rock' || (s.owner !== p.id && (s.team === null || s.team !== p.team))) continue;
+      if (!s.alive || s.kind !== 'rock' || (s.trenchId || 0) !== (p.trenchId || 0) || (s.owner !== p.id && (s.team === null || s.team !== p.team))) continue;
       var d = Math.hypot(s.x - p.x, s.y - p.y) - s.r - p.r;
-      if (d <= bd && this.lineClear(p.x, p.y, s.x, s.y, s)) { best = s; bd = d; }
+      if (d <= bd && this.lineClear(p.x, p.y, s.x, s.y, s, false, null, p.trenchId)) { best = s; bd = d; }
     }
     return best;
   };
@@ -703,7 +710,7 @@
   };
   World.prototype.mountTurret = function (p, s) {
     if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || !s || !s.alive || s.kind !== 'turret' || s.mounted || (s.team !== null && s.team !== p.team)) return false;
-    if (Math.hypot(p.x - s.x, p.y - s.y) > MOUNT_RANGE + s.r + p.r || !this.lineClear(p.x, p.y, s.x, s.y, s)) return false;
+    if (p.trenchId || s.trenchId || Math.hypot(p.x - s.x, p.y - s.y) > MOUNT_RANGE + s.r + p.r || !this.lineClear(p.x, p.y, s.x, s.y, s)) return false;
     if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     p.mount = s.id; s.mounted = p.id;
     p.x = s.x; p.y = s.y; p.vx = p.vy = p.ox = p.oy = 0; p.held = -1; p.scoping = false; p.shieldUp = false; p.sprinting = false; p.nearStation = null; p.wantsRevive = false;
@@ -760,7 +767,7 @@
     s.angle = p.angle;
     s.cooldown -= dt;
     p.vx = 0; p.vy = 0;
-    if (!(intent.fire || intent.firePressed) || s.cooldown > 0) return;
+    if (!(intent.fire || intent.firePressed) || s.cooldown > 0 || s.trenchId) return;
     var it = ITEMS[s.item], def = Object.assign({}, WEAPONS.turret, { damage: it.damage });
     s.cooldown = it.fireInterval;
     var a = p.angle + (this.rng.next() - 0.5) * 2 * def.spread;
@@ -775,7 +782,7 @@
     s.angle = a;
   };
   World.prototype.automaticGuardRange = function (s) {
-    if (!s.alive) return 0;
+    if (!s.alive || s.trenchId) return 0;
     if (s.kind === 'sentry') return ITEMS[s.item].range;
     return s.aiRider && !s.mounted ? ITEMS.sentry3.range : 0;
   };
@@ -786,7 +793,7 @@
     s.cooldown -= dt;
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
-      if (!p.alive || p.vehicle || p.dropT > 0 || p.fx.invisible > 0 || (s.team !== null && p.team === s.team)) continue;
+      if (!p.alive || p.vehicle || p.dropT > 0 || p.fx.invisible > 0 || !this.directFireExposed(p) || (s.team !== null && p.team === s.team)) continue;
       var dx = p.x - s.x, dy = p.y - s.y;
       if (Math.abs(dx) > bd || Math.abs(dy) > bd) continue;
       var d = Math.hypot(dx, dy) || 1;
@@ -865,6 +872,7 @@
       if (p.tpT < need) continue;
       var fromX = p.x, fromY = p.y;
       p.x = pair.x; p.y = pair.y; p.vx = 0; p.vy = 0;
+      this.resetTrench(p);
       this.collide(p);
       p.tpLock = pair.id; p.tpPad = pair.id; p.tpT = 0; p.tpProgress = 0;
       this.teleportFx(fromX, fromY, p.x, p.y);
@@ -922,21 +930,21 @@
         var victim = this.playerById(st.target);
         if (victim && victim.alive) this.damagePlayer(victim, st.damage, st.owner, 'lightning', victim.x, victim.y - victim.r);
       } else {
-        var R = st.radius, self = this, hitMounts = {};
+        var R = st.radius, self = this, trenchId = this.blastTrenchAt(st.x, st.y);
         for (j = 0; j < this.players.length; j++) {
           var p = this.players[j];
-          if (!p.alive || p.vehicle || p.dropT > 0 || (team !== null && team !== undefined && p.team === team)) continue;
-          if (Math.hypot(p.x - st.x, p.y - st.y) - p.r < R) { if (p.mount) hitMounts[p.mount] = true; this.damagePlayer(p, st.damage, st.owner, 'meteor', p.x, p.y - p.r); }
+          if (!p.alive || p.vehicle || p.mount || p.dropT > 0 || (p.trenchId || 0) !== trenchId || (team !== null && team !== undefined && p.team === team)) continue;
+          if (Math.hypot(p.x - st.x, p.y - st.y) - p.r < R) this.damagePlayer(p, st.damage, st.owner, 'meteor', p.x, p.y - p.r);
         }
         var crates = [], structs = [];
         this.solids.query(st.x - R, st.y - R, st.x + R, st.y + R, function (s) {
-          if (s.type === 'crate' && s.crate.alive) crates.push(s.crate);
-          if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && (team === null || s.struct.team !== team)) structs.push(s.struct);
+          if (s.type === 'crate' && s.crate.alive && !trenchId) crates.push(s.crate);
+          if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && (s.struct.trenchId || 0) === trenchId && (team === null || s.struct.team !== team)) structs.push(s.struct);
         });
         crates.forEach(function (c) { if (Math.hypot(c.x - st.x, c.y - st.y) < R + c.size / 2) self.damageCrate(c, st.damage, st.owner, c.x, c.y - c.size / 2); });
-        structs.forEach(function (s) { if ((!hitMounts[s.id] || s.neutral) && Math.hypot(s.x - st.x, s.y - st.y) < R + s.r) self.damageStruct(s, st.damage, st.owner, s.x, s.y - s.r, 'meteor'); });
+        structs.forEach(function (s) { if (Math.hypot(s.x - st.x, s.y - st.y) < R + s.r) self.damageStruct(s, st.damage, st.owner, s.x, s.y - s.r, 'meteor'); });
         if (this.damageVehiclesInArea) this.damageVehiclesInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', { team: team });
-        this.damageFoliageInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', true);
+        if (!trenchId) this.damageFoliageInArea(st.x, st.y, R, st.damage, st.owner, 'meteor', true);
       }
       this.emit({ type: 'strike-hit', strike: st });
     }

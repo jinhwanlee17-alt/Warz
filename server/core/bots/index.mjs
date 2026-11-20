@@ -129,6 +129,7 @@ export class BotDirector {
     const bullets = this.world.bullets;
     for (let i = 0; i < bullets.length; i++) {
       const b = bullets[i];
+      if (b.trenchId) continue; // Floor rounds cannot threaten a player; bots can still hear the shot event.
       for (let k = 0; k < this.bots.length; k++) {
         const p = this.bots[k].p;
         if (p.team === b.team || !p.alive || Math.abs(b.x - p.x) > NEAR_MISS || Math.abs(b.y - p.y) > NEAR_MISS) continue;

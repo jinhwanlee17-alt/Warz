@@ -164,8 +164,17 @@ for (const shield of ['riot', 'explosive', 'legacy', 'rear', 'reload']) {
   const turret = a.w.addStruct({ kind: 'turret', item: 'turret', x: a.target.x, y: a.target.y, r: W.STRUCT_RADIUS.turret, team: 2, hp: 100, maxHp: 100 });
   t.check(a.w.mountTurret(a.target, turret), 'mounted rider fixture boards its turret');
   a.w.trigger(a.p, { firePressed: true }); fly(a, .5);
-  t.equal(a.target.hp, 9800, 'RPG hits a mounted turret rider exactly once');
-  t.equal(turret.hp, 100, 'mounted turret does not take duplicate blast damage');
+  t.check(!turret.alive && !a.target.mount, 'a direct RPG hit breaks a tier-one turret and ejects its rider');
+  t.equal(a.target.hp, 10000, 'the same RPG blast spares the ejected rider');
+}
+{
+  const a = arena();
+  const turret = a.w.addStruct({ kind: 'turret', item: 'turret3', neutral: true, x: a.target.x, y: a.target.y,
+    r: W.STRUCT_RADIUS.turret, hp: W.ITEMS.turret3.hp, maxHp: W.ITEMS.turret3.hp });
+  a.w.mountTurret(a.target, turret);
+  a.w.trigger(a.p, { firePressed: true }); fly(a, .5);
+  t.equal(turret.maxHp - turret.hp, W.WEAPONS.rpg.explosion.maxDamage, 'a direct RPG hit damages a mounted neutral turret exactly once');
+  t.check(a.target.hp === 10000 && a.target.mount === turret.id, 'the healthy rider remains mounted after the turret absorbs the RPG');
 }
 {
   const a = arena({}, true); a.w.trigger(a.p, { firePressed: true });

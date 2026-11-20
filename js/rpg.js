@@ -19,7 +19,7 @@
     this.rpgRockets = (this.rpgRockets || []).filter(function (g) { return g.id !== id; });
   };
   World.prototype.fireRpg = function (p) {
-    if (this.remote || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || p.held >= 0) return false;
+    if (this.remote || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || p.held >= 0 || !this.directFireExposed(p)) return false;
     var weapon = p.weapons[p.slot], def = W.WEAPONS.rpg;
     if (!weapon || weapon.id !== def.id || weapon.reloading || weapon.cooldown > 1e-8) return false;
     if (weapon.ammo <= 0) { this.startReload(p); return false; }
@@ -68,30 +68,30 @@
   World.prototype.rpgImpact = function (g, hit, x, y) {
     if (this.remote) return;
     var self = this, def = W.WEAPONS.rpg, radius = def.explosion.radius;
+    var trenchId = hit ? 0 : this.blastTrenchAt(x, y);
     var solid = hit && hit.solid, directPlayer = hit && hit.player, directVehicle = solid && solid.vehicle;
-    if (solid && solid.struct && solid.struct.mounted) directPlayer = this.playerById(solid.struct.mounted);
     // Resolve the complete blast against intact cover before any damage destroys it.
     var players = this.players.filter(function (p) {
-      return p.alive && !p.vehicle && p.dropT <= 0 && (p.id === g.owner || p.team !== g.team);
+      return p.alive && !p.vehicle && !p.mount && p.dropT <= 0 && (p.id === g.owner || p.team !== g.team);
     }).map(function (p) {
       var d = Math.max(0, Math.hypot(p.x - x, p.y - y) - p.r), direct = p === directPlayer;
-      return { p: p, damage: direct || (d <= radius && self.lineClear(x, y, p.x, p.y, p.mount ? self.structById(p.mount) : null)) ? self.rpgDamageAt(d, null, direct) : 0 };
+      return { p: p, damage: direct || (d <= radius && self.blastLineClear(trenchId, x, y, p)) ? self.rpgDamageAt(d, null, direct) : 0 };
     });
     var vehicles = (this.vehicles || []).filter(function (v) {
       return !v.wreck && self.vehicleTeam(v) !== g.team;
     }).map(function (v) {
       var d = Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r), direct = v === directVehicle;
-      return { v: v, damage: direct || (d <= radius && self.lineClear(x, y, v.x, v.y, v)) ? self.rpgDamageAt(d, v.type, direct) : 0 };
+      return { v: v, damage: direct || (d <= radius && self.blastLineClear(trenchId, x, y, v)) ? self.rpgDamageAt(d, v.type, direct) : 0 };
     });
     var objects = [];
     this.solids.query(x - radius, y - radius, x + radius, y + radius, function (entry) {
       var o = entry.crate || entry.struct;
-      if (!o || !o.alive || (entry.struct && (o.kind === 'rock' || (o.mounted && !o.neutral) || o.team === g.team))) return;
+      if (!o || !o.alive || (entry.struct && (o.kind === 'rock' || !self.blastCanHitStructure(o, g.owner, g.team)))) return;
       var d = entry.crate ? Math.hypot(x - U.clamp(x, entry.x, entry.x + entry.w), y - U.clamp(y, entry.y, entry.y + entry.h)) : Math.max(0, Math.hypot(x - o.x, y - o.y) - o.r);
       var direct = solid && (solid.crate === o || solid.struct === o);
-      if (direct || (d <= radius && self.lineClear(x, y, o.x, o.y, o))) objects.push({ o: o, crate: !!entry.crate, damage: self.rpgDamageAt(d, null, direct) });
+      if (direct || (d <= radius && self.blastLineClear(trenchId, x, y, o))) objects.push({ o: o, crate: !!entry.crate, damage: self.rpgDamageAt(d, null, direct) });
     });
-    this.damageFoliageInArea(x, y, radius, function (plant) {
+    if (!trenchId) this.damageFoliageInArea(x, y, radius, function (plant) {
       return self.rpgDamageAt(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius), null, solid && solid.plant === plant);
     }, g.owner, 'rpg');
     players.forEach(function (entry) { if (entry.damage > 0) self.damagePlayer(entry.p, entry.damage, g.owner, 'rpg', entry.p.x, entry.p.y, { x: x, y: y }); });

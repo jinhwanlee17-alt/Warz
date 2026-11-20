@@ -34,7 +34,8 @@
     p.commandCd = Math.max(0, (p.commandCd || 0) - dt);
     p.commandBuff = Math.max(0, (p.commandBuff || 0) - dt);
     var w = p.weapons[p.slot], def = WEAPONS[w.id];
-    var firing = p.alive && !p.downed && !p.mount && !p.vehicle && p.dropT <= 0 && p.held < 0 && !w.reloading && (intent.fire || intent.firePressed);
+    var canFire = def.kind === 'gun' || def.kind === 'firegun' || this.directFireExposed(p);
+    var firing = canFire && p.alive && !p.downed && !p.mount && !p.vehicle && p.dropT <= 0 && p.held < 0 && !w.reloading && (intent.fire || intent.firePressed);
     p.minigunSpin = firing && def.windup ? Math.min(def.windup, (p.minigunSpin || 0) + dt) : 0;
     if (!firing || def.kind !== 'flame') p.flameTicks = 0;
     if (!firing) p.automaticWeapon = null;
@@ -48,10 +49,10 @@
   World.prototype.trigger = function (p, intent) {
     if (p.vehicle) return false;
     var def = WEAPONS[p.weapons[p.slot].id];
-    if (def.kind === 'melee') return this.fireHammer(p, def);
+    if (def.kind === 'melee') return this.directFireExposed(p) && this.fireHammer(p, def);
     if (def.kind === 'ability') return intent.firePressed ? this.useCommandRadar(p, intent) : false;
     if (def.windup && p.minigunSpin + 0.00000001 < def.windup) return false;
-    if (def.kind === 'flame') return this.fireFlame(p, def);
+    if (def.kind === 'flame') return this.directFireExposed(p) && this.fireFlame(p, def);
     return baseTrigger.call(this, p, intent);
   };
   World.prototype.useUtility = function (p, intent) {
@@ -62,7 +63,7 @@
   };
 
   World.prototype.nearestRepairVehicle = function (p) {
-    if (!p || p.classId !== 'armorcrew' || !p.alive || p.downed || p.vehicle || p.mount || p.dropT > 0) return null;
+    if (!p || p.classId !== 'armorcrew' || !p.alive || p.downed || p.vehicle || p.mount || p.trenchId || p.dropT > 0) return null;
     var nearest = null, best = CREW.repairReach + 0.000001;
     for (var i = 0; i < (this.vehicles || []).length; i++) {
       var v = this.vehicles[i], distance = Math.hypot(p.x - v.x, p.y - v.y) - v.r;
@@ -104,7 +105,7 @@
     if (this.remote || !p.repairVehicle) return;
     var v = this.vehicleById(p.repairVehicle);
     if (p.classId !== 'armorcrew' || !p.alive || p.downed || p.vehicle || p.mount || p.dropT > 0 || p.held >= 0 || p.weapons[p.slot].id !== 'hammer' || intent.mx || intent.my || intent.fire || intent.firePressed ||
-        Math.hypot(p.x - p.repairX, p.y - p.repairY) > 0.5 || !v || v.wreck || !(v.hp > 0) || v.hp >= v.maxHp ||
+        p.trenchId || Math.hypot(p.x - p.repairX, p.y - p.repairY) > 0.5 || !v || v.wreck || !(v.hp > 0) || v.hp >= v.maxHp ||
         Math.hypot(p.x - v.x, p.y - v.y) - v.r > CREW.repairReach || !this.lineClear(p.x, p.y, v.x, v.y, v)) { this.stopVehicleRepair(p); return; }
     if (intent.utility || intent.interactPressed) return; // a toggle or seat interaction resolves later in this tick
     p.angle = Math.atan2(v.y - p.y, v.x - p.x);
@@ -121,11 +122,12 @@
     p.meleeSwing = 0.24; p.meleeAngle = p.angle; p.recoil = 1;
     var self = this, best = null, distance = Infinity;
     function consider(kind, target, radius, ignore) {
+      if (kind === 'struct' && target.trenchId) return;
       var dx = target.x - p.x, dy = target.y - p.y, d = Math.max(0, Math.hypot(dx, dy) - radius);
       if (d > def.range || d >= distance || Math.abs(U.angleDiff(p.angle, Math.atan2(dy, dx))) > def.halfAngle || !self.lineClear(p.x, p.y, target.x, target.y, ignore || target)) return;
       best = { kind: kind, target: target }; distance = d;
     }
-    this.players.forEach(function (o) { if (o !== p && o.alive && !o.vehicle && o.dropT <= 0 && o.team !== p.team) consider('player', o, o.r, o.mount ? self.structById(o.mount) : null); });
+    this.players.forEach(function (o) { if (o !== p && o.alive && !o.vehicle && o.dropT <= 0 && o.team !== p.team && self.directFireExposed(o)) consider('player', o, o.r, o.mount ? self.structById(o.mount) : null); });
     (this.vehicles || []).forEach(function (v) { if (!v.wreck && self.vehicleTeam(v) !== p.team) consider('vehicle', v, v.r); });
     this.map.crates.forEach(function (c) { if (c.alive) consider('crate', c, c.size / 2); });
     this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
@@ -176,14 +178,14 @@
           Math.abs(U.angleDiff(p.angle, Math.atan2(o.y - p.y, o.x - p.x))) <= def.halfAngle && self.lineClear(p.x, p.y, o.x, o.y, o);
       }
       this.players.forEach(function (o) {
-        if (o !== p && !o.vehicle && o.alive && o.dropT <= 0 && o.team !== p.team && inFlame(o, o.r)) self.damagePlayer(o, damage, p.id, 'flamethrower', o.x, o.y - o.r, { x: p.x, y: p.y });
+        if (o !== p && !o.vehicle && !o.mount && o.alive && o.dropT <= 0 && o.team !== p.team && self.directFireExposed(o) && inFlame(o, o.r)) self.damagePlayer(o, damage, p.id, 'flamethrower', o.x, o.y - o.r, { x: p.x, y: p.y });
       });
       if (this.damageVehiclesMatching) this.damageVehiclesMatching(function (v) { return inFlame(v, v.r); }, damage, p.id, 'flamethrower', { team: p.team });
       this.map.crates.forEach(function (c) { if (c.alive && inFlame(c, c.size / 2)) self.damageCrate(c, damage, p.id, c.x, c.y); });
       this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
         if (plant.alive !== false && inFlame(plant, plant.hitRadius)) self.damageFoliage(plant, damage, p.id, 'flamethrower');
       });
-      this.structures.forEach(function (s) { if (s.alive && s.maxHp && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, damage, p.id, s.x, s.y); });
+      this.structures.slice().forEach(function (s) { if (s.alive && !s.trenchId && s.maxHp && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, damage, p.id, s.x, s.y); });
       this.flameFx(p.x, p.y, p.angle, def.range);
       this.emit({ type: 'flame', player: p, x: p.x, y: p.y, angle: p.angle, range: def.range, halfAngle: def.halfAngle, damage: damage });
       if (w.ammo <= 0) { this.startReload(p); break; }
@@ -214,9 +216,10 @@
       var st = air[i]; st.t -= dt;
       if (st.t > 0 || this.remote) { if (st.t > -1.5) this.strikes.push(st); continue; }
       this.strikeFx(st);
+      var trenchId = this.blastTrenchAt(st.x, st.y);
       for (var j = 0; j < this.players.length; j++) {
         var p = this.players[j];
-        if (p.alive && !p.vehicle && p.dropT <= 0 && Math.hypot(p.x - st.x, p.y - st.y) - p.r < st.radius) this.damagePlayer(p, st.damage, st.owner, 'airstrike', p.x, p.y - p.r);
+        if (p.alive && !p.vehicle && p.dropT <= 0 && (p.trenchId || 0) === trenchId && Math.hypot(p.x - st.x, p.y - st.y) - p.r < st.radius) this.damagePlayer(p, st.damage, st.owner, 'airstrike', p.x, p.y - p.r);
       }
       if (this.damageVehiclesInArea) this.damageVehiclesInArea(st.x, st.y, st.radius, st.damage, st.owner, 'airstrike', { friendly: true });
       this.emit({ type: 'strike-hit', strike: st });

@@ -77,4 +77,22 @@ for (const remote of [false, true]) {
   t.equal(planes, 1, 'an aircraft crossing the view is drawn even when its ground target is offscreen');
 }
 
+{
+  const trace = Object.create(ctx);
+  let bullets = [], flashes = [];
+  trace.arc = x => bullets.push(x);
+  trace.translate = x => flashes.push(x);
+  const shot = { x: 100, y: 100, r: 2, dx: 1, dy: 0, traveled: 5, speed: 1600, color: '#ffee88', outline: '#778899' };
+  const flash = { x: 100, y: 100, kind: 'flash', size: 10, life: 1, max: 1, angle: 0, color: '#ffee88' };
+  const effects = { bullets: [shot, { ...shot, x: 200, trenchId: 1 }], particles: [flash, { ...flash, x: 200, trenchId: 1 }] };
+  for (const floor of [true, false]) {
+    bullets = []; flashes = [];
+    renderer.drawBullets(trace, effects, view, floor);
+    renderer.drawParticles(trace, effects, view, floor);
+    const expected = floor ? 200 : 100;
+    t.check(bullets.length === 1 && bullets[0] === expected && flashes.length === 1 && flashes[0] === expected,
+      'tracers and muzzle flashes draw once in their ' + (floor ? 'trench' : 'surface') + ' pass');
+  }
+}
+
 t.done();

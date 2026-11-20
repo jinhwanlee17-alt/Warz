@@ -58,6 +58,34 @@ try {
   t.check(!world.structById(turret.id) && !client.world.structById(turret.id) && p.mount === 0 && client.me.mount === 0,
     'another team can destroy the ridden neutral turret on both authority and browser');
 
+  p.net.conn = { open: true, bufferedAmount: 0, close() {}, sendText(raw) { W.Online.applySnapshot(JSON.parse(raw)); } };
+  function flush() { match.sendSnapshots(world.events.splice(0)); }
+  p.armor = 0;
+  for (const [item, hp] of [['turret', 100], ['turret2', 500], ['turret3', 2500]]) {
+    const riderHP = p.hp;
+    p.x = turret.x + 75; p.y = turret.y;
+    t.check(world.placeItem(p, ServerW.ITEMS[item], { aimX: turret.x, aimY: turret.y }), item + ' can be placed and mounted');
+    const id = p.mount, chassis = world.structById(id);
+    flush();
+    t.check(client.me.mount === id && client.world.structById(id).hp === hp, item + ' replicates its full chassis HP and rider');
+    world.damagePlayer(p, 25, other.id, 'ar');
+    flush();
+    t.check(chassis.hp === hp - 25 && p.hp === riderHP && client.world.structById(id).hp === hp - 25 && client.me.hp === riderHP,
+      item + ' takes the incoming hit on server and client');
+
+    client = W.Online.start(match.startMessage(p, true));
+    W.Online.applySync(match.syncMessage());
+    t.check(client.me.mount === id && client.world.structById(id).mounted === p.id && client.world.structById(id).hp === hp - 25,
+      item + ' restores both the mount and its remaining protection on reconnect');
+    world.damageStruct(chassis, hp + 100, other.id, chassis.x, chassis.y, 'ar');
+    flush();
+    t.check(!world.structById(id) && !client.world.structById(id) && !p.mount && !client.me.mount && p.hp === riderHP && client.me.hp === riderHP,
+      item + ' absorbs the breaking hit and dismounts the rider on both peers');
+    world.damagePlayer(p, 10, other.id, 'ar');
+    flush();
+    t.check(p.hp === riderHP - 10 && client.me.hp === p.hp, item + ' leaves the rider exposed to the next hit');
+  }
+
   const bonus = world.map.crates.find(c => c.legendaryDrops === 1);
   t.check(!!bonus && bonus.id !== world.map.legendaryCrateId, 'thirty-house town has a bonus distinct from the center Legendary');
   const before = world.map.nextPickupId;

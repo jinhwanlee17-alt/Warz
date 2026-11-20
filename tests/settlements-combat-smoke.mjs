@@ -57,11 +57,12 @@ for (const item of ['sentry', 'sentry2', 'sentry3']) {
   const rider = world.addPlayer({ x: 5580, y: 5000, team: 2 });
   world.mountTurret(rider, turret);
   world.updateSentry(guard, .05);
-  t.equal(rider.maxHp - rider.hp, W.ITEMS[item].damage, item + ': a mounted turret cannot hide a rider from settlement guards');
+  t.equal(turret.maxHp - turret.hp, W.ITEMS[item].damage, item + ': settlement guards damage the occupied turret');
+  t.equal(rider.hp, rider.maxHp, item + ': the mounted gunner is protected');
   const wall = { type: 'wall', shape: 'rect', x: 5250, y: 4900, w: 18, h: 200 };
   world.solids.insert(wall, wall.x, wall.y, wall.x + wall.w, wall.y + wall.h);
-  const hp = rider.hp; guard.cooldown = 0; world.updateSentry(guard, .05);
-  t.equal(rider.hp, hp, item + ': actual walls still protect mounted players');
+  const hp = turret.hp; guard.cooldown = 0; world.updateSentry(guard, .05);
+  t.equal(turret.hp, hp, item + ': a wall protects the occupied turret');
 }
 {
   const world = arena([seed('sentry2')], { settlementVehicles: [{ id: 23, type: 'humvee', x: 5400, y: 5000, armed: true, settlement: 0 }] });
@@ -100,5 +101,6 @@ for (const weapon of ['bullet', 'grenade', 'meteor', 'tank', 'artillery', 'rpg',
   if (weapon === 'sentry-rocket') world.sentryProjectileImpact({ ...shot, kind: 'rockets' }, hit, s.x, s.y);
   if (weapon === 'pyromaniac') { world.setClass(attacker, 'pyromaniac', true); attacker.angle = 0; world.firePyroFlame(attacker); }
   t.check(s.hp < before, weapon + ': an occupied neutral turret hull remains damageable');
+  t.equal(rider.hp, rider.maxHp, weapon + ': a hit on the neutral turret leaves its rider protected');
 }
 t.done();

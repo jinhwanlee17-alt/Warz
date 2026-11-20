@@ -1,4 +1,4 @@
-// Physical mouse/key regression: carried launchers or hand grenades must not steal mounted turret input.
+// Mounted turret controls, chassis damage and forced dismount in practice and live multiplayer.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,6 +19,11 @@ function prepare(W, world, p, cls) {
   world.resetItems(p); world.setClass(p, cls, true);
   p.x = 5000; p.y = 5000; p.vx = 0; p.vy = 0; p.dropT = 0; p.alive = true; p.downed = false;
   world.grenades = []; world.bullets = []; world.zones = []; world.explosions = []; world.particles = [];
+}
+
+function addTurret(W, world, p, item) {
+  const hp = W.ITEMS[item].hp;
+  return world.addStruct({ kind: 'turret', item, x: 5060, y: 5000, r: W.STRUCT_RADIUS.turret, hp, maxHp: hp, owner: p.id, team: p.team }).id;
 }
 
 try {
@@ -71,8 +76,8 @@ try {
     }
     for (const variant of [
       { cls: 'grenadier', slot: 0, name: 'Launcher I', turret: 'turret', turretHp: 100 },
-      { cls: 'grenadier2', slot: 0, name: 'Launcher II', turret: 'turret2', turretHp: 200 },
-      { cls: 'grenadier', slot: 1, name: 'Hand grenade', turret: 'turret3', turretHp: 500 }
+      { cls: 'grenadier2', slot: 0, name: 'Launcher II', turret: 'turret2', turretHp: 500 },
+      { cls: 'grenadier', slot: 1, name: 'Hand grenade', turret: 'turret3', turretHp: 2500 }
     ]) {
       const { cls, slot } = variant, grenade = slot === 1;
       const label = (online ? 'Online ' : 'Practice ') + variant.name + ' / ' + variant.turret;
@@ -103,14 +108,20 @@ try {
         }
       }, prepare.toString(), cls, online);
       await selectSlot(slot);
-      const spec = { kind: 'turret', item: variant.turret, x: 5060, y: 5000, r: 24, hp: variant.turretHp, maxHp: variant.turretHp };
-      if (online) live.world.addStruct({ ...spec, owner: owner.id, team: owner.team });
-      else await evaluate(spec => { const m = Warz.debug.match(); m.world.addStruct({ ...spec, owner: m.player.id, team: m.player.team }); }, spec);
+      const id = online ? addTurret(live.W, live.world, owner, variant.turret) :
+        await evaluate((source, item) => (0, eval)('(' + source + ')')(Warz, Warz.debug.match().world, Warz.debug.player(), item),
+          addTurret.toString(), variant.turret);
       await browser.waitFor('!!Warz.debug.match().world.nearestMountable(Warz.debug.player())');
       const ammoBefore = await browser.evaluate('Warz.debug.player().weapons[0].ammo');
       const grenadesBefore = await browser.evaluate('Warz.debug.player().grenades');
       await interact();
       await browser.waitFor('Warz.debug.player().mount>0');
+      const riderHP = await browser.evaluate('Warz.debug.player().hp');
+      check(await evaluate((id, hp) => Warz.debug.match().world.structById(id).hp === hp, id, variant.turretHp), label + ': full turret HP matches its tier');
+      if (online) live.world.damagePlayer(owner, 25, null, 'ar');
+      else await evaluate(() => Warz.debug.match().world.damagePlayer(Warz.debug.player(), 25, null, 'ar'));
+      await browser.waitFor('Warz.debug.match().world.structById(' + id + ').hp === ' + (variant.turretHp - 25));
+      check(await browser.evaluate('Warz.debug.player().hp') === riderHP, label + ': turret takes the hit and rider keeps full health');
       check(await browser.evaluate('Warz.debug.match().world.aimedProjectile(Warz.debug.player())===null'), label + ': mounting overrides the carried projectile weapon');
       check(await browser.evaluate('document.getElementById("hud-ammo-label").textContent.startsWith("turret")'), label + ': mounted HUD describes turret fire rather than grenade charging');
       serverEvents = [];
@@ -143,6 +154,11 @@ try {
         check(await browser.evaluate('turretQA.launches.length===1 && turretQA.throws.length===0'), label + ': fresh release launches exactly one shell');
         if (online) check(owner.weapons[0].ammo === ammoBefore - 1 && serverEvents.filter(e => e.type === 'launch').length === 1, label + ': server confirms one shell and one round consumed after dismount');
       }
+      await interact(); await browser.waitFor('Warz.debug.player().mount === ' + id);
+      if (online) live.world.damagePlayer(owner, variant.turretHp + 50, null, 'ar');
+      else await evaluate(hp => Warz.debug.match().world.damagePlayer(Warz.debug.player(), hp + 50, null, 'ar'), variant.turretHp);
+      await browser.waitFor('!Warz.debug.player().mount && !Warz.debug.match().world.structById(' + id + ')');
+      check(await browser.evaluate('Warz.debug.player().hp') === riderHP, label + ': breaking hit destroys the turret and dismounts its rider unharmed');
     }
   }
   await browser.evaluate('Warz.App.leaveMatch()');

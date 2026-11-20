@@ -13,6 +13,7 @@
     if (!U.insideIsland(x, y, r, C.worldSize, C.cornerRadius)) return false;
     var free = true;
     world.solids.query(x - r, y - r, x + r, y + r, function (s) {
+      if (s.struct && s.struct.trenchId) return;
       if (!free || (s.crate && (!s.crate.alive || (ignoredCrates && ignoredCrates[s.crate.id]))) || (s.rock && (!s.rock.alive || (ignoredRocks && ignoredRocks[s.rock.id]))) || (s.struct && (!s.struct.alive || (ignoredStructRocks && ignoredStructRocks[s.struct.id])))) return;
       if (s.shape === 'circle' ? Math.hypot(x - s.x, y - s.y) < r + s.r - 0.0001 : U.circleRectPush(x, y, r - 0.0001, s.x, s.y, s.w, s.h)) free = false;
     });
@@ -24,6 +25,7 @@
     // Move just off a touching boundary before testing; a body may slide away from a wall.
     x += dx / len * 0.001; y += dy / len * 0.001;
     world.solids.query(Math.min(x, tx) - r, Math.min(y, ty) - r, Math.max(x, tx) + r, Math.max(y, ty) + r, function (s) {
+      if (s.struct && s.struct.trenchId) return;
       if (!free || (s.crate && (!s.crate.alive || (ignoredCrates && ignoredCrates[s.crate.id]))) || (s.rock && (!s.rock.alive || (ignoredRocks && ignoredRocks[s.rock.id]))) || (s.struct && (!s.struct.alive || (ignoredStructRocks && ignoredStructRocks[s.struct.id])))) return;
       var hit = s.shape === 'circle' ? U.segCircle(x, y, tx, ty, s.x, s.y, s.r + r - 0.0001)
         : U.segRect(x, y, tx, ty, s.x - r + 0.0001, s.y - r + 0.0001, s.w + r * 2 - 0.0002, s.h + r * 2 - 0.0002);
@@ -96,7 +98,7 @@
     return W.vehicleDef(v).maxSpeed * mul;
   };
   World.prototype.nearestVehicleSeat = function (p) {
-    if (!p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle) return null;
+    if (!p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || p.trenchId) return null;
     var best = null, bd = V.interactRange, list = this.vehicles || [];
     for (var i = 0; i < list.length; i++) {
       var v = list[i], order = this.vehicleSeatOrder(v), d = this.vehicleBoardingDistance(p, v);
@@ -108,7 +110,7 @@
     return best;
   };
   World.prototype.enterVehicle = function (p, v, seat) {
-    if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || !this.vehicleSeatAvailable(v, seat, p)) return false;
+    if (this.remote || !p || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || p.trenchId || !this.vehicleSeatAvailable(v, seat, p)) return false;
     if (this.vehicleBoardingDistance(p, v) > V.interactRange || !this.lineClear(p.x, p.y, v.x, v.y, v)) return false;
     if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     v.seats[seat] = p.id; p.vehicle = v.id; p.vehicleSeat = seat;
@@ -219,6 +221,7 @@
   World.prototype.crushVehicleCrates = function (v, body, tx, ty) {
     var hits = [], blockedAt = 2, r = v.r, ignored = body.vehicleCrates;
     this.solids.query(Math.min(body.x, tx) - r, Math.min(body.y, ty) - r, Math.max(body.x, tx) + r, Math.max(body.y, ty) + r, function (s) {
+      if (s.struct && s.struct.trenchId) return;
       if ((s.crate && (!s.crate.alive || (ignored && ignored[s.crate.id]))) || (s.rock && (!s.rock.alive || (body.vehicleRocks && body.vehicleRocks[s.rock.id]))) || (s.struct && (!s.struct.alive || (body.vehicleStructRocks && body.vehicleStructRocks[s.struct.id])))) return;
       var t = hullContact(body.x, body.y, tx, ty, s.crate ? r : r - 0.0001, s);
       if (t < 0) return;
@@ -261,6 +264,10 @@
       vehicleCrates: this.remote ? (v.predictedCrates || (v.predictedCrates = {})) : null,
       vehicleRocks: this.remote ? (v.predictedRocks || (v.predictedRocks = {})) : null,
       vehicleStructRocks: this.remote ? (v.predictedStructRocks || (v.predictedStructRocks = {})) : null };
+    var world = this, clearsWire = !this.remote && v.type === 'tank';
+    function crushWire(trenchId, wireIndex) {
+      if (W.Trenches.crushWire(world.map, trenchId, wireIndex)) world.emit({ type: 'wire-crushed', trenchId: trenchId, wireIndex: wireIndex });
+    }
     for (var i = 0; i < steps; i++) {
       var signed = body.vx * Math.cos(v.angle) + body.vy * Math.sin(v.angle) < -0.01 ? -1 : 1;
       var turn = len ? U.clamp(U.angleDiff(v.angle, targetAngle), -def.turnRate * h, def.turnRate * h) : 0;
@@ -270,23 +277,24 @@
       speed += (targetSpeed - speed) * k;
       if (!len && Math.abs(speed) < 0.1) speed = 0;
       body.vx = Math.cos(v.angle) * speed; body.vy = Math.sin(v.angle) * speed;
-      var tx = body.x + body.vx * h, ty = body.y + body.vy * h;
+      var startX = body.x, startY = body.y, tx = startX + body.vx * h, ty = startY + body.vy * h;
+      var rockImpact = false;
       if (speed >= maxSpeed * def.crushSpeedRatio) {
         this.crushVehicleCrates(v, body, tx, ty);
         if (v.wreck) { body.vx = body.vy = 0; break; }
-        var rockImpact = (v.type === 'tank' || v.type === 'artillery') && this.ramTankRock(v, body, tx, ty);
-        if (rockImpact) {
-          if (v.wreck || rockImpact === 'stop') { body.vx = body.vy = 0; break; }
-          continue;
-        }
+        rockImpact = (v.type === 'tank' || v.type === 'artillery') && this.ramTankRock(v, body, tx, ty);
       }
-      if (speed !== 0) { body.x = tx; body.y = ty; this.collide(body); }
+      if (!rockImpact && speed !== 0) { body.x = tx; body.y = ty; this.collide(body); }
+      // Sweep the path the hull actually traveled, after walls and rocks have stopped or redirected it.
+      if (clearsWire && (startX !== body.x || startY !== body.y)) W.Trenches.wiresAlong(this.map, startX, startY, body.x, body.y, v.r, crushWire);
+      if (rockImpact && (v.wreck || rockImpact === 'stop')) { body.vx = body.vy = 0; break; }
     }
     v.x = body.x; v.y = body.y; v.vx = body.vx; v.vy = body.vy;
   };
   World.prototype.ramTankRock = function (v, body, tx, ty) {
     var nearest = null, block = 2;
     this.solids.query(Math.min(body.x, tx) - v.r, Math.min(body.y, ty) - v.r, Math.max(body.x, tx) + v.r, Math.max(body.y, ty) + v.r, function (s) {
+      if (s.struct && s.struct.trenchId) return;
       if ((s.crate && (!s.crate.alive || (body.vehicleCrates && body.vehicleCrates[s.crate.id]))) ||
           (s.rock && (!s.rock.alive || (body.vehicleRocks && body.vehicleRocks[s.rock.id]))) ||
           (s.struct && (!s.struct.alive || (body.vehicleStructRocks && body.vehicleStructRocks[s.struct.id])))) return;
@@ -415,36 +423,35 @@
   };
   World.prototype.tankShellImpact = function (shell, hit, x, y) {
     var self = this, R = T.cannonRadius, owner = this.playerById(shell.owner), team = owner ? owner.team : shell.team;
+    var trenchId = hit ? 0 : this.blastTrenchAt(x, y);
     var solid = hit && hit.solid, directPlayer = hit && hit.player;
-    if (solid && solid.struct && solid.struct.mounted) directPlayer = this.playerById(solid.struct.mounted);
     function damage(distance, direct) { return (direct ? T.cannonMaxDamage : T.cannonMinDamage + (T.cannonMaxDamage - T.cannonMinDamage) * (1 - U.clamp(distance / R, 0, 1))) * (shell.damageMul || 1); }
     function canHit(target) { return target.id === shell.owner || target.team !== team; }
     if (!this.remote) {
       // Capture targets before hull/cover destruction can eject riders or reveal targets behind it.
-      var people = this.players.filter(function (p) { return p.alive && !p.vehicle && p.dropT <= 0 && canHit(p); }).map(function (p) {
+      var people = this.players.filter(function (p) { return p.alive && !p.vehicle && !p.mount && p.dropT <= 0 && canHit(p); }).map(function (p) {
         var d = Math.max(0, Math.hypot(p.x - x, p.y - y) - p.r), direct = p === directPlayer;
-        var mount = p.mount && self.structById(p.mount);
-        return { target: p, amount: direct || (d < R && self.lineClear(x, y, p.x, p.y, mount)) ? damage(d, direct) : 0 };
+        return { target: p, amount: direct || (d < R && self.blastLineClear(trenchId, x, y, p)) ? damage(d, direct) : 0 };
       });
       var hulls = this.vehicles.filter(function (v) { return !v.wreck && (v.id === shell.vehicle || self.vehicleTeam(v) !== team); }).map(function (v) {
         var d = Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r), direct = solid && solid.vehicle === v;
-        return { target: v, amount: direct || (d < R && self.lineClear(x, y, v.x, v.y, v)) ? damage(d, direct) : 0 };
+        return { target: v, amount: direct || (d < R && self.blastLineClear(trenchId, x, y, v)) ? damage(d, direct) : 0 };
       });
       var objects = [];
       this.solids.query(x - R, y - R, x + R, y + R, function (s) {
-        if ((s.crate && s.crate.alive) || (s.struct && s.struct.alive && s.struct.maxHp && (!s.struct.mounted || s.struct.neutral) && s.struct.team !== team)) objects.push(s);
+        if ((s.crate && s.crate.alive) || (s.struct && s.struct.alive && s.struct.maxHp && self.blastCanHitStructure(s.struct, shell.owner, team))) objects.push(s);
       });
       objects = objects.map(function (s) {
         var target = s.crate || s.struct;
         var d = s.crate ? Math.hypot(x - U.clamp(x, s.x, s.x + s.w), y - U.clamp(y, s.y, s.y + s.h)) : Math.max(0, Math.hypot(x - s.x, y - s.y) - s.r);
         var direct = solid && ((s.crate && solid.crate === s.crate) || (s.struct && solid.struct === s.struct));
-        return { solid: s, target: target, amount: direct || (d < R && self.lineClear(x, y, target.x, target.y, target)) ? damage(d, direct) : 0 };
+        return { solid: s, target: target, amount: direct || (d < R && self.blastLineClear(trenchId, x, y, target)) ? damage(d, direct) : 0 };
       });
       // Evaluate rock cover before this explosion removes any nearby crate or structure.
-      this.damageFoliageInArea(x, y, R, function (plant) {
+      if (!trenchId) this.damageFoliageInArea(x, y, R, function (plant) {
         return damage(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius), solid && solid.plant === plant);
       }, shell.owner, 'tank-cannon');
-      if (this.damageMapRocksInArea) this.damageMapRocksInArea(x, y, R, 'tank-cannon', shell.owner, false);
+      if (!trenchId && this.damageMapRocksInArea) this.damageMapRocksInArea(x, y, R, 'tank-cannon', shell.owner, false);
       people.forEach(function (entry) { if (entry.amount) self.damagePlayer(entry.target, entry.amount, shell.owner, 'tank-cannon', entry.target.x, entry.target.y, { x: x, y: y }); });
       hulls.forEach(function (entry) { if (entry.amount) self.damageVehicle(entry.target, entry.amount, shell.owner, 'tank-cannon', x, y); });
       objects.forEach(function (entry) {
@@ -461,7 +468,7 @@
   };
 
   World.prototype.collideVehicles = function (p) {
-    if (p.vehicle && !p.vehicleCollider) return;
+    if (p.trenchId || (p.vehicle && !p.vehicleCollider)) return;
     var list = this.vehicles || [];
     for (var i = 0; i < list.length; i++) {
       var v = list[i];
@@ -507,7 +514,7 @@
         var p = this.players[j], dx = p.x - v.x, dy = p.y - v.y, reach = v.r + p.r + 12;
         var contact = dx * dx + dy * dy <= reach * reach;
         if (!contact && v.contacts[p.id]) delete v.contacts[p.id];
-        if (!p.alive || p.dropT > 0 || p.vehicle) continue;
+        if (!p.alive || p.dropT > 0 || p.vehicle || p.trenchId) continue;
         var hit = speed > 1 && U.segCircle(oldX, oldY, v.x, v.y, p.x, p.y, v.r + p.r) >= 0;
         if (hit && !v.contacts[p.id] && !(v.ramUntil[p.id] > this.time)) {
           v.contacts[p.id] = true; v.ramUntil[p.id] = this.time + def.ramCooldown;
@@ -633,6 +640,7 @@
     }
   };
   World.prototype.damageVehiclesInArea = function (x, y, radius, amount, sourceId, cause, options) {
+    if (this.blastTrenchAt(x, y)) return;
     var self = this;
     this.damageVehiclesMatching(function (v) {
       return Math.hypot(v.x - x, v.y - y) - v.r < radius && (!(options && options.lineOfSight) || self.lineClear(x, y, v.x, v.y, v));

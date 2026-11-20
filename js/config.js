@@ -24,6 +24,8 @@
     staminaRestDelay: 1,
     projectileChargeTime: 0.75, // hold time for maximum grenade or launcher range
     pondSpeedMul: 0.62,
+    barbedWireSpeedMul: 0.55,
+    barbedWireDamage: 10,
     upgradeCost: 8,             // first-tier compatibility value; use Rules.upgradeCostFor for a target class
     upgradeCosts: { 1: 8, 2: 15, 3: 40 },
     stationCooldown: 90,        // seconds before a used upgrade station works again
@@ -317,13 +319,13 @@
     riotshield: { id: 'riotshield', name: 'Riot Shield', tier: 'epic', kind: 'hold', arc: 1.25, slow: 0.75, stack: 1, found: 1,
       blurb: 'Hold it up to block everything coming at your front. You move 75% slower while it is up.' },
     turret: { id: 'turret', name: 'Turret', tier: 'epic', kind: 'place', struct: 'turret', hp: 100, damage: 15, fireInterval: 0.09, reach: 150, stack: 2, found: 1,
-      blurb: 'Place it, then press your interact key next to it to mount it. 15 damage per bullet, faster than an AR, infinite ammo. You cannot move while mounted.' },
+      blurb: 'Place to mount it. Its 100 HP protect the gunner. Fires faster than an AR with unlimited ammo and 15 damage per bullet. Press interact to dismount or remount.' },
     sentry: { id: 'sentry', name: 'Sentry', tier: 'epic', kind: 'place', struct: 'sentry', hp: 50, damage: 5, fireInterval: WEAPONS.pistol.fireInterval, range: 720, reach: 150, stack: 2, found: 1,
       blurb: 'An automatic gun that never misses: 5 damage at pistol speed, no reloads. 50 HP.' },
     blackhole: { id: 'blackhole', name: 'Black Hole Grenade', tier: 'epic', kind: 'throw', fuse: 0, radius: G * 3, stack: 2, found: 1,
       blurb: 'Bursts on landing and sucks every enemy (and everything loose) within three grenade radii into its middle.' },
     snowbomb: { id: 'snowbomb', name: 'Snowbomb', tier: 'epic', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G * 5, duration: 20, slow: 0.5, graceTime: 4, stack: 2, found: 1,
-      blurb: 'A 20 s blizzard: 50% slow, damage after 4 s. Tundra: 62.5% slow, 4 damage/s, freezes after 5 s inside. Desert/Savannah: half duration, damage and slow.' },
+      blurb: 'The blizzard reaches inside trenches and above ground. It lasts 20 s, slows by 50% and deals damage after 4 s inside. In tundra it slows by 62.5%, deals 4 damage/s and freezes after 5 s. Desert and savannah halve duration, damage and slow.' },
     overheal: { id: 'overheal', name: 'Overheal Potion', tier: 'epic', kind: 'consume', heal: 30, overheal: 30, stack: 3, found: 1,
       blurb: '+30 HP, even past your maximum (up to 130).' },
 
@@ -333,8 +335,8 @@
       blurb: 'Pings every player within seven grenade radii of you for 30 s.' },
     teleporter: { id: 'teleporter', name: 'Teleporter', tier: 'mythic', kind: 'place', struct: 'teleporter', radius: 36, reach: 170, stack: 4, found: 2, teamTime: 1, otherTime: 3,
       blurb: 'Comes in pairs. Place both pads, then stand on one for 1 s (3 s for anyone else) to pop out at the other.' },
-    turret2: { id: 'turret2', name: 'Turret II', tier: 'mythic', kind: 'place', struct: 'turret', hp: 200, damage: 20, fireInterval: 0.045, reach: 150, stack: 2, found: 1,
-      blurb: 'Double the HP and twice the fire rate of a Turret, 20 damage per bullet.' },
+    turret2: { id: 'turret2', name: 'Turret II', tier: 'mythic', kind: 'place', struct: 'turret', hp: 500, damage: 20, fireInterval: 0.045, reach: 150, stack: 2, found: 1,
+      blurb: 'Its 500 HP protect the gunner. Fires twice as fast as Turret I and deals 20 damage per bullet.' },
     sentry2: { id: 'sentry2', name: 'Sentry II', tier: 'mythic', kind: 'place', struct: 'sentry', hp: 100, damage: 10, fireInterval: WEAPONS.pistol.fireInterval / 2, range: 720, reach: 150, stack: 2, found: 1,
       blurb: 'Double everything: 100 HP, 10 damage, twice the fire rate.' },
     lightning: { id: 'lightning', name: 'Lightning Strike', tier: 'mythic', kind: 'target', delay: 1, damage: 50, lock: G, range: 1400, stack: 10, found: 5,
@@ -342,8 +344,8 @@
     power: { id: 'power', name: 'Power Potion', tier: 'mythic', kind: 'consume', effect: 'power', duration: 60, damage: 0.15, speed: 0.15, reduce: 0.15, stack: 2, found: 1,
       blurb: '+15% damage, +15% speed and 15% less damage taken for 1 minute.' },
 
-    turret3: { id: 'turret3', name: 'Turret III', tier: 'legendary', kind: 'place', struct: 'turret', hp: 500, damage: 30, fireInterval: 0.045, reach: 150, stack: 1, found: 1,
-      blurb: '500 HP, 30 damage per bullet, Turret II fire rate.' },
+    turret3: { id: 'turret3', name: 'Turret III', tier: 'legendary', kind: 'place', struct: 'turret', hp: 2500, damage: 30, fireInterval: 0.045, reach: 150, stack: 1, found: 1,
+      blurb: 'Its 2,500 HP protect the gunner. Deals 30 damage per bullet at the Turret II fire rate.' },
     sentry3: { id: 'sentry3', name: 'Sentry III', tier: 'legendary', kind: 'place', struct: 'sentry', hp: 700, damage: 30, fireInterval: 0.09, range: 720, reach: 150, stack: 1, found: 1,
       blurb: '700 HP and 30 damage at Turret speed. It never misses.' },
     power2: { id: 'power2', name: 'Power Potion II', tier: 'legendary', kind: 'consume', effect: 'power', duration: 75, damage: 0.15, speed: 0.15, reduce: 0.15, deathImmune: 10, stack: 1, found: 1,

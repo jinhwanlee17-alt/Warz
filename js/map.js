@@ -12,22 +12,308 @@
 
   function inside(x, y, margin) { return U.insideIsland(x, y, margin, C.worldSize, C.cornerRadius); }
 
+  // One traversed communication trench. The lip, floor and combat footprint share
+  // the same mitered corners and squared ends at every rotation.
+  var TRENCH_WIDTH = 106, WIRE_OFFSET = 33, WIRE_RADIUS = 10;
+  var TRENCH_CLEARANCE = TRENCH_WIDTH / 2 + WIRE_OFFSET + WIRE_RADIUS + 12;
+  var trenchRun = [[-795, 32], [-648, 32], [-572, -60], [-432, -60], [-341, 32], [-205, 32],
+    [-143, -32], [-31, -32], [31, 32], [143, 32], [205, -32], [341, -32],
+    [432, 60], [572, 60], [648, -32], [795, -32]];
+  function normal(a, b) {
+    var dx = b[0] - a[0], dy = b[1] - a[1], length = Math.hypot(dx, dy);
+    return { x: -dy / length, y: dx / length };
+  }
+  function trenchBank(side) {
+    return trenchRun.map(function (p, i) {
+      var a = i ? normal(trenchRun[i - 1], p) : normal(p, trenchRun[1]);
+      var b = i < trenchRun.length - 1 ? normal(p, trenchRun[i + 1]) : a;
+      var offset = side * TRENCH_WIDTH / (2 * (1 + a.x * b.x + a.y * b.y));
+      return [p[0] + (a.x + b.x) * offset, p[1] + (a.y + b.y) * offset];
+    });
+  }
+  var trenchRim = trenchBank(1).concat(trenchBank(-1).reverse());
+  // Test the same swept clearance at every orientation. Probe both ends and
+  // the bends first, so a blocked run rarely needs its intermediate samples.
+  var trenchSamples = trenchRun.slice();
+  trenchRun.forEach(function (b, i) {
+    if (!i) return;
+    var a = trenchRun[i - 1], steps = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 60);
+    for (var j = 1; j < steps; j++) {
+      trenchSamples.push([U.lerp(a[0], b[0], j / steps), U.lerp(a[1], b[1], j / steps)]);
+    }
+  });
+
+  function makeTrench(id, x, y, angle, biome) {
+    var c = Math.cos(angle), s = Math.sin(angle);
+    function transform(p) { return { x: x + p[0] * c - p[1] * s, y: y + p[0] * s + p[1] * c }; }
+    var outline = trenchRim.map(transform), wires = [];
+    // Leave the turns and both ends open. Runs on the opposite bank are
+    // staggered, so the player can see a clear approach from either side.
+    for (var i = 0; i < trenchRun.length - 1; i += 2) {
+      var a = trenchRun[i], b = trenchRun[i + 1], bay = i / 2;
+      var side = (Math.floor(bay / 2) + id) % 2 ? 1 : -1;
+      var wy = a[1] + side * (TRENCH_WIDTH / 2 + WIRE_OFFSET);
+      wires.push({ a: transform([a[0] + 22, wy]), b: transform([b[0] - 22, wy]) });
+    }
+    return { id: id, x: x, y: y, width: TRENCH_WIDTH, biome: biome, points: trenchRun.map(transform), outline: outline, wires: wires,
+      x0: Math.min.apply(null, outline.map(function (p) { return p.x; })), x1: Math.max.apply(null, outline.map(function (p) { return p.x; })),
+      y0: Math.min.apply(null, outline.map(function (p) { return p.y; })), y1: Math.max.apply(null, outline.map(function (p) { return p.y; })) };
+  }
+
+  function containsTrench(t, x, y) {
+    if (x < t.x0 || x > t.x1 || y < t.y0 || y > t.y1) return false;
+    var rim = t.outline, hit = false;
+    for (var i = 0, j = rim.length - 1; i < rim.length; j = i++) {
+      var a = rim[i], b = rim[j];
+      if ((a.y > y) !== (b.y > y) && x < a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y)) hit = !hit;
+    }
+    return hit;
+  }
+
+  function trenchWall(t, x, y) {
+    var rim = t.outline, best = Infinity, bestIndex = -1, bestU, bestX, bestY;
+    for (var i = 0; i < rim.length; i++) {
+      var a = rim[i], b = rim[(i + 1) % rim.length], dx = b.x - a.x, dy = b.y - a.y;
+      var length2 = dx * dx + dy * dy, u = U.clamp(((x - a.x) * dx + (y - a.y) * dy) / length2, 0, 1);
+      var wx = a.x + u * dx, wy = a.y + u * dy, d2 = (wx - x) * (wx - x) + (wy - y) * (wy - y);
+      if (d2 >= best) continue;
+      best = d2; bestIndex = i; bestU = u; bestX = wx; bestY = wy;
+    }
+    if (bestIndex < 0) return;
+    var start = rim[bestIndex], end = rim[(bestIndex + 1) % rim.length];
+    var sx = end.x - start.x, sy = end.y - start.y, length = Math.sqrt(sx * sx + sy * sy);
+    var nx = -sy / length, ny = sx / length;
+    if (bestU === 0 || bestU === 1) {
+      var prev = bestU === 0 ? rim[(bestIndex + rim.length - 1) % rim.length] : end;
+      var next = bestU === 0 ? start : rim[(bestIndex + 2) % rim.length];
+      var ex = next.x - prev.x, ey = next.y - prev.y, edge = Math.hypot(ex, ey);
+      nx -= ey / edge; ny += ex / edge;
+      var bisector = Math.hypot(nx, ny); nx /= bisector; ny /= bisector;
+    }
+    return { x: bestX, y: bestY, nx: nx, ny: ny, distance: Math.sqrt(best) };
+  }
+
+  // Tiny per-cell lists avoid scanning the whole island for every moving player
+  // or projectile. Keep the index separate from serializable seeded terrain.
+  var trenchIndices = new WeakMap(), trenchQueryPad = 64;
+  function trenchIndex(map) {
+    var list = map.trenches;
+    if (!list || !list.length) return null;
+    var index = trenchIndices.get(map);
+    if (!index || index.list !== list || index.count !== list.length) {
+      var grid = new U.SpatialHash(256), wireGrid = new U.SpatialHash(256), coarse = new U.SpatialHash(1024);
+      var pad = trenchQueryPad, outer = WIRE_OFFSET + WIRE_RADIUS;
+      list.forEach(function (t) {
+        var entry = { trench: t, wires: [] };
+        grid.insert(entry, t.x0 - pad, t.y0 - pad, t.x1 + pad, t.y1 + pad);
+        coarse.insert(entry, t.x0 - outer, t.y0 - outer, t.x1 + outer, t.y1 + outer);
+        (t.wires || []).forEach(function (wire, wireIndex) {
+          var a = wire.a, b = wire.b, dx = b.x - a.x, dy = b.y - a.y;
+          var segment = { wire: wire, wireIndex: wireIndex, trench: t, dx: dx, dy: dy, length2: dx * dx + dy * dy };
+          entry.wires.push(segment);
+          wireGrid.insert(segment,
+            Math.min(a.x, b.x) - pad, Math.min(a.y, b.y) - pad, Math.max(a.x, b.x) + pad, Math.max(a.y, b.y) + pad);
+        });
+      });
+      index = { list: list, count: list.length, grid: grid, wireGrid: wireGrid, coarse: coarse };
+      trenchIndices.set(map, index);
+    }
+    return index;
+  }
+  function trenchCandidates(index, x, y, reach, wires) {
+    // The grid padding covers a player's full reach from any point in its cell.
+    var grid = wires ? index.wireGrid : index.grid;
+    if (reach <= trenchQueryPad) return grid.cells.get(grid.key(Math.floor(x / grid.cell), Math.floor(y / grid.cell)));
+    // Large footprints can touch several wires. Preserve the island's terrain
+    // query order and each trench's original wire order for those contacts.
+    var matches = [];
+    index.coarse.query(x - reach, y - reach, x + reach, y + reach, function (entry) {
+      if (wires) matches.push.apply(matches, entry.wires); else matches.push(entry);
+    });
+    return matches;
+  }
+  function trenchAt(map, x, y, reach) {
+    var index = trenchIndex(map);
+    if (!index) return null;
+    var candidates = trenchCandidates(index, x, y, reach, false);
+    if (!candidates) return null;
+    var found = null, nearest = reach;
+    for (var i = 0; i < candidates.length; i++) {
+      var t = candidates[i].trench;
+      if (x < t.x0 - reach || x > t.x1 + reach || y < t.y0 - reach || y > t.y1 + reach) continue;
+      if (containsTrench(t, x, y)) { found = t; nearest = 0; }
+      else if (nearest > 0) {
+        var d = trenchWall(t, x, y).distance;
+        if (d <= nearest) { found = t; nearest = d; }
+      }
+    }
+    return found;
+  }
+
+  function wireAt(map, x, y, radius) {
+    var index = trenchIndex(map);
+    if (!index) return null;
+    var reach = (radius || 0) + WIRE_RADIUS, candidates = trenchCandidates(index, x, y, reach, true);
+    if (!candidates) return null;
+    for (var i = 0; i < candidates.length; i++) {
+      var entry = candidates[i], wire = entry.wire;
+      if (wire.destroyed) continue;
+      var ax = x - wire.a.x, ay = y - wire.a.y;
+      var u = U.clamp((ax * entry.dx + ay * entry.dy) / entry.length2, 0, 1);
+      var ex = ax - u * entry.dx, ey = ay - u * entry.dy;
+      if (ex * ex + ey * ey <= reach * reach && !containsTrench(entry.trench, x, y)) return wire;
+    }
+    return null;
+  }
+
+  function wiresAlong(map, x1, y1, x2, y2, radius, onContact) {
+    var index = trenchIndex(map);
+    if (!index) return;
+    var reach = radius + WIRE_RADIUS;
+    index.wireGrid.query(Math.min(x1, x2) - reach, Math.min(y1, y2) - reach,
+      Math.max(x1, x2) + reach, Math.max(y1, y2) + reach, function (entry) {
+        var wire = entry.wire;
+        if (wire.destroyed) return;
+        // In wire-local coordinates, the swept hull hits a rectangle with rounded ends.
+        var a = wire.a, b = wire.b, length = Math.sqrt(entry.length2);
+        var ux = entry.dx / length, uy = entry.dy / length;
+        var ax = x1 - a.x, ay = y1 - a.y, bx = x2 - a.x, by = y2 - a.y;
+        var hitsSpan = U.segRect(ax * ux + ay * uy, ay * ux - ax * uy,
+          bx * ux + by * uy, by * ux - bx * uy, 0, -reach, length, 2 * reach) >= 0;
+        if (hitsSpan || U.segCircle(x1, y1, x2, y2, a.x, a.y, reach) >= 0 ||
+            U.segCircle(x1, y1, x2, y2, b.x, b.y, reach) >= 0) onContact(entry.trench.id, entry.wireIndex);
+      });
+  }
+
+  function crushWire(map, trenchId, wireIndex) {
+    if (!Number.isInteger(trenchId) || !Number.isInteger(wireIndex)) return false;
+    var trench = map.trenches && map.trenches[trenchId - 1];
+    var wire = trench && trench.wires && trench.wires[wireIndex];
+    if (!wire || wire.destroyed) return false;
+    wire.destroyed = true;
+    map.wireVersion = (map.wireVersion || 0) + 1;
+    return true;
+  }
+
+  function generateTrenches(map, occ) {
+    var rng = U.rng((map.seed ^ 0x762fc13b) >>> 0), byBiome = {}, trenches = [];
+    map.biomeCells.forEach(function (cell) {
+      var group = byBiome[cell.id] || (byBiome[cell.id] = { cells: [], area: 0 });
+      group.area += cell.w * cell.h;
+      group.cells.push({ cell: cell, end: group.area });
+    });
+    function pointInBiome(group) {
+      var draw = rng.next() * group.area;
+      var cell = group.cells.find(function (entry) { return draw < entry.end; }).cell;
+      return { x: rng.range(cell.x, cell.x + cell.w), y: rng.range(cell.y, cell.y + cell.h) };
+    }
+    function clearFoliage(plants, t) {
+      var moves = [];
+      for (var plant of plants) {
+        var radius = plant.r * (plant.trunk ? .55 : .8), destination = null;
+        for (var i = 0; i < 256; i++) {
+          var angle = rng.next() * U.TAU, distance = 115 + i * 8;
+          var p = i < 100 ? { x: plant.x + Math.cos(angle) * distance, y: plant.y + Math.sin(angle) * distance } :
+            pointInBiome(byBiome[plant.biome]);
+          if (!inside(p.x, p.y, C.beach + 70) || W.Biomes.at(map, p.x, p.y) !== plant.biome ||
+              !occ.circleFree(p.x, p.y, radius) || containsTrench(t, p.x, p.y) ||
+              trenchWall(t, p.x, p.y).distance < radius + 45 ||
+              moves.some(function (m) { return Math.hypot(p.x - m.p.x, p.y - m.p.y) < m.radius + radius; })) continue;
+          destination = p; break;
+        }
+        if (!destination) return false;
+        moves.push({ plant: plant, p: destination, radius: radius });
+      }
+      // Only commit moves once every displaced plant has a clear spot. This
+      // preserves IDs, counts and biome membership even in thin overlap regions.
+      moves.forEach(function (m) {
+        m.plant.x = m.p.x; m.plant.y = m.p.y;
+        occ.addCircle(m.p.x, m.p.y, m.radius);
+      });
+      return true;
+    }
+    // Most runs keep clear of entire towns. A narrow biome may lie entirely
+    // within a town's scatter exclusion. There, check the actual buildings,
+    // boarding areas and defenses to find any open ground in the district.
+    var townSpace;
+    function townObstacles() {
+      if (townSpace) return townSpace;
+      townSpace = new Occupancy();
+      map.buildings.forEach(function (b) { townSpace.addRect(b.x - 16, b.y - 16, b.w + 32, b.h + 32); });
+      map.settlementStructures.forEach(function (s) { townSpace.addCircle(s.x, s.y, 90); });
+      map.settlementVehicles.forEach(function (v) { townSpace.addCircle(v.x, v.y, W.vehicleDef(v).radius + 60); });
+      map.crates.forEach(function (c) { if (c.settlement !== undefined) townSpace.addCircle(c.x, c.y, c.size); });
+      return townSpace;
+    }
+    function place(x, y, angle, biome, clearBrush, towns) {
+      var foliage = clearBrush ? new Set() : null;
+      if (!inside(x, y, C.beach + TRENCH_CLEARANCE) || !occ.circleFree(x, y, TRENCH_CLEARANCE, foliage, towns)) return false;
+      var cos = Math.cos(angle), sin = Math.sin(angle);
+      for (var i = 0; i < trenchSamples.length; i++) {
+        var q = trenchSamples[i], sx = x + q[0] * cos - q[1] * sin, sy = y + q[0] * sin + q[1] * cos;
+        if (!inside(sx, sy, C.beach + TRENCH_CLEARANCE) || !occ.circleFree(sx, sy, TRENCH_CLEARANCE, foliage, towns)) return false;
+      }
+      var t = makeTrench(trenches.length + 1, x, y, angle, biome);
+      if (foliage && !clearFoliage(foliage, t)) return false;
+      trenchSamples.forEach(function (q) { occ.addCircle(x + q[0] * cos - q[1] * sin, y + q[0] * sin + q[1] * cos, TRENCH_CLEARANCE); });
+      trenches.push(t);
+      return true;
+    }
+    // Mixed biomes can be narrow strips. Give them first choice of ground,
+    // before a longer run from a neighbouring biome spans that strip.
+    Object.keys(byBiome).sort(function (a, b) { return byBiome[a].area - byBiome[b].area; }).forEach(function (biome) {
+      var group = byBiome[biome], sites = Math.max(1, Math.round(group.area / (5300 * 5300)));
+      var first = trenches.length;
+      for (var site = 0; site < sites; site++) {
+        // A tiny overlap can have just one viable orientation around a pond or
+        // settlement. Spend the larger search budget only on its first run.
+        var tries = trenches.length === first ? 20000 : 240;
+        for (var attempt = 0; attempt < tries; attempt++) {
+          var point = pointInBiome(group), x = point.x, y = point.y, angle = rng.range(0, U.TAU);
+          var towns = trenches.length === first && attempt >= 180 ? townObstacles() : null;
+          if (!place(x, y, angle, biome, attempt >= 10, towns)) continue;
+          // Nearby but disconnected runs form a prepared position. Open ground
+          // and blocked approaches naturally break up its footprint.
+          for (var partner = 0; partner < 32; partner++) {
+            var side = rng.range(300, 740) * (rng.chance(.5) ? 1 : -1), along = rng.range(-440, 440);
+            var px = x + Math.cos(angle) * along - Math.sin(angle) * side;
+            var py = y + Math.sin(angle) * along + Math.cos(angle) * side;
+            if (W.Biomes.at(map, px, py) === biome && place(px, py, angle + rng.range(-.22, .22), biome, partner >= 3)) break;
+          }
+          break;
+        }
+      }
+    });
+    return trenches;
+  }
+
+  W.Trenches = { width: TRENCH_WIDTH, wireRadius: WIRE_RADIUS, create: makeTrench, contains: containsTrench, wall: trenchWall,
+    at: function (map, x, y) { return trenchAt(map, x, y, 0); }, near: trenchAt, wireAt: wireAt,
+    wiresAlong: wiresAlong, crushWire: crushWire };
+
   function Occupancy() { this.hash = new U.SpatialHash(256); }
-  Occupancy.prototype.addCircle = function (x, y, r) {
-    this.hash.insert({ k: 0, x: x, y: y, r: r }, x - r, y - r, x + r, y + r);
+  Occupancy.prototype.addCircle = function (x, y, r, plant) {
+    this.hash.insert({ k: 0, x: x, y: y, r: r, plant: plant }, x - r, y - r, x + r, y + r);
   };
-  Occupancy.prototype.addRect = function (x, y, w, h) {
-    this.hash.insert({ k: 1, x: x, y: y, w: w, h: h }, x, y, x + w, y + h);
+  Occupancy.prototype.addRect = function (x, y, w, h, town) {
+    this.hash.insert({ k: 1, x: x, y: y, w: w, h: h, town: town }, x, y, x + w, y + h);
   };
-  Occupancy.prototype.circleFree = function (x, y, r) {
+  Occupancy.prototype.circleFree = function (x, y, r, foliage, towns) {
     var free = true;
     this.hash.query(x - r, y - r, x + r, y + r, function (it) {
       if (!free) return;
       if (it.k === 0) {
-        if (Math.hypot(it.x - x, it.y - y) < it.r + r) free = false;
+        // A plant relocated for an earlier trench has a new occupancy entry.
+        if (it.plant && (it.x !== it.plant.x || it.y !== it.plant.y)) return;
+        var dx = it.x - x, dy = it.y - y, gap = it.r + r;
+        if (dx * dx + dy * dy < gap * gap) {
+          if (foliage && it.plant) foliage.add(it.plant);
+          else free = false;
+        }
       } else {
         var nx = U.clamp(x, it.x, it.x + it.w), ny = U.clamp(y, it.y, it.y + it.h);
-        if (Math.hypot(x - nx, y - ny) < r) free = false;
+        var ex = x - nx, ey = y - ny;
+        if (ex * ex + ey * ey < r * r) free = !!(it.town && towns && towns.circleFree(x, y, r));
       }
     });
     return free;
@@ -280,14 +566,19 @@
     occ.addCircle(S / 2, S / 2, C.legendaryClearRadius);
 
     function near(list, x, y, d) {
-      for (var i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].y - y) < d) return true;
+      var range2 = d * d;
+      for (var i = 0; i < list.length; i++) {
+        var dx = list[i].x - x, dy = list[i].y - y;
+        if (dx * dx + dy * dy < range2) return true;
+      }
       return false;
     }
     var pondSpace = new U.SpatialHash(512);
     function inPond(x, y, pad) {
       var found = false;
       pondSpace.query(x - pad, y - pad, x + pad, y + pad, function (p) {
-        if (Math.hypot(p.x - x, p.y - y) < p.r + pad) found = true;
+        var dx = p.x - x, dy = p.y - y, reach = p.r + pad;
+        if (dx * dx + dy * dy < reach * reach) found = true;
       });
       return found;
     }
@@ -467,7 +758,7 @@
       if (kind === 'town' && teamSize > 1) map.settlementVehicles.push({ id: ++settlementVehicleId, type: 'humvee',
         x: t.x - 130, y: t.y, angle: 0, armed: true, settlement: t.id, neutral: true });
       // Protect every house, doorway, guard and boarding approach from later scatter.
-      occ.addRect(t.x - halfW, t.y - halfH, halfW * 2, halfH * 2);
+      occ.addRect(t.x - halfW, t.y - halfH, halfW * 2, halfH * 2, t);
     });
 
     var eligible = candidates.filter(function (base, index) {
@@ -513,7 +804,7 @@
       if (near(map.stations, tx, ty, r + 70) || near(map.drops, tx, ty, r + C.dropStationRadius + 10)) return false;
       map.trees.push({ id: map.trees.length, x: tx, y: ty, r: r, trunk: Math.max(14, r * 0.17), variant: rng.int(0, 11), rot: rng.range(0, U.TAU), fade: 1,
         biome: biome, conceals: biome === 'forest' || biome === 'tundra-forest' || biome === 'savannah', alive: true });
-      occ.addCircle(tx, ty, r * 0.5);
+      occ.addCircle(tx, ty, r * 0.5, map.trees[map.trees.length - 1]);
       return true;
     });
     if (C.bushes) {
@@ -521,7 +812,7 @@
         var r = rng.range(32, 50);
         if (!inside(bx, by, 280) || !occ.circleFree(bx, by, r * 0.8) || near(map.stations, bx, by, r + 60)) return false;
         map.bushes.push({ x: bx, y: by, r: r, biome: biome, variant: rng.int(0, 7), rot: rng.range(0, U.TAU), fade: 1 });
-        occ.addCircle(bx, by, r * 0.7);
+        occ.addCircle(bx, by, r * 0.7, map.bushes[map.bushes.length - 1]);
         return true;
       });
     }
@@ -628,6 +919,7 @@
       x = rng.range(250, S - 250); y = rng.range(250, S - 250);
       if (inside(x, y, 260) && !inPond(x, y, 10)) map.tufts.push({ x: x, y: y, s: rng.range(0.7, 1.3), flower: rng.chance(0.12) ? rng.pick(['#fff4f0', '#ffe066', '#ff9ec7']) : null });
     }
+    map.trenches = generateTrenches(map, occ);
     return map;
   }
 

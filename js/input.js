@@ -25,7 +25,11 @@
     window.addEventListener('keydown', function (e) {
       if (typing(e)) return;
       if (self.suppressed[e.code]) { if (self.capture) e.preventDefault(); return; }
-      if (!self.keys[e.code]) { self.pressed[e.code] = true; self.heldAt[e.code] = performance.now(); }
+      if (!self.keys[e.code]) {
+        if (e.repeat) return;
+        self.pressed[e.code] = (self.pressed[e.code] || 0) + 1;
+        self.heldAt[e.code] = performance.now();
+      }
       self.keys[e.code] = true;
       if (self.capture && GAME_KEYS[e.code]) e.preventDefault();
     });
@@ -34,9 +38,11 @@
     canvas.addEventListener('mousedown', function (e) {
       var code = 'Mouse' + (e.button + 1);
       if (self.suppressed[code]) return;
-      if (!self.keys[code]) self.heldAt[code] = performance.now();
+      if (!self.keys[code]) {
+        self.heldAt[code] = performance.now();
+        self.pressed[code] = (self.pressed[code] || 0) + 1;
+      }
       self.keys[code] = true;
-      self.pressed[code] = true;
     });
     window.addEventListener('mouseup', function (e) { var code = 'Mouse' + (e.button + 1); delete self.suppressed[code]; self.releaseKey(code); });
     window.addEventListener('mousemove', function (e) { self.mouse.x = e.clientX; self.mouse.y = e.clientY; });
@@ -50,6 +56,7 @@
 
   Input.prototype.down = function (code) { return !!(code && this.keys[code]); };
   Input.prototype.hit = function (code) { return !!(code && this.pressed[code]); };
+  Input.prototype.pressCount = function (code) { return code && this.pressed[code] || 0; };
   Input.prototype.lift = function (code) { return !!(code && this.released[code]); };
   Input.prototype.releaseKey = function (code) {
     if (this.keys[code]) {

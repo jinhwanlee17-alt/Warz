@@ -131,10 +131,14 @@
     g.restore();
   }
 
+  function drawsTrenchWire(map, px, dpr) {
+    return px / (map.size || C.worldSize) * 40 >= .5 * (dpr || 1);
+  }
   // Static terrain at `px` pixels square: ocean, sand, grass, trees, ponds, buildings, drop stations, town names.
   function paintBase(g, map, px, opts) {
     opts = opts || {};
     var S = map.size || C.worldSize, k = px / S, R = C.cornerRadius, big = !!opts.big, view = opts.view;
+    var showWire = drawsTrenchWire(map, px, opts.dpr);
     function visible(x, y, r) { return !view || x + r >= view.x0 && x - r <= view.x1 && y + r >= view.y0 && y - r <= view.y1; }
     g.fillStyle = '#2f7fc2';
     g.fillRect(0, 0, px, px);
@@ -183,6 +187,27 @@
     });
     g.fillStyle = '#4aa3dc';
     map.ponds.forEach(function (p) { if (!visible(p.x, p.y, p.r)) return; g.beginPath(); g.arc(p.x, p.y, p.r, 0, U.TAU); g.fill(); });
+    // Use the same course and width on the island map and the artillery sight.
+    // Keep the pen at least one pixel wide on the overview.
+    g.save(); g.lineJoin = 'miter'; g.lineCap = 'butt';
+    (map.trenches || []).forEach(function (t) {
+      if (view && (t.x1 + 50 < view.x0 || t.x0 - 50 > view.x1 || t.y1 + 50 < view.y0 || t.y0 - 50 > view.y1)) return;
+      // On detailed maps a fine, broken line marks the actual wired bays.
+      if (showWire && t.wires) {
+        g.beginPath();
+        t.wires.forEach(function (wire) {
+          if (wire.destroyed) return;
+          g.moveTo(wire.a.x, wire.a.y); g.lineTo(wire.b.x, wire.b.y);
+        });
+        g.strokeStyle = '#5a524a'; g.lineWidth = Math.max(7, .6 * (opts.dpr || 1) / k); g.stroke();
+      }
+      g.beginPath(); g.moveTo(t.points[0].x, t.points[0].y);
+      for (var j = 1; j < t.points.length; j++) g.lineTo(t.points[j].x, t.points[j].y);
+      var pen = Math.max(t.width, .85 * (opts.dpr || 1) / k);
+      g.strokeStyle = '#bca780'; g.lineWidth = pen + 24; g.stroke();
+      g.strokeStyle = '#594a38'; g.lineWidth = pen; g.stroke();
+    });
+    g.restore();
     (map.militaryBases || []).forEach(function (base) {
       g.fillStyle = '#687661';
       g.fillRect(base.x - base.halfW, base.y - base.halfH, base.halfW * 2, base.halfH * 2);
@@ -446,5 +471,5 @@
     }
   }
 
-  W.MapArt = { base: base, paintBase: paintBase, overlay: overlay, vehicleGlyph: vehicleGlyph };
+  W.MapArt = { base: base, paintBase: paintBase, overlay: overlay, vehicleGlyph: vehicleGlyph, drawsTrenchWire: drawsTrenchWire };
 }());

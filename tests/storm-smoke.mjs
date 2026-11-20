@@ -86,10 +86,20 @@ t.check(JSON.stringify(storm(42).circles) !== JSON.stringify(storm(43).circles),
   const map = { seed: 42, rocks: [], trees: [], buildings: [], crates: [], stations: [], pickups: [], ponds: [], bushes: [] };
   const world = new W.World({ map }), s = world.storm, last = s.circles.at(-1);
   const center = world.addPlayer({ x: last.x, y: last.y }), other = world.addPlayer({ x: last.x + 100, y: last.y });
+  const rider = world.addPlayer({ x: 8000, y: 8000 });
+  const tickDamage = W.STORM.at(-1).dps * C.stormTick;
+  const turret = world.addStruct({ kind: 'turret', item: 'turret2', x: rider.x, y: rider.y, r: W.STRUCT_RADIUS.turret,
+    hp: tickDamage + 1, maxHp: W.ITEMS.turret2.hp, team: rider.team });
+  world.mountTurret(rider, turret);
   world.time = W.STORM.at(-1).end;
   s.update(C.stormTick);
   t.check(center.inStorm && other.inStorm, 'zero safe area includes the exact final center in the storm');
   t.near(center.hp, 100 - 15 * C.stormTick, 1e-9, 'the final center takes the configured storm damage');
+  t.check(turret.hp === 1 && rider.hp === rider.maxHp, 'storm damage hits the occupied turret first');
+  world.time += C.stormTick; s.update(C.stormTick);
+  t.check(!turret.alive && !rider.mount && rider.hp === rider.maxHp, 'the storm tick that breaks the turret ejects the rider unharmed');
+  world.time += C.stormTick; s.update(C.stormTick);
+  t.near(rider.hp, rider.maxHp - tickDamage, 1e-9, 'the next storm tick reaches the exposed rider');
   for (let i = 0; i < 20; i++) { world.time += C.stormTick; s.update(C.stormTick); }
   t.check(!center.alive && !other.alive, 'the final storm eliminates stationary players including its center');
   t.check(world.events.filter((e) => e.type === 'death').every((e) => e.cause === 'storm'), 'final deaths are credited to the storm');

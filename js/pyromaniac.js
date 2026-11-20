@@ -74,7 +74,7 @@
     this.resetExpiredPyroFire(p);
     var w = p.weapons[p.slot], switching = intent.swap || intent.cycle || (intent.slot !== undefined && intent.slot !== null && intent.slot !== p.slot) ||
       (intent.held !== undefined && intent.held !== null && intent.held >= 0);
-    var firing = !switching && !detached(p) && p.alive && !p.downed && p.dropT <= 0 && !p.mount && !p.vehicle && p.held < 0 &&
+    var firing = !switching && !detached(p) && p.alive && !p.downed && p.dropT <= 0 && !p.mount && !p.vehicle && p.held < 0 && this.directFireExposed(p) &&
       w && w.id === 'pyroflamethrower' && (intent.fire || intent.firePressed);
     p.pyroHeat = firing ? (p.pyroHeat || 0) + dt : 0;
     p.pyroFiring = !!firing;
@@ -87,6 +87,7 @@
     return baseTrigger.apply(this, arguments);
   };
   World.prototype.firePyroFlame = function (p) {
+    if (!this.directFireExposed(p)) return false;
     if (this.remote || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || p.held >= 0 || detached(p)) return false;
     var w = p.weapons[p.slot], def = W.WEAPONS.pyroflamethrower;
     if (!w || w.id !== def.id || w.cooldown > EPS) return false;
@@ -98,17 +99,17 @@
       p.pyroHitInterval = interval; w.cooldown += interval; p.stats.shots++; pulses++;
       function inFlame(o, radius) {
         return Math.hypot(o.x - p.x, o.y - p.y) - (radius || 0) <= def.range &&
-          Math.abs(U.angleDiff(p.angle, Math.atan2(o.y - p.y, o.x - p.x))) <= def.halfAngle && self.lineClear(p.x, p.y, o.x, o.y, o.mount ? self.structById(o.mount) : o);
+          Math.abs(U.angleDiff(p.angle, Math.atan2(o.y - p.y, o.x - p.x))) <= def.halfAngle && self.lineClear(p.x, p.y, o.x, o.y, o);
       }
       this.players.forEach(function (o) {
-        if (o !== p && !o.vehicle && o.alive && o.dropT <= 0 && o.team !== p.team && inFlame(o, o.r)) self.damagePlayer(o, stage.damage, p.id, def.id, o.x, o.y - o.r, { x: p.x, y: p.y });
+        if (o !== p && !o.vehicle && !o.mount && o.alive && o.dropT <= 0 && o.team !== p.team && self.directFireExposed(o) && inFlame(o, o.r)) self.damagePlayer(o, stage.damage, p.id, def.id, o.x, o.y - o.r, { x: p.x, y: p.y });
       });
       this.damageVehiclesMatching(function (v) { return inFlame(v, v.r); }, stage.damage, p.id, def.id, { team: p.team });
       this.map.crates.forEach(function (c) { if (c.alive && inFlame(c, c.size / 2)) self.damageCrate(c, stage.damage, p.id, c.x, c.y); });
       this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
         if (plant.alive !== false && inFlame(plant, plant.hitRadius)) self.damageFoliage(plant, stage.damage, p.id, def.id);
       });
-      this.structures.forEach(function (s) { if (s.alive && s.maxHp && (!s.mounted || s.neutral) && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, stage.damage, p.id, s.x, s.y, def.id); });
+      this.structures.slice().forEach(function (s) { if (s.alive && !s.trenchId && s.maxHp && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, stage.damage, p.id, s.x, s.y, def.id); });
       this.flameFx(p.x, p.y, p.angle, def.range);
       this.emit({ type: 'flame', weapon: def.id, player: p, x: p.x, y: p.y, angle: p.angle, range: def.range, halfAngle: def.halfAngle, damage: stage.damage });
     } while (w.cooldown <= EPS && pulses < 8);

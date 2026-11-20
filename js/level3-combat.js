@@ -19,7 +19,7 @@
   };
   World.prototype.sentryBuildSpotClear = function (p, at) {
     var reach = W.WEAPONS.wrench.range;
-    if (Math.hypot(at.x - p.x, at.y - p.y) > reach + 0.000001 ||
+    if (this.blastTrenchAt(at.x, at.y) || Math.hypot(at.x - p.x, at.y - p.y) > reach + 0.000001 ||
         !this.spotFree(at.x, at.y, W.STRUCT_RADIUS.sentry, false) || !this.lineClear(p.x, p.y, at.x, at.y)) return false;
     // Crates are transparent to normal lineClear, but a wrench cannot reach through one.
     for (var i = 0; i < this.map.crates.length; i++) {

@@ -23,12 +23,13 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 const num = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 
-function idleInput() { return { seq: 0, mx: 0, my: 0, sp: false, a: 0, d: 400, f: false, fp: false, ch: 0, sc: false, r: false, sl: null, cy: 0, sw: false, u: false, uch: 0, iv: false, ht: null, ip: false, dp: false }; }
+function idleInput() { return { seq: 0, mx: 0, my: 0, sp: false, th: false, tp: 0, a: 0, d: 400, f: false, fp: false, ch: 0, sc: false, r: false, sl: null, cy: 0, sw: false, u: false, uch: 0, iv: false, ht: null, ip: false, dp: false }; }
 
 // Held controls use the newest packet; button presses must survive when older packets are superseded.
 function carryPresses(older, newer) {
   if (older.af && !newer.af) { newer.ax = older.ax; newer.ay = older.ay; }
   newer.af = newer.af || older.af;
+  newer.tp = Math.min(2, newer.tp + older.tp);
   if (older.fp && !newer.fp) newer.ch = older.ch;
   if (older.u && !newer.u) newer.uch = older.uch;
   newer.fp = newer.fp || older.fp; newer.r = newer.r || older.r; newer.sw = newer.sw || older.sw; newer.u = newer.u || older.u; newer.ip = newer.ip || older.ip; newer.dp = newer.dp || older.dp;
@@ -177,6 +178,7 @@ export class Match {
       t: 'match-start', id: this.id, seed: this.seed, mode: this.mode, teamSize: this.teamSize, you: p.id, team: p.team,
       drop: p.dropLabel, rejoin: !!rejoin, time: r3(this.world.time), teams: this.teamInfo.length,
       cosmetics: this.cosmeticLook(p),
+      crushedWires: rejoin ? undefined : this.crushedWires(),
       practice: this.practice, ps: this.practice ? this.practiceSettings() : undefined,
       players: this.roster()
     };
@@ -205,6 +207,7 @@ export class Match {
     p.net.staffKey = '';
     p.net.structKey = '';
     conn.militaryVehicleKeys = null;
+    conn.pendingWireCuts = null;
     p.net.practiceRosterVersion = -1;
     p.net.lookVersion = -1; p.net.cosmeticsKey = ''; p.net.cosmeticsSet = false;
     conn.player = p;
@@ -367,6 +370,7 @@ export class Match {
     const fromX = p.x, fromY = p.y, world = this.world;
     if (p.vehicle) world.exitVehicle(p, true);
     if (p.mount) world.dismount(p);
+    world.resetTrench(p);
     p.x = p.px = at.x; p.y = p.py = at.y; p.vx = p.vy = p.ox = p.oy = 0; p.dropT = 0;
     p.net.inputs = []; p.net.held = idleInput();
     world.emit({ type: 'teleport', player: p, fromX, fromY, x: p.x, y: p.y });
@@ -395,6 +399,15 @@ export class Match {
     return true;
   }
 
+  crushedWires() {
+    if (!this.map.wireVersion) return undefined;
+    const rows = [];
+    for (const trench of this.map.trenches) {
+      trench.wires.forEach((wire, index) => { if (wire.destroyed) rows.push([trench.id, index]); });
+    }
+    return rows;
+  }
+
   syncMessage() {
     const map = this.map;
     return {
@@ -404,11 +417,12 @@ export class Match {
       crates: map.crates.filter((c) => c.hp < c.maxHp || !c.alive).map((c) => [c.id, c.alive ? Math.max(1, Math.ceil(c.hp)) : 0]),
       gone: [...this.gonePickups],
       rocks: map.rocks.filter((rock) => rock.alive === false).map((rock) => rock.id),
+      crushedWires: this.crushedWires(),
       foliage: (map.cacti || []).filter(p => p.hp < p.maxHp || p.alive === false).map(p => ['cacti', p.id, p.alive === false ? 0 : p.hp]),
       strikes: this.world.strikes.map((s) => ({ id: s.id, k: s.kind, x: s.x, y: s.y, tg: s.target, tl: s.t, o: s.owner, tm: s.team, r: s.radius, dm: s.damage })),
       added: map.pickups.filter((pk) => pk.alive && pk.id > this.initialPickupMax).map((pk) => ({ id: pk.id, type: pk.type, it: pk.item || undefined, x: r1(pk.x), y: r1(pk.y), n: pk.amount, lk: r2(pk.lockT || 0) })),
       stations: map.stations.filter((s) => s.cooldown > 0).map((s) => [s.id, r1(s.cooldown)]),
-      players: this.players.map((o) => [o.id, this.classIndex.indexOf(o.classId), o.alive ? 1 : 0, o.downed ? 1 : 0, r1(o.x), r1(o.y), o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0, this.encodeSentryBuild(o), this.encodeMedicStaff(o), this.encodePyro(o)]),
+      players: this.players.map((o) => [o.id, this.classIndex.indexOf(o.classId), o.alive ? 1 : 0, o.downed ? 1 : 0, r1(o.x), r1(o.y), o.vehicle || 0, o.vehicleSeat || null, o.vehicleWeapon || 0, o.repairVehicle || 0, this.encodeSentryBuild(o), this.encodeMedicStaff(o), this.encodePyro(o), this.encodeTrench(o)]),
       medicStaffs: this.encodeMedicStaffMarkers(),
       looks: this.players.map((o) => [o.id, o.color, o.face]),
       emotes: this.players.map((o) => [o.id, this.encodeEmote(o)]),
@@ -476,7 +490,7 @@ export class Match {
     const q = p.net.inputs;
     const input = {
       seq: num(m.s, 0, 1e9, 0) | 0, mx: num(m.mx, -1, 1, 0), my: num(m.my, -1, 1, 0), a: num(m.a, -10, 10, 0), d: num(m.d, 40, 3000, 400),
-      sp: m.sp === true,
+      sp: m.sp === true, th: m.th === true, tp: Math.floor(num(m.tp, 0, 2, 0)),
       f: !!m.f, fp: !!m.fp, sc: !!m.sc, r: !!m.r, sl: (m.sl === 0 || m.sl === 1 || m.sl === 2) ? m.sl : null,
       af: m.af === true, ax: Number.isFinite(m.ax) ? num(m.ax, 0, this.W.CONFIG.worldSize, 0) : null,
       ay: Number.isFinite(m.ay) ? num(m.ay, 0, this.W.CONFIG.worldSize, 0) : null,
@@ -502,12 +516,12 @@ export class Match {
       while (q.length > 1) carryPresses(q.shift(), q[0]);
       input = q.shift();
       p.net.ack = input.seq;
-      p.net.held = Object.assign({}, input, { fp: false, af: false, ch: 0, r: false, sw: false, u: false, uch: 0, sl: null, cy: 0, ht: null, ip: false, dp: false });
+      p.net.held = Object.assign({}, input, { fp: false, af: false, ch: 0, r: false, sw: false, u: false, uch: 0, sl: null, cy: 0, ht: null, ip: false, dp: false, tp: 0 });
     } else input = p.net.held;
     const ca = Math.cos(input.a), sa = Math.sin(input.a), hull = this.world.vehicleById(p.vehicle);
     const artilleryAim = hull && hull.type === 'artillery' && hull.seats.driver === p.id && Number.isFinite(input.ax) && Number.isFinite(input.ay);
     return {
-      mx: input.mx, my: input.my, sprint: input.sp,
+      mx: input.mx, my: input.my, sprint: input.sp, trenchHeld: input.th, trenchPress: input.tp,
       aimX: artilleryAim ? input.ax : p.x + ca * input.d,
       aimY: artilleryAim ? input.ay : p.y + sa * input.d, artilleryFire: !!(artilleryAim && input.af),
       fire: input.f, firePressed: input.fp, charge: input.ch, utilityCharge: input.uch, scope: input.sc, reload: input.r, slot: input.sl,
@@ -640,10 +654,17 @@ export class Match {
     const emote = this.encodeEmote(o);
     const build = this.encodeSentryBuild(o);
     const empty = o.held >= 0 && !o.items[o.held], status = this.encodeSentryStatus(o), work = this.encodeSentryWork(o), staff = this.encodeMedicStaff(o), py = this.encodePyro(o);
-    if (emote || build || empty || status || work || staff || py || this.practice) row.push(emote);
-    if (build || empty || status || work || staff || py || this.practice) row.push(build);
-    if (empty || status || work || staff || py || this.practice) row.push({ empty, status, work, staff, py, team: this.practice ? o.team : undefined, practiceBot: this.practice ? !!o.practiceBot : undefined });
+    const trench = this.encodeTrench(o);
+    if (emote || build || empty || status || work || staff || py || trench || this.practice) row.push(emote);
+    if (build || empty || status || work || staff || py || trench || this.practice) row.push(build);
+    if (empty || status || work || staff || py || trench || this.practice) row.push({ empty, status, work, staff, py, trench, team: this.practice ? o.team : undefined, practiceBot: this.practice ? !!o.practiceBot : undefined });
     return row;
+  }
+
+  encodeTrench(p) {
+    if (!p.trenchId && !p.trenchTapT) return undefined;
+    return { id: p.trenchId, phase: p.trenchPhase, depth: p.trenchDepth, peek: p.trenchPeeking || undefined,
+      tap: p.trenchTapT || undefined, x: p.trenchExitX || undefined, y: p.trenchExitY || undefined };
   }
 
   encodeSentryBuild(p) {
@@ -670,7 +691,7 @@ export class Match {
   encodeYou(p) {
     const you = {
       x: r2(p.x), y: r2(p.y), vx: r2(p.vx), vy: r2(p.vy), ack: p.net.ack, hp: Math.ceil(p.hp * 10) / 10, mhp: p.maxHp, ar: p.armor,
-      stam: r3(p.stamina), exh: p.sprintExhausted, rest: r3(p.sprintRestT), spr: p.sprinting,
+      stam: r3(p.stamina), exh: p.sprintExhausted, rest: r3(p.sprintRestT), spr: p.sprinting, trench: this.encodeTrench(p),
       snow: { inside: !!p.inSnow, slow: p.snowSlow || 0, time: r3(p.snowT || 0), cold: r3(p.tundraSnowT || 0), frozen: !!p.snowFrozen },
       tok: p.tokens, keys: p.keys, classTokens: p.classTokens || undefined, cls: this.classIndex.indexOf(p.classId), slot: p.slot,
       ammo: p.weapons.map((w) => w.ammo), rel: p.weapons.map((w) => (w.reloading ? r2(w.reloadT) : 0)), gren: p.grenades, med: r1(p.medkitCd),
@@ -696,7 +717,7 @@ export class Match {
   encodeEvent(e) {
     switch (e.type) {
       case 'emote': return { msg: { t: 'emote', id: e.player.id, em: e.id, d: e.duration }, global: true };
-      case 'shot': return { msg: { t: 'shot', id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), a: e.angles.map(r3), st: e.struct || undefined }, x: e.x, y: e.y };
+      case 'shot': return { msg: { t: 'shot', id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), a: e.angles.map(r3), st: e.struct || undefined, tr: e.trenchId || undefined }, x: e.x, y: e.y };
       case 'melee': return { msg: { t: 'melee', id: e.player.id, w: e.weapon || 'hammer', x: r1(e.x), y: r1(e.y), a: r3(e.a), r: e.reach }, x: e.x, y: e.y };
       case 'repair': return { msg: { t: 'repair', id: e.player.id, v: e.vehicle ? e.vehicle.id : 0, on: !!e.active }, global: true };
       case 'vehicle-shot': return { msg: { t: 'vshot', id: e.player.id, v: e.vehicle.id, w: e.weapon || 'turret', x: r1(e.x), y: r1(e.y), a: r3(e.angle), angles: e.angles.map(r3) }, x: e.x, y: e.y };
@@ -709,6 +730,7 @@ export class Match {
         src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, global: true };
       case 'launch': case 'throw': return { msg: { t: e.type, id: e.player.id, w: e.weapon, x: r1(e.x), y: r1(e.y), vx: r1(e.vx), vy: r1(e.vy), tr: r1(e.travel || 0), fuse: e.fuse, it: e.item || undefined, startX: e.startX, startY: e.startY, targetX: e.targetX, targetY: e.targetY, flightTime: e.flightTime, peakHeight: e.peakHeight }, x: e.x, y: e.y };
       case 'rock-gone': return { msg: { t: 'rock-gone', id: e.rock.id }, global: true };
+      case 'wire-crushed': return { msg: { t: 'wire-crushed', tr: e.trenchId, w: e.wireIndex }, global: true };
       case 'foliage': return { msg: { t: 'foliage', k: e.plant.foliageKind, id: e.plant.id, hp: e.plant.hp }, global: true };
       case 'legendary-crate-broken': return { msg: { t: 'legendary-crate-broken', id: e.crate.id, by: e.player ? e.player.id : 0 }, global: true };
       case 'command': return { msg: { t: 'command', id: e.player.id, d: e.duration, rd: e.radarDuration, cd: e.cooldown, tm: e.team }, global: true };
@@ -776,12 +798,17 @@ export class Match {
     for (const p of this.players) {
       const conn = p.net.conn;
       if (!conn || !conn.open) continue;
-      if (conn.bufferedAmount > 96 * 1024) continue; // slow link: skip this tick rather than pile up
+      if (conn.bufferedAmount > 96 * 1024) {
+        // A skipped movement snapshot must not lose a permanent opening in the wire.
+        for (const enc of encoded) if (enc.msg && enc.msg.t === 'wire-crushed') (conn.pendingWireCuts ||= []).push(enc.msg);
+        continue;
+      }
       const c = this.viewCenter(p), hull = this.world.vehicleById(c.vehicle);
       const artilleryView = hull && hull.type === 'artillery' && c.vehicleWeapon === 1 && hull.seats.driver === c.id;
       const viewRange = c.scoping ? 4400 : VIEW;
       const basePings = this.world.militaryPingsFor(c).map(o => [o.id, r1(o.x), r1(o.y), o.team]);
-      const list = [];
+      const list = conn.pendingWireCuts || [];
+      conn.pendingWireCuts = null;
       for (const enc of encoded) {
         const distance = Math.hypot(enc.x - c.x, enc.y - c.y);
         const delivered = enc.msg && (enc.only !== undefined ? enc.only === p.id : enc.global || (enc.to && enc.to.includes(p.id)) || distance < viewRange + (enc.far ? 900 : 300));

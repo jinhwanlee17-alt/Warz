@@ -104,6 +104,7 @@
       ai.stuckT += dt;
       if (ai.stuckT > 0.7) { ai.stuckT = 0; ai.retarget = 0; ai.strafe = -ai.strafe; ai.tx = p.x + rng.range(-500, 500); ai.ty = p.y + rng.range(-500, 500); }
     } else ai.stuckT = 0;
+    if (p.trenchId) world.steerInTrench(p, intent, !!(intent.fire || intent.firePressed));
     return intent;
   }
 

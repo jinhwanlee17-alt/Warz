@@ -56,7 +56,7 @@ for (const kind of ['crate', 'turret', 'rock', 'vehicle']) {
   const a = arena({ vehicles: [] }), rider = foe(a.world, 4870);
   const mount = a.world.addStruct({ kind: 'turret', item: 'turret', x: 4870, y: 5000, r: 38, hp: 100, maxHp: 100, team: 2 });
   a.world.mountTurret(rider, mount); swing(a);
-  t.check(rider.hp === 970 && mount.hp === 100, 'hammer hits a turret rider once without also damaging the platform');
+  t.check(rider.hp === 1000 && mount.hp === 70, 'hammer deals one 30-point hit to the occupied turret');
 }
 {
   const a = arena(), rock = a.world.addStruct({ kind: 'rock', item: 'rock', x: 5400, y: 5000, r: 116, team: a.p.team, owner: a.p.id });

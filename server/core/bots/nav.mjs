@@ -222,6 +222,7 @@ export class Nav {
     this.heapN = 0;
     g[start] = 0; from[start] = -1; seen[start] = id;
     let best = start, bestH = h(start % n, (start - (start % n)) / n), expanded = 0, found = false;
+    const sides = new Uint8Array(4);
     this.push(start, bestH * WEIGHT);
     while (this.heapN > 0) {
       const cur = this.pop();
@@ -232,9 +233,12 @@ export class Nav {
       const cx = cur % n, cy = (cur - cx) / n, base = g[cur];
       for (let k = 0; k < 8; k++) {
         const dx = DIRS[k][0], dy = DIRS[k][1], nx = cx + dx, ny = cy + dy;
+        // DIRS visits east, west, south and north first. Reuse those exact
+        // cell checks for the diagonals; vehicles stay still during this search.
+        if (k >= 4 && (sides[dx > 0 ? 0 : 1] === BLOCKED || sides[dy > 0 ? 2 : 3] === BLOCKED)) continue;
         const s = this.state(nx, ny);
+        if (k < 4) sides[k] = s;
         if (s === BLOCKED) continue;
-        if (k >= 4 && (this.state(cx + dx, cy) === BLOCKED || this.state(cx, cy + dy) === BLOCKED)) continue; // no corner cutting
         const ni = ny * n + nx;
         if (done[ni] === id) continue;
         let cost = DIRS[k][2] * (s === POND ? POND_COST : 1);
@@ -285,6 +289,7 @@ export class Nav {
     g[start] = 0; from[start] = -1; seen[start] = id;
     this.push(start, 0);
     let expanded = 0, exit = -1;
+    const sides = new Uint8Array(4);
     while (this.heapN > 0) {
       const cur = this.pop();
       if (done[cur] === id) continue;
@@ -299,9 +304,10 @@ export class Nav {
       if (++expanded > maxNodes) break;
       for (let k = 0; k < 8; k++) {
         const dx = DIRS[k][0], dy = DIRS[k][1], nx = cx + dx, ny = cy + dy;
+        if (k >= 4 && (sides[dx > 0 ? 0 : 1] === BLOCKED || sides[dy > 0 ? 2 : 3] === BLOCKED)) continue;
         const s = this.state(nx, ny);
+        if (k < 4) sides[k] = s;
         if (s === BLOCKED) continue;
-        if (k >= 4 && (this.state(cx + dx, cy) === BLOCKED || this.state(cx, cy + dy) === BLOCKED)) continue; // no corner cutting
         const ni = ny * n + nx;
         if (done[ni] === id) continue;
         const ng = base + DIRS[k][2] * (s === POND ? POND_COST : 1);

@@ -127,12 +127,12 @@ for (const kind of Object.keys(hp)) for (const slot of [0, 1]) {
   if (kind === 'snowballs') t.equal(a.w.activeSentrySnow(a.target), 0, 'shield-blocked snowball adds no slow');
 }
 for (const kind of Object.keys(hp)) {
-  const a = arena(), turret = a.w.addStruct({ kind: 'turret', item: 'turret', x: a.target.x, y: a.target.y,
-    r: W.STRUCT_RADIUS.turret, hp: 500, maxHp: 500, team: a.target.team, owner: a.target.id });
+  const a = arena(), turret = a.w.addStruct({ kind: 'turret', item: 'turret2', x: a.target.x, y: a.target.y,
+    r: W.STRUCT_RADIUS.turret, team: a.target.team, owner: a.target.id });
   t.check(a.w.mountTurret(a.target, turret), kind + ': mounted target fixture boards its turret');
   shot(a, kind); flight(a);
-  t.equal(10000 - a.target.hp, W.SENTRY_IV[kind].damage, kind + ': mounted turret rider can be targeted and hit exactly once');
-  t.equal(turret.hp, 500, kind + ': rider takes damage instead of duplicating it onto turret chassis');
+  t.equal(turret.hp, W.ITEMS.turret2.hp - W.SENTRY_IV[kind].damage, kind + ': the occupied turret takes one direct hit');
+  t.equal(a.target.hp, 10000, kind + ': the turret protects its gunner');
 }
 {
   const a = arena(), p = a.target;

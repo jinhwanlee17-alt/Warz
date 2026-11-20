@@ -9,7 +9,7 @@ const DT = 1 / 60;
 
 function range(extra) {
   const map = MapGen.generate(5);
-  map.biomes = []; map.cacti = [];
+  map.biomes = []; map.cacti = []; map.trenches = [];
   map.settlementStructures = []; map.settlementVehicles = []; map.militaryStructures = []; map.militaryVehicles = [];
   map.rocks = []; map.trees = []; map.bushes = []; map.buildings = []; map.crates = []; map.pickups = []; map.ponds = []; map.stations = [];
   Object.assign(map, extra || {});
@@ -527,7 +527,7 @@ for (const seed of [1, 42, 9001]) {
   idle(p, 3700, 3600);
   const hpBefore = p.hp;
   world.damageStruct(turret, 20, far.id, turret.x, turret.y);
-  t.check(turret.hp === 100 && p.hp === hpBefore - 20, 'hits on a mounted turret hurt the rider instead');
+  t.check(turret.hp === 80 && p.hp === hpBefore, 'the mounted turret absorbs a 20-damage hit');
   once(world, p, { mx: 0, my: 0, aimX: 3700, aimY: 3600, interactPressed: true });
   t.check(p.mount === 0 && turret.mounted === 0, 'interact again dismounts');
   t.check(Math.hypot(p.x - turret.x, p.y - turret.y) >= p.r + turret.r && world.spotFree(p.x, p.y, p.r, true), 'dismount places the rider clear of the turret collider');
@@ -569,15 +569,17 @@ for (const seed of [1, 42, 9001]) {
     if (cause === 'meteor') { world.addStrike({ kind: cause, x: p.x, y: p.y, t: 0, radius: 200, damage: 100, owner: enemy.id, team: enemy.team }); world.updateStrikes(0.05); }
     else if (cause === 'grenade' || cause === 'own-grenade') world.explode(p.x, p.y, { radius: 200, maxDamage: 100 }, cause === 'own-grenade' ? p.id : enemy.id, 'grenade');
     else { enemy.fx.strength = enemy.fx.power = 20; world.damageStruct(turret, 100, enemy.id, turret.x, turret.y, cause); }
-    t.equal(p.hp, 900, cause + ': centered turret rider takes exactly one hit with the proper fixed tank damage');
-    t.equal(turret.hp, 100, cause + ': a rider hit is not repeated on the platform');
+    t.equal(p.hp, 1000, cause + ': the gunner survives the hit that destroys the turret at full health');
+    t.check(!turret.alive && !p.mount && !turret.mounted, cause + ': the 100-damage hit destroys the platform and ejects its gunner');
   }
   const world = new World({ map: range({ vehicles: [] }), storm: false });
   const p = world.addPlayer({ x: 3300, y: 3600 }), enemy = world.addPlayer({ x: 4300, y: 3600 });
   const turret = world.addStruct({ kind: 'turret', item: 'turret', x: 3300, y: 3600, r: W.STRUCT_RADIUS.turret, hp: 100, maxHp: 100, owner: p.id, team: p.team });
   world.mountTurret(p, turret); p.hp = 50;
-  world.explode(p.x, p.y, { radius: 200, maxDamage: 100 }, enemy.id, 'grenade');
-  t.check(!p.alive && !p.mount && !turret.mounted && turret.hp === 100, 'a fatal blast clears the turret seat without reapplying that blast to the newly emptied platform');
+  world.explode(p.x, p.y, { radius: 200, maxDamage: 250 }, enemy.id, 'grenade');
+  t.check(p.alive && p.hp === 50 && !p.mount && !turret.mounted && !turret.alive, 'the breaking blast ejects the gunner without passing excess damage to them');
+  world.damagePlayer(p, 20, enemy.id, 'ar');
+  t.equal(p.hp, 30, 'the exposed gunner takes the next hit normally');
 }
 {
   const world = new World({ map: range(), storm: false }), p = world.addPlayer({ x: 3200, y: 3200 }), e = world.addPlayer({ x: 3700, y: 3200 });

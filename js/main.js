@@ -131,6 +131,7 @@
   function causeText(m, kind) {
     if (kind === 'end' && m.won) return 'Last team standing!';
     if (m.cause === 'storm') return 'The storm caught you.';
+    if (m.cause === 'barbed-wire') return 'You were caught in barbed wire.';
     if (m.cause === 'left') return 'You left the island.';
     if (m.cause === 'bleedout') return 'You bled out before your team could revive you.';
     if (m.cause === 'wiped') return 'Your whole team went down.';
@@ -218,6 +219,7 @@
     var slot = Controls.weaponSlotHit(input, p);
     var intent = {
       mx: mx, my: my, sprint: Controls.down(input, 'sprint'), aimX: aim.x, aimY: aim.y,
+      trenchHeld: !mapOpen && Controls.down(input, 'trench'), trenchPress: mapOpen ? 0 : Controls.pressCount(input, 'trench'),
       fire: !mapOpen && !projectile && Controls.down(input, 'fire'), firePressed: (!mapOpen && (projectile ? projectileInput.fire.released : Controls.hit(input, 'fire'))) || pending.use,
       charge: pending.use ? 0 : projectileInput.fire.seconds || 0,
       utilityCharge: projectileInput.gear.seconds || 0,
@@ -536,6 +538,7 @@
         case 'death':
           if (e.victim === p) { play('death'); match.cause = e.cause; if (match.online && match.practice) W.Hud.banner('Respawning', 'Back to practice in 2 seconds', 2, '#ffb95e'); }
           else if (e.cause === 'storm') W.Hud.feed(e.victim.name + ' got caught in the storm', 'kill');
+          else if (e.cause === 'barbed-wire') W.Hud.feed(e.victim.name + ' was caught in barbed wire', 'kill');
           else if (e.cause === 'left') W.Hud.feed(e.victim.name + ' left the island', 'muted');
           else if (e.cause === 'bleedout' || e.cause === 'wiped') W.Hud.feed(e.victim.name + ' is out', 'kill');
           else W.Hud.feed((e.killer ? nameOf(e.killer) + ' eliminated ' : 'Eliminated: ') + e.victim.name, e.killer === p ? 'upgrade' : 'kill');
@@ -744,6 +747,7 @@
     if (p.vehicle) world.exitVehicle(p, true);
     world.teleportFx(p.x, p.y, landing.x, landing.y);
     p.x = p.px = landing.x; p.y = p.py = landing.y; p.vx = p.vy = p.ox = p.oy = 0; p.dropT = 0;
+    world.resetTrench(p);
     p.inPond = false; p.nearStation = station;
     p.inStorm = !!world.storm && Math.hypot(p.x - world.storm.x, p.y - world.storm.y) > world.storm.r;
     match.cam.x = p.x; match.cam.y = p.y; match.cam.zoom = 1;
@@ -899,7 +903,7 @@
     giveKeys: function (n) { match.player.keys += n; },
     giveItem: function (id, n) { return match.world.addItem(match.player, id, n || (ITEMS[id] ? ITEMS[id].found : 1)); },
     selectHotbar: selectHotbar, useHotbar: useHotbar, interact: sendInteract,
-    teleport: function (x, y) { var p = match.player; p.x = x; p.y = y; p.vx = 0; p.vy = 0; match.world.collide(p); match.cam.x = p.x; match.cam.y = p.y; },
+    teleport: function (x, y) { var p = match.player; p.x = x; p.y = y; p.vx = 0; p.vy = 0; match.world.resetTrench(p); match.world.collide(p); match.cam.x = p.x; match.cam.y = p.y; },
     stationNear: function () {
       var p = match.player, list = match.world.map.stations.slice().sort(function (a, b) {
         return Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y);

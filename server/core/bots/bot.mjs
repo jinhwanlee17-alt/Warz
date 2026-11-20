@@ -131,6 +131,7 @@ export class Bot {
     this.launchRequested = false;
     if (!p.vehicle) this.steer();                          // a driver's feet are the steering wheel (thinkVehicle)
     this.aim();
+    if (p.trenchId) this.world.steerInTrench(p, out, this.mode === 'fight' && this.target && this.target.visible && !this.evade && !this.storm.must);
     if (!this.launchRequested) this.launchCharge = null;
     return out;
   }

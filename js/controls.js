@@ -11,6 +11,7 @@
     { id: 'left', name: 'Move left', group: 'Movement' },
     { id: 'right', name: 'Move right', group: 'Movement' },
     { id: 'sprint', name: 'Sprint (hold)', group: 'Movement' },
+    { id: 'trench', name: 'Trench (hold at wall to peek, double-tap to exit)', group: 'Movement' },
     { id: 'fire', name: 'Shoot', group: 'Combat' },
     { id: 'scope', name: 'Scope (Sniper / Rocketeer: hold to zoom out)', group: 'Combat' },
     { id: 'gear', name: 'Use gear (heal / grenade / radar / repair)', group: 'Combat' },
@@ -35,7 +36,7 @@
   ];
   var DEFAULTS = W.DEFAULT_BINDINGS = {
     up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
-    sprint: ['ShiftLeft', null],
+    sprint: ['ShiftLeft', null], trench: ['Space', null],
     fire: ['Mouse1', null], scope: ['Mouse3', null], gear: ['KeyF', 'KeyG'], reload: ['KeyR', null],
     weapon1: ['Digit1', null], weapon2: ['Digit2', null], swap: [null, null], drop: ['KeyQ', null],
     interact: ['KeyE', null], inventory: ['Tab', null], emotes: ['KeyB', null], map: ['KeyM', null], mute: [null, null],
@@ -97,6 +98,11 @@
           settings.bindings.emotes = [emoteFree ? 'KeyB' : null, null];
           migrated = true;
         }
+        if (!Array.isArray(saved.bindings.trench)) {
+          var spaceFree = !ACTIONS.some(function (a) { return a.id !== 'trench' && settings.bindings[a.id].indexOf('Space') >= 0; });
+          settings.bindings.trench = [spaceFree ? 'Space' : null, null];
+          migrated = true;
+        }
         if (!Array.isArray(saved.bindings.slot6)) {
           var slotSixFree = !ACTIONS.some(function (a) { return a.id !== 'slot6' && settings.bindings[a.id].indexOf('Digit6') >= 0; });
           settings.bindings.slot6 = [slotSixFree ? 'Digit6' : null, null];
@@ -133,6 +139,11 @@
   function bindings(action) { return settings.bindings[action] || [null, null]; }
   function down(input, action) { var b = bindings(action); return input.down(b[0]) || input.down(b[1]); }
   function hit(input, action) { var b = bindings(action); return input.hit(b[0]) || input.hit(b[1]); }
+  function pressCount(input, action) {
+    if (!input.pressCount) return hit(input, action) ? 1 : 0;
+    var b = bindings(action);
+    return Math.min(2, input.pressCount(b[0]) + input.pressCount(b[1]));
+  }
   function lift(input, action) { var b = bindings(action); return !!input.lift && (input.lift(b[0]) || input.lift(b[1])); }
   function primary(action) { var b = bindings(action); return label(b[0] || b[1]); }
 
@@ -209,7 +220,7 @@
     ACTIONS: ACTIONS, DEFAULTS: DEFAULTS,
     load: load, save: save, reset: reset, rebind: rebind,
     label: label, bindings: bindings, primary: primary, actionName: actionName,
-    down: down, hit: hit, lift: lift, createChargeTracker: createChargeTracker,
+    down: down, hit: hit, lift: lift, pressCount: pressCount, createChargeTracker: createChargeTracker,
     itemAction: itemAction, weaponAction: weaponAction, itemOrder: itemOrder,
     weaponSlotHit: weaponSlotHit, itemSlotHit: itemSlotHit, hotbarChanged: hotbarChanged,
     isReserved: function (code) { return code === 'Escape'; },

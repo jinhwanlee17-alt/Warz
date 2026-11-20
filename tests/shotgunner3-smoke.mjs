@@ -88,9 +88,26 @@ for (const type of ['humvee', 'tank']) {
   const rock = a.w.addStruct({ kind: 'rock', item: 'rock', x: X + 800, y: Y, r: 45, team: 2 });
   a.w.damagePlayerRock(rock, a.p.id, rock.x, rock.y);
   t.near(rock.hp, 890, 1e-8, 'tank ramming portable cover receives the class damage bonus');
-  const turret = a.w.addStruct({ kind: 'turret', item: 'turret', x: a.target.x, y: a.target.y, r: 35, hp: 1000, maxHp: 1000, mounted: a.target.id });
-  a.w.damageStruct(turret, 100, a.p.id, turret.x, turret.y, 'pistol');
-  t.equal(a.target.hp, 9890, 'mounted turret redirection applies class bonus only at the rider');
+  const turret = a.w.addStruct({ kind: 'turret', item: 'turret2', x: a.target.x, y: a.target.y, r: 35, hp: 450, team: a.target.team });
+  t.check(a.w.mountTurret(a.target, turret), 'gunner mounts the damaged Turret II');
+  a.w.damagePlayer(a.target, 100, a.p.id, 'pistol');
+  t.near(turret.hp, 340, 1e-8, 'redirected gunfire applies the class damage bonus once to the turret');
+  t.equal(turret.maxHp, 500, 'a damaged Turret II retains the maximum HP of its tier');
+  t.equal(a.target.hp, 10000, 'the mounted player is protected from gunfire');
+}
+{
+  const a = arena();
+  a.target.x = X + 130;
+  a.target.angle = Math.PI;
+  const turret = a.w.addStruct({ kind: 'turret', item: 'turret', x: a.target.x, y: Y, r: 38, team: a.target.team });
+  a.w.mountTurret(a.target, turret);
+  a.w.spawnShot(a.p, W.WEAPONS.shotgun3, [0, 0, 0]);
+  fly(a);
+  t.check(!turret.alive && !a.target.mount && a.target.x > turret.x, 'the first shotgun pellet breaks the platform and ejects the gunner into the line of fire');
+  t.equal(a.target.hp, 10000, 'the remaining pellets from the same shot spare the ejected gunner');
+  a.w.spawnShot(a.p, W.WEAPONS.shotgun3, [0, 0, 0]);
+  fly(a);
+  t.check(a.target.hp < 10000, 'a second shotgun blast hits the exposed gunner');
 }
 {
   const a = arena({}, true);

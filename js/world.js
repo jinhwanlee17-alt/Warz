@@ -47,6 +47,20 @@
 
   World.prototype.emit = function (e) { e.time = this.time; this.events.push(e); };
 
+  World.prototype.directFireExposed = function (p) { return !p.trenchId || !!p.trenchPeeking; };
+  World.prototype.blastTrenchAt = function (x, y) {
+    var trench = W.Trenches.at(this.map, x, y);
+    return trench ? trench.id : 0;
+  };
+  // Surface cover (including a vehicle crossing overhead) does not intercept a blast on the trench floor.
+  World.prototype.blastLineClear = function (trenchId, x, y, target, ignore) {
+    return (target.trenchId || 0) === trenchId && this.lineClear(x, y, target.x, target.y, ignore || target, false, null, trenchId);
+  };
+  // Blasts with self-damage can also hit the turret their owner is riding.
+  World.prototype.blastCanHitStructure = function (s, ownerId, team) {
+    return team == null || s.team !== team || (!!ownerId && s.mounted === ownerId);
+  };
+
   World.prototype.buildSolids = function () {
     var h = this.solids, m = this.map, cr = C.stationCoreRadius;
     this.pondGrid = new U.SpatialHash(512);
@@ -109,7 +123,7 @@
       grenades: 0, medkitCd: 0, throwCd: 0, tokens: o.tokens || 0, keys: o.keys || 0, classTokens: o.classTokens || 0,
       alive: true, deadT: 0, isLocal: !!o.isLocal, bot: !!o.bot, controller: null, ai: null,
       recoil: 0, hitFlash: 0, healFlash: 0, dropT: o.drop ? C.dropDuration : 0,
-      inPond: false, inStorm: false, nearStation: null, scoping: false,
+      inPond: false, inStorm: false, wireContactTime: 0, nearStation: null, scoping: false,
       baseSignal: null,
       stamina: C.staminaMax, sprintExhausted: false, sprintRestT: 0, sprinting: false,
       team: o.team || 0, downed: false, downT: 0, revive: 0, wantsRevive: false,
@@ -119,6 +133,7 @@
     };
     if (!p.team) p.team = p.id; // solo: everyone is their own team
     if (o.id) this.nextId = Math.max(this.nextId, o.id + 1);
+    this.resetTrench(p);
     this.initItems(p);
     this.setClass(p, o.classId || 'soldier', true);
     this.players.push(p);
@@ -193,6 +208,8 @@
   World.prototype.respawn = function (p, x, y, classId) {
     if (p.vehicle && this.exitVehicle) this.exitVehicle(p, true);
     p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.alive = true; p.deadT = 0; p.hitFlash = 0;
+    p.wireContactTime = 0;
+    this.resetTrench(p);
     p.downed = false; p.downT = 0; p.revive = 0;
     p.baseSignal = null;
     p.emote = null; p.emoteReadyAt = 0;
@@ -223,6 +240,7 @@
     if (!this.remote) {
       this.separatePlayers();
       this.updateCactusContacts();
+      this.updateBarbedWireContacts(dt);
       if (this.teams) this.updateRevives(dt);
       if (this.storm) this.storm.update(dt);
     }
@@ -309,6 +327,7 @@
       if (p.dropT <= 0) { p.dropT = 0; this.land(p); }
       return;
     }
+    if (!p.mount && !p.vehicle) this.prepareTrench(p, intent, dt);
     this.tickEffects(p, dt);
     if (this.updateClassCombat) this.updateClassCombat(p, intent, dt);
     if (!p.alive) return; // poison can finish you off
@@ -316,7 +335,7 @@
       // Knocked down: crawl slowly toward teammates, no weapons, bleed out unless revived.
       p.downT -= dt;
       if (p.downT <= 0) { this.killPlayer(p, null, 'bleedout'); return; }
-      this.moveStep(p, intent, dt);
+      this.moveStep(p, intent, dt, true);
       return;
     }
     if (p.vehicle && this.updateVehiclePlayer) { this.tickStamina(p, IDLE, dt); this.updateVehiclePlayer(p, intent, dt); return; }
@@ -333,7 +352,7 @@
     if (!dropped && intent.utility) this.useUtility(p, intent);
     if (!dropped && (intent.fire || intent.firePressed)) { if (p.held >= 0) this.useHeld(p, intent); else this.trigger(p, intent); }
     this.refreshShield(p);
-    this.moveStep(p, intent, dt);
+    this.moveStep(p, intent, dt, true);
   };
 
   // Integrate stamina through boundaries instead of granting an entire tick of recovery or sprint
@@ -372,14 +391,119 @@
     return 1 + (C.sprintSpeedMul - 1) * sprintTime / dt;
   };
 
+  // Depth goes from the bank (0) to the floor (1). The trench ID is also
+  // the blast layer, including during a peek or a climb.
+  World.prototype.resetTrench = function (p) {
+    p.trenchId = 0; p.trenchDepth = 0; p.trenchPhase = ''; p.trenchPeeking = false;
+    p.trenchTapT = 0; p.trenchExitX = 0; p.trenchExitY = 0;
+  };
+
+  World.prototype.enterTrench = function (p, trench) {
+    p.trenchId = trench.id; p.trenchPhase = 'enter'; p.trenchDepth = 0;
+    p.trenchTapT = 0; p.trenchPeeking = false; p.vx = p.vy = 0;
+    this.confineToTrench(p);
+  };
+
+  // Steering, collision and peek input often ask about the very same point
+  // in one tick. Trench banks are static; only reuse an exact position match.
+  var playerBanks = new WeakMap();
+  function bankAtPlayer(trench, p) {
+    var wall = playerBanks.get(p);
+    if (!wall || wall.trench !== trench || wall.playerX !== p.x || wall.playerY !== p.y) {
+      wall = W.Trenches.wall(trench, p.x, p.y);
+      wall.trench = trench; wall.playerX = p.x; wall.playerY = p.y;
+      playerBanks.set(p, wall);
+    }
+    return wall;
+  }
+
+  World.prototype.confineToTrench = function (p) {
+    var trench = this.map.trenches[p.trenchId - 1];
+    var margin = Math.max(1, p.r * 0.54 * p.trenchDepth);
+    // A second face can also touch the body at a squared end or a zigzag.
+    for (var i = 0; i < 3; i++) {
+      var wall = bankAtPlayer(trench, p);
+      if (wall.distance >= margin - 0.01 && W.Trenches.contains(trench, p.x, p.y)) break;
+      p.x = wall.x - margin * wall.nx; p.y = wall.y - margin * wall.ny;
+      var outward = p.vx * wall.nx + p.vy * wall.ny;
+      if (outward > 0) { p.vx -= outward * wall.nx; p.vy -= outward * wall.ny; }
+    }
+  };
+
+  World.prototype.prepareTrench = function (p, intent, dt) {
+    if (!this.map.trenches || !this.map.trenches.length) return;
+    if (!p.trenchId) {
+      var reach = intent.trenchHeld && !p.downed ? p.r * 0.65 : 0;
+      var nearby = W.Trenches.near(this.map, p.x, p.y, reach);
+      if (nearby) this.enterTrench(p, nearby);
+      return;
+    }
+    p.trenchPeeking = false;
+    if (p.trenchPhase !== 'inside' || p.downed) return;
+    p.trenchTapT = Math.max(0, p.trenchTapT - dt);
+    if (!intent.trenchPress && !intent.trenchHeld) return;
+    var wall = bankAtPlayer(this.map.trenches[p.trenchId - 1], p);
+    if (intent.trenchPress) {
+      if (p.trenchTapT > 0 || intent.trenchPress >= 2) {
+        p.trenchTapT = 0;
+        var x = wall.x + wall.nx * (p.r + 8), y = wall.y + wall.ny * (p.r + 8);
+        if (!W.Trenches.at(this.map, x, y) && this.spotFree(x, y, p.r, true)) {
+          p.trenchExitX = x; p.trenchExitY = y; p.trenchPhase = 'exit';
+          p.vx = p.vy = 0;
+          return;
+        }
+      } else p.trenchTapT = 0.32;
+    }
+    p.trenchPeeking = !!intent.trenchHeld && wall.distance <= p.r * 0.9;
+  };
+
+  World.prototype.advanceTrenchClimb = function (p, dt) {
+    if (p.trenchPhase === 'enter') {
+      p.trenchDepth = Math.min(1, p.trenchDepth + dt / 0.48);
+      this.confineToTrench(p);
+      if (p.trenchDepth >= 1) p.trenchPhase = 'inside';
+    } else if (p.trenchPhase === 'exit') {
+      var depth = p.trenchDepth;
+      p.trenchDepth = Math.max(0, depth - dt / 0.52);
+      var k = depth > 0 ? 1 - p.trenchDepth / depth : 1;
+      p.x = U.lerp(p.x, p.trenchExitX, k); p.y = U.lerp(p.y, p.trenchExitY, k);
+      if (p.trenchDepth === 0) {
+        if (this.spotFree(p.x, p.y, p.r, true)) this.resetTrench(p);
+        else { p.trenchPhase = 'enter'; this.confineToTrench(p); }
+      }
+    }
+  };
+
+  // Bots use the same wall, peek and double-tap checks as a human controller.
+  World.prototype.steerInTrench = function (p, intent, fighting) {
+    if (p.trenchPhase !== 'inside' || p.downed) return;
+    var wall = bankAtPlayer(this.map.trenches[p.trenchId - 1], p);
+    if (fighting) {
+      if (wall.distance > p.r * 0.88) { intent.mx = wall.nx; intent.my = wall.ny; }
+      else { intent.mx = 0; intent.my = 0; }
+      intent.trenchHeld = true;
+    } else if (wall.distance <= p.r * 0.9 && intent.mx * wall.nx + intent.my * wall.ny > 0.1) {
+      if (!p.trenchTapT || p.trenchTapT < 0.24) intent.trenchPress = 1;
+    }
+  };
+
   // Movement and stamina: shared by the authoritative world and local prediction/replay.
-  World.prototype.moveStep = function (p, intent, dt) {
+  World.prototype.moveStep = function (p, intent, dt, trenchPrepared) {
     if (!p.alive || p.mount || p.vehicle || p.dropT > 0) { this.tickStamina(p, IDLE, dt); return; }
+    if (!trenchPrepared) this.prepareTrench(p, intent, dt);
+    if (p.trenchPhase === 'enter' || p.trenchPhase === 'exit') {
+      this.tickStamina(p, IDLE, dt);
+      this.advanceTrenchClimb(p, dt);
+      p.nearStation = null;
+      return;
+    }
     var mx = intent.mx || 0, my = intent.my || 0, len = Math.hypot(mx, my);
     if (len > 1) { mx /= len; my /= len; }
     p.inPond = this.inPond(p.x, p.y);
     var sprint = this.tickStamina(p, intent, dt);
     var speed = C.playerSpeed * (p.inPond ? C.pondSpeedMul : 1) * (p.downed ? 0.35 : 1) * this.speedMul(p) * sprint, k = Math.min(1, C.playerAccel * dt);
+    var onWire = !p.trenchId && len && W.Trenches.wireAt(this.map, p.x, p.y, p.r);
+    if (onWire) speed *= C.barbedWireSpeedMul;
     if (p.snowFrozen) p.vx = p.vy = 0;
     p.vx += (mx * speed - p.vx) * k;
     p.vy += (my * speed - p.vy) * k;
@@ -387,9 +511,20 @@
     var steps = this.practice && p.isLocal && p.practiceSpeed > 1
       ? Math.max(1, Math.ceil(Math.hypot(p.vx, p.vy) * dt / (p.r * 0.5))) : 1;
     for (var step = 0; step < steps; step++) {
-      p.x += p.vx * dt / steps;
-      p.y += p.vy * dt / steps;
+      var travelTime = dt / steps;
+      // At boosted practice speeds a single frame can cross an entire coil.
+      if (steps > 1 && !onWire && !p.trenchId && len && W.Trenches.wireAt(this.map, p.x, p.y, p.r)) travelTime *= C.barbedWireSpeedMul;
+      p.x += p.vx * travelTime;
+      p.y += p.vy * travelTime;
       this.collide(p);
+      if (!p.trenchId && this.map.trenches && this.map.trenches.length) {
+        var trench = W.Trenches.at(this.map, p.x, p.y);
+        if (trench) { this.enterTrench(p, trench); break; }
+      }
+    }
+    if (p.trenchPhase === 'inside' && intent.trenchHeld && !p.downed) {
+      var wall = bankAtPlayer(this.map.trenches[p.trenchId - 1], p);
+      p.trenchPeeking = wall.distance <= p.r * 0.9;
     }
     p.nearStation = this.nearestStation(p.x, p.y, C.stationInteractRadius + p.r);
   };
@@ -421,6 +556,7 @@
     if (this.isPracticeBot(p)) return;
     if (this.stopVehicleRepair) this.stopVehicleRepair(p);
     p.downed = true; p.downT = DOWNED_TIME; p.hp = DOWNED_HP; p.revive = 0; p.reviver = null;
+    p.trenchPeeking = false; p.trenchTapT = 0;
     p.emote = null;
     p.vx = 0; p.vy = 0; p.scoping = false;
     p.sprinting = false;
@@ -465,6 +601,7 @@
     for (var iter = 0; iter < 3; iter++) {
       var moved = false;
       this.solids.query(p.x - p.r, p.y - p.r, p.x + p.r, p.y + p.r, function (s) {
+        if (((s.struct && s.struct.trenchId) || 0) !== (p.trenchId || 0)) return;
         if ((s.crate && (!s.crate.alive || (p.vehicleCrates && p.vehicleCrates[s.crate.id]))) || (s.rock && (!s.rock.alive || (p.vehicleRocks && p.vehicleRocks[s.rock.id]))) || (s.struct && (!s.struct.alive || (p.vehicleStructRocks && p.vehicleStructRocks[s.struct.id])))) return;
         var px, py;
         if (s.shape === 'circle') {
@@ -488,6 +625,7 @@
     }
     U.clampToIsland(p, p.r, C.worldSize, C.cornerRadius);
     if (this.collideVehicles) this.collideVehicles(p);
+    if (p.trenchId && p.trenchPhase !== 'exit') this.confineToTrench(p);
   };
 
   World.prototype.separatePlayers = function () {
@@ -498,10 +636,14 @@
       for (var j = i + 1; j < ps.length; j++) {
         var b = ps[j];
         if (!b.alive || b.dropT > 0 || b.vehicle || b.mount) continue;
-        var dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = a.r + b.r;
+        if (a.trenchId !== b.trenchId || a.trenchPhase === 'exit' || b.trenchPhase === 'exit') continue;
+        var dx = b.x - a.x, dy = b.y - a.y, min = a.r + b.r;
+        if (Math.abs(dx) >= min || Math.abs(dy) >= min) continue;
+        var d = Math.hypot(dx, dy);
         if (d >= min || d < 1e-4) continue;
         var push = (min - d) / 2, nx = dx / d, ny = dy / d;
         a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+        if (a.trenchId) { this.confineToTrench(a); this.confineToTrench(b); }
       }
     }
   };
@@ -595,27 +737,54 @@
       else a += (this.rng.next() - 0.5) * 2 * def.spread;
       angles.push(a);
     }
-    this.spawnShot(p, def, angles);
-    this.emit({ type: 'shot', player: p, weapon: def.id, x: p.x, y: p.y, angles: angles });
+    var trenchId = this.directFireExposed(p) ? 0 : p.trenchId;
+    this.spawnShot(p, def, angles, trenchId);
+    this.emit({ type: 'shot', player: p, weapon: def.id, x: p.x, y: p.y, angles: angles, trenchId: trenchId });
   };
 
+  // Intersect the ray with every bank. A fast round can cross one bend and
+  // enter the same trench again in a single frame, so testing the endpoint misses walls.
+  function distanceToBank(trench, x, y, dx, dy) {
+    if (!trench) return 0;
+    var rim = trench.outline, nearest = Infinity;
+    for (var i = 0, j = rim.length - 1; i < rim.length; j = i++) {
+      var a = rim[j], b = rim[i], ex = b.x - a.x, ey = b.y - a.y;
+      var cross = dx * ey - dy * ex;
+      if (Math.abs(cross) < 1e-9) continue;
+      var ax = a.x - x, ay = a.y - y;
+      var alongEdge = (ax * dy - ay * dx) / cross;
+      var distance = (ax * ey - ay * ex) / cross;
+      if (alongEdge >= 0 && alongEdge <= 1 && distance >= 0) nearest = Math.min(nearest, distance);
+    }
+    return nearest;
+  }
+
   // Bullets for one trigger pull. Also used by the client to mirror shots the server reports.
-  World.prototype.spawnShot = function (p, def, angles) {
+  World.prototype.spawnShot = function (p, def, angles, trenchId) {
+    if (trenchId === undefined) trenchId = this.directFireExposed(p) ? 0 : p.trenchId;
     var n = angles.length, shot = def.pellets && n > 1 ? { hit: {} } : null, muzzle = W.muzzleLength(def.id) * p.r;
+    var trench = trenchId && this.map.trenches && this.map.trenches[trenchId - 1];
+    if (trenchId) {
+      muzzle *= 0.62;
+      // During the last part of a climb the player is over the bank but still in cover.
+      if (trench && !W.Trenches.contains(trench, p.x, p.y)) trench = null;
+    }
     for (var i = 0; i < n; i++) {
       var a = angles[i];
       var b = {
-        owner: p.id, team: p.team, color: p.color, outline: p.outline, weapon: def.id, damage: def.damage || 0, shot: shot,
+        owner: p.id, team: p.team, color: p.color, outline: p.outline, weapon: def.id, damage: def.damage || 0, shot: shot, trenchId: trenchId,
         x: p.x, y: p.y, ox: p.x, oy: p.y, dx: Math.cos(a), dy: Math.sin(a),
         speed: def.bulletSpeed * (n > 1 ? 0.9 + this.rng.next() * 0.2 : 1), traveled: 0, range: def.range, r: def.bulletRadius
       };
+      if (trenchId) b.bankDistance = distanceToBank(trench, p.x, p.y, b.dx, b.dy);
       // Bullets start at the player's center and sweep out to the muzzle, so a barrel poking through a wall cannot shoot through it.
       if (this.advanceBullet(b, muzzle)) this.bullets.push(b);
     }
     var ca = Math.cos(p.angle), sa = Math.sin(p.angle);
+    if (trenchId) muzzle = Math.min(muzzle, distanceToBank(trench, p.x, p.y, ca, sa));
     if (!this.remote) { p.vx -= ca * def.recoil; p.vy -= sa * def.recoil; }
     p.recoil = 1;
-    this.flash(p.x + ca * muzzle, p.y + sa * muzzle, p.angle, def.id);
+    this.flash(p.x + ca * muzzle, p.y + sa * muzzle, p.angle, def.id, trenchId);
   };
 
   // One deterministic ground path + height arc for the preview, server and mirror.
@@ -628,10 +797,11 @@
     return def && (def.kind === 'launcher' || def.kind === 'throwable') ? def.id : null;
   };
   World.prototype.safeGrenadeLanding = function (x, y, r, fromX, fromY) {
-    var point = { x: x, y: y };
+    var point = { x: x, y: y }, trenchId = this.blastTrenchAt(x, y);
     for (var iter = 0; iter < 5; iter++) {
       var moved = false;
       this.solids.query(point.x - r, point.y - r, point.x + r, point.y + r, function (s) {
+        if (((s.struct && s.struct.trenchId) || 0) !== trenchId) return;
         if ((s.crate && !s.crate.alive) || (s.rock && !s.rock.alive) || (s.struct && !s.struct.alive)) return;
         var push;
         if (s.shape === 'circle') {
@@ -773,19 +943,21 @@
   // ---------------------------------------------------------------- projectiles
   // Nearest thing a moving circle of radius br hits along a segment: a solid, a live crate, a structure or an enemy
   // player. Teammates (and your team's own turrets and sentries) never block or take a shot; rocks block everyone.
-  World.prototype.sweep = function (x1, y1, x2, y2, br, ownerId, ownerTeam) {
+  World.prototype.sweep = function (x1, y1, x2, y2, br, ownerId, ownerTeam, trenchId) {
     var bestT = 2, best = null, bestPlayer = null, teamed = ownerTeam !== undefined && ownerTeam !== null;
     var minX = Math.min(x1, x2) - br, minY = Math.min(y1, y2) - br, maxX = Math.max(x1, x2) + br, maxY = Math.max(y1, y2) + br;
     this.solids.query(minX, minY, maxX, maxY, function (s) {
+      if (((s.struct && s.struct.trenchId) || 0) !== (trenchId || 0)) return;
       if (s.crate && !s.crate.alive) return;
       if (s.rock && !s.rock.alive) return;
       if (s.struct && s.struct.mounted && s.struct.mounted === ownerId) return;
-      if (s.struct && (!s.struct.alive || (teamed && s.struct.team === ownerTeam && s.struct.kind !== 'rock'))) return; // rocks block everyone
+      if (s.struct && (!s.struct.alive || (teamed && s.struct.team === ownerTeam && s.struct.kind !== 'rock'))) return;
       var t = s.shape === 'circle'
         ? U.segCircle(x1, y1, x2, y2, s.x, s.y, s.r + br)
         : U.segRect(x1, y1, x2, y2, s.x - br, s.y - br, s.w + br * 2, s.h + br * 2);
       if (t >= 0 && t < bestT) { bestT = t; best = s; }
     });
+    if (trenchId) return best ? { t: bestT, solid: best } : null;
     this.foliage.query(minX, minY, maxX, maxY, function (plant) {
       if (plant.alive === false) return;
       var t = U.segCircle(x1, y1, x2, y2, plant.x, plant.y, plant.hitRadius + br);
@@ -793,7 +965,7 @@
     });
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
-      if (!p.alive || p.id === ownerId || p.dropT > 0 || p.vehicle) continue;
+      if (!p.alive || p.id === ownerId || p.dropT > 0 || p.vehicle || p.mount || !this.directFireExposed(p)) continue;
       // Hidden client replicas have no current position; only the server can hit them.
       if (this.remote && p.hidden) continue;
       if (teamed && p.team === ownerTeam) continue;
@@ -815,17 +987,19 @@
   };
 
   // Walls, rocks and placed structures block explosions and line of sight.
-  World.prototype.lineClear = function (x1, y1, x2, y2, ignore, demolition, ignoreVehicle) {
+  World.prototype.lineClear = function (x1, y1, x2, y2, ignore, demolition, ignoreVehicle, trenchId) {
     var clear = true;
     var minX = Math.min(x1, x2), minY = Math.min(y1, y2), maxX = Math.max(x1, x2), maxY = Math.max(y1, y2);
     this.solids.query(minX, minY, maxX, maxY, function (s) {
       if (!clear || (ignore && (s === ignore || s.rock === ignore || s.struct === ignore)) || (s.type !== 'wall' && s.type !== 'rock' && s.type !== 'struct')) return;
+      if (((s.struct && s.struct.trenchId) || 0) !== (trenchId || 0)) return;
       if (demolition && (s.type === 'rock' || (s.struct && s.struct.kind === 'rock'))) return;
       if (s.rock && !s.rock.alive) return;
       if (s.struct && !s.struct.alive) return;
       var t = s.shape === 'circle' ? U.segCircle(x1, y1, x2, y2, s.x, s.y, s.r) : U.segRect(x1, y1, x2, y2, s.x, s.y, s.w, s.h);
       if (t >= 0 && t < 0.999) clear = false;
     });
+    if (trenchId) return clear;
     var vehicles = this.vehicles || [];
     for (var i = 0; clear && i < vehicles.length; i++) {
       var v = vehicles[i];
@@ -839,16 +1013,20 @@
   };
 
   World.prototype.advanceBullet = function (b, step) {
-    var last = false;
-    if (b.traveled + step >= b.range) { step = b.range - b.traveled; last = true; }
-    var x2 = b.x + b.dx * step, y2 = b.y + b.dy * step, hit = this.sweep(b.x, b.y, x2, y2, b.r, b.owner, b.team);
+    var range = b.trenchId ? Math.min(b.bankDistance, b.range) : b.range;
+    var last = b.traveled + step >= range;
+    if (last) step = range - b.traveled;
+    var x2 = b.x + b.dx * step, y2 = b.y + b.dy * step, hit = this.sweep(b.x, b.y, x2, y2, b.r, b.owner, b.team, b.trenchId);
     if (hit) {
-      this.bulletHit(b, hit, b.x + (x2 - b.x) * hit.t, b.y + (y2 - b.y) * hit.t);
+      var hx = U.lerp(b.x, x2, hit.t), hy = U.lerp(b.y, y2, hit.t);
+      if (b.trenchId) this.sparks(hx, hy, b.dx, b.dy, SPARK.rock, 3, b.trenchId);
+      else this.bulletHit(b, hit, hx, hy);
       return false;
     }
     b.x = x2; b.y = y2; b.traveled += step;
     if (last) {
-      this.particles.push({ kind: 'dot', x: b.x, y: b.y, vx: 0, vy: 0, life: 0.18, max: 0.18, size: b.r, color: b.color, drag: 0 });
+      if (b.trenchId && b.bankDistance <= b.range) this.sparks(b.x, b.y, b.dx, b.dy, '#b09b76', 4, b.trenchId);
+      else this.particles.push({ kind: 'dot', x: b.x, y: b.y, vx: 0, vy: 0, life: 0.18, max: 0.18, size: b.r, color: b.color, drag: 0, trenchId: b.trenchId });
       return false;
     }
     return true;
@@ -877,7 +1055,11 @@
       this.damageVehicle(vehicle, dmg, b.owner, b.weapon, hx, hy);
       if (b.shot && vehicle.wreck) occupants.forEach(function (id) { if (id) b.shot.hit['p' + id] = true; });
     }
-    else if (struct) this.damageStruct(struct, dmg, b.owner, hx, hy, b.weapon);
+    else if (struct) {
+      var rider = struct.mounted;
+      this.damageStruct(struct, dmg, b.owner, hx, hy, b.weapon);
+      if (b.shot && rider && !struct.alive) b.shot.hit['p' + rider] = true;
+    }
     else if (plant) this.damageFoliage(plant, dmg, b.owner, b.weapon);
     else this.damageCrate(target, dmg, b.owner, hx, hy);
     this.sparks(hx, hy, b.dx, b.dy, color, 5);
@@ -990,6 +1172,21 @@
     });
   };
 
+  World.prototype.updateBarbedWireContacts = function (dt) {
+    for (var i = 0; i < this.players.length; i++) {
+      var p = this.players[i];
+      if (!p.alive || p.dropT > 0 || p.vehicle || p.trenchId || !W.Trenches.wireAt(this.map, p.x, p.y, p.r)) {
+        p.wireContactTime = 0;
+        continue;
+      }
+      p.wireContactTime += dt;
+      while (p.alive && p.wireContactTime >= 1 - 1e-9) {
+        p.wireContactTime = Math.max(0, p.wireContactTime - 1);
+        this.damagePlayer(p, C.barbedWireDamage, null, 'barbed-wire');
+      }
+    }
+  };
+
   // Heavy vehicle impacts break natural rocks outright, without a health state.
   World.prototype.damageMapRock = function (rock, cause, sourceId, hx, hy) {
     if (this.remote || !rock || rock.alive === false || this.map.rocks.indexOf(rock) < 0 || (cause !== 'tankram' && cause !== 'tank-cannon' && cause !== 'artillery')) return false;
@@ -1020,41 +1217,41 @@
   // Explosions hurt their owner; other teammates stay protected. Launcher II demolishes crates,
   // while heavy cannons break natural rocks and portable boulders stay solid.
   World.prototype.explode = function (x, y, ex, ownerId, cause) {
-    var R = ex.radius, self = this, crates = [], hitMounts = {}, i;
+    var R = ex.radius, self = this, crates = [], i;
+    var trenchId = this.blastTrenchAt(x, y);
     var owner = ownerId ? this.playerById(ownerId) : null, ownerTeam = owner ? owner.team : null;
     if (!this.remote) {
       for (i = 0; i < this.players.length; i++) {
         var p = this.players[i];
-        if (!p.alive || p.vehicle || p.dropT > 0 || (p.id !== ownerId && ownerTeam !== null && p.team === ownerTeam)) continue;
+        if (!p.alive || p.vehicle || p.mount || p.dropT > 0 || (p.id !== ownerId && ownerTeam !== null && p.team === ownerTeam)) continue;
         var d = Math.hypot(p.x - x, p.y - y) - p.r;
-        if (d >= R || !this.lineClear(x, y, p.x, p.y, p.mount ? this.structById(p.mount) : null)) continue;
+        if (d >= R || !this.blastLineClear(trenchId, x, y, p)) continue;
         var dmg = Rules.explosionDamage(ex.maxDamage, R, d);
-        if (dmg > 0) { if (p.mount) hitMounts[p.mount] = true; this.damagePlayer(p, dmg, ownerId, cause, p.x, p.y - p.r, { x: x, y: y }); }
+        if (dmg > 0) this.damagePlayer(p, dmg, ownerId, cause, p.x, p.y - p.r, { x: x, y: y });
       }
       // Collect first, then damage: lineClear queries the same spatial hash.
       var structs = [];
       this.solids.query(x - R, y - R, x + R, y + R, function (s) {
         if (s.type === 'crate' && s.crate.alive) crates.push(s);
-        else if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && (ownerTeam === null || s.struct.team !== ownerTeam)) structs.push(s.struct);
+        else if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && self.blastCanHitStructure(s.struct, ownerId, ownerTeam)) structs.push(s.struct);
       });
       crates.forEach(function (s) {
         var nx = U.clamp(x, s.x, s.x + s.w), ny = U.clamp(y, s.y, s.y + s.h), d2 = Math.hypot(x - nx, y - ny);
-        if (d2 >= R || !self.lineClear(x, y, nx, ny)) return;
+        if (d2 >= R || trenchId || !self.lineClear(x, y, nx, ny)) return;
         var dmg2 = ex.demolition ? s.crate.hp : Rules.explosionDamage(ex.maxDamage, R, d2);
         if (dmg2 > 0) self.damageCrate(s.crate, dmg2, ownerId, s.crate.x, s.crate.y - s.h / 2);
       });
       structs.forEach(function (s) {
-        if (hitMounts[s.id] && !s.neutral) return;
         var d3 = Math.hypot(x - s.x, y - s.y) - s.r;
-        if (d3 >= R || !self.lineClear(x, y, s.x, s.y, s)) return;
+        if (d3 >= R || !self.blastLineClear(trenchId, x, y, s)) return;
         var dmg3 = Rules.explosionDamage(ex.maxDamage, R, Math.max(0, d3));
         if (dmg3 > 0) self.damageStruct(s, dmg3, ownerId, s.x, s.y - s.r, cause);
       });
       if (this.damageVehiclesInArea) this.damageVehiclesInArea(x, y, R, function (v) {
         return Rules.explosionDamage(ex.maxDamage, R, Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r));
       }, ownerId, cause, { lineOfSight: true });
-      if (cause === 'tank-cannon') this.damageMapRocksInArea(x, y, R, cause, ownerId, false);
-      this.damageFoliageInArea(x, y, R, function (plant) {
+      if (!trenchId && cause === 'tank-cannon') this.damageMapRocksInArea(x, y, R, cause, ownerId, false);
+      if (!trenchId) this.damageFoliageInArea(x, y, R, function (plant) {
         return Rules.explosionDamage(ex.maxDamage, R, Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius));
       }, ownerId, cause);
     }
@@ -1079,6 +1276,13 @@
   // damage: it ignores shields, armor, potions and overheal. The storm and snow ignore potions too.
   World.prototype.damagePlayer = function (p, amount, sourceId, cause, hx, hy, from) {
     if (!p.alive || amount <= 0) return;
+    if (p.mount) {
+      var turret = this.structById(p.mount);
+      if (turret && turret.alive && turret.kind === 'turret' && turret.mounted === p.id) {
+        this.damageStruct(turret, amount, sourceId, hx, hy, cause);
+        return;
+      }
+    }
     if (cause === 'poison' && p.vehiclePoisonProtectionAt === this.time) return;
     if (p.vehicle && this.damageVehicle) {
       var vehicle = this.vehicleById(p.vehicle);
@@ -1372,24 +1576,24 @@
         life: life * (0.6 + this.rng.next() * 0.4), max: life, size: size * (0.6 + this.rng.next() * 0.6), color: color, drag: 3 });
     }
   };
-  World.prototype.sparks = function (x, y, dx, dy, color, n) {
+  World.prototype.sparks = function (x, y, dx, dy, color, n, trenchId) {
     for (var i = 0; i < n; i++) {
       var a = Math.atan2(-dy, -dx) + (this.rng.next() - 0.5) * 1.9, s = 180 + this.rng.next() * 260;
-      this.particles.push({ kind: 'spark', x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      this.particles.push({ kind: 'spark', x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, trenchId: trenchId,
         life: 0.2 + this.rng.next() * 0.15, max: 0.35, size: 2.5, color: color, drag: 6 });
     }
   };
-  World.prototype.smoke = function (x, y, n, color, size, life, speed) {
+  World.prototype.smoke = function (x, y, n, color, size, life, speed, trenchId) {
     for (var i = 0; i < n; i++) {
       var a = this.rng.next() * U.TAU, s = speed * (0.2 + this.rng.next() * 0.8);
-      this.particles.push({ kind: 'smoke', x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      this.particles.push({ kind: 'smoke', x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, trenchId: trenchId,
         life: life * (0.6 + this.rng.next() * 0.4), max: life, size: size * (0.6 + this.rng.next() * 0.5), grow: size * 1.2, color: color, drag: 2.5 });
     }
   };
-  World.prototype.flash = function (x, y, angle, weapon) {
+  World.prototype.flash = function (x, y, angle, weapon, trenchId) {
     var heavy = weapon === 'sniper' || weapon === 'shotgun' || weapon === 'deagle' || weapon === 'launcher';
-    this.particles.push({ kind: 'flash', x: x, y: y, vx: 0, vy: 0, life: 0.07, max: 0.07, size: heavy ? 24 : 14, color: '#fff3b0', drag: 0, angle: angle });
-    if (heavy) this.smoke(x, y, 3, '#e6e6e6', 9, 0.5, 60);
+    this.particles.push({ kind: 'flash', x: x, y: y, vx: 0, vy: 0, life: 0.07, max: 0.07, size: heavy ? 24 : 14, color: '#fff3b0', drag: 0, angle: angle, trenchId: trenchId });
+    if (heavy) this.smoke(x, y, 3, '#e6e6e6', 9, 0.5, 60, trenchId);
   };
   World.prototype.text = function (x, y, str, color, size) {
     var tx = x + (this.rng.next() - 0.5) * 18, ty = y, moved = true, guard = 0;

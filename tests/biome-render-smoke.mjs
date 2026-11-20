@@ -81,6 +81,28 @@ for (const [expected, ids] of [
   t.check(frozen.ops.some(o => o.op === 'stroke' && o.stroke === '#d5f9ff'), 'tundra snow freeze renders its ice outline');
 }
 {
+  const map = empty(), trench = W.Trenches.create(1, 3000, 3000, 0, 'normal');
+  map.trenches = [trench];
+  const [crushed, intact] = trench.wires;
+  function drawnAt(ops, op, point) {
+    return ops.some(o => o.op === op && o.args[0] === point.x && o.args[1] === point.y);
+  }
+  const mini = drawing();
+  W.MapArt.paintBase(mini.g, map, 190, { dpr: 1 });
+  t.check(!W.MapArt.drawsTrenchWire(map, 190, 1) && !drawnAt(mini.ops, 'moveTo', intact.a),
+    'a small minimap omits subpixel wire and can reuse its terrain after a tank pass');
+  for (const destroyed of [false, true]) {
+    crushed.destroyed = destroyed;
+    const ground = drawing(), chart = drawing();
+    renderer.drawTrench(ground.g, trench);
+    W.MapArt.paintBase(chart.g, map, 900, { big: true, dpr: 1 });
+    t.check(drawnAt(ground.ops, 'translate', crushed.a) === !destroyed && drawnAt(ground.ops, 'translate', intact.a),
+      'ground view shows only intact coils after a tank pass (crushed=' + destroyed + ')');
+    t.check(drawnAt(chart.ops, 'moveTo', crushed.a) === !destroyed && drawnAt(chart.ops, 'moveTo', intact.a),
+      'map view shows only intact wire sections after a tank pass (crushed=' + destroyed + ')');
+  }
+}
+{
   let builds = 0;
   const canvas = { width: 0, getContext: () => drawing().g, style: {} };
   const el = { hidden: true, setAttribute() {} };
@@ -94,5 +116,7 @@ for (const [expected, ids] of [
   t.equal(builds, 1, 'unchanged full-map terrain is cached');
   world.map.foliageVersion = 1; screen.draw(world, null);
   t.equal(builds, 2, 'foliage destruction invalidates the full-map cache');
+  world.map.wireVersion = 1; screen.draw(world, null); screen.draw(world, null);
+  t.equal(builds, 3, 'crushing wire refreshes the open island map once');
 }
 t.done();

@@ -133,8 +133,9 @@ for (const type of ['humvee', 'tank']) {
   const a = arena();
   const turret = a.world.addStruct({ kind: 'turret', item: 'turret', x: a.target.x, y: a.target.y, owner: a.target.id, team: 2, r: 38, hp: 100, maxHp: 100 });
   turret.mounted = a.target.id; a.target.mount = turret.id; a.intent.fire = true; tick(a, .05);
-  t.equal(a.target.hp, 99995, 'a mountedturretoccupant takesoneflamehit ratherthanusingturretasashield');
-  t.equal(turret.hp, 100, 'occupiedturret isnotseparatelydoublehitbytheflamecone');
+  t.equal(a.target.hp, 100000, 'the turret shelters its rider from the flame cone');
+  t.equal(turret.hp, 95, 'one flame pulse deals five damage to the occupied turret');
+  t.check(!a.target.pyroBurn, 'a flame pulse absorbed by the turret cannot ignite its rider');
 }
 {
   const a = arena(); a.p.fx.strength = 10; a.p.pyroHitInterval = 1;

@@ -406,6 +406,21 @@
       var wrecked = (world.vehicles || []).find(function (v) { return !v.hidden && v.wreck && Math.hypot(v.x - p.x, v.y - p.y) < (v.r || 80) + p.r + 45; });
       if (wrecked) prompt = 'Wrecked ' + vehicleName(wrecked) + ' · cannot enter';
     }
+    if (p.alive && !p.downed && !p.vehicle && !p.mount && p.dropT <= 0) {
+      var trenchKey = '<kbd>' + esc(Controls.primary('trench')) + '</kbd>';
+      var trenchHint = '';
+      if (p.trenchPhase === 'enter') trenchHint = 'Descending into trench';
+      else if (p.trenchPhase === 'exit') trenchHint = 'Climbing out';
+      else if (p.trenchId) {
+        trenchHint = p.trenchPeeking ? 'Peeking · release ' + trenchKey + ' for cover' :
+          'In cover · hold ' + trenchKey + ' at a wall to fire over the bank';
+        trenchHint += ' · double-tap to climb out';
+      } else {
+        if (W.Trenches.wireAt(world.map, p.x, p.y, p.r)) trenchHint = 'Barbed wire · movement slowed · ' + C.barbedWireDamage + ' damage per second';
+        if (W.Trenches.near(world.map, p.x, p.y, p.r * 0.65)) trenchHint += (trenchHint ? '<br>' : '') + 'Hold ' + trenchKey + ' to enter trench';
+      }
+      if (trenchHint) prompt += (prompt ? '<br>' : '') + trenchHint;
+    }
     set('prompt', el['hud-prompt'], 'html', prompt);
     set('prompth', el['hud-prompt'], 'hidden', !prompt);
 
@@ -450,11 +465,13 @@
     var canvas = el.minimap, dpr = Math.min(window.devicePixelRatio || 1, 2), size = canvas.clientWidth || 190;
     canvas.width = Math.round(size * dpr);
     canvas.height = Math.round(size * dpr);
-    mini = { base: W.MapArt.base(map, canvas.width, { labelPx: 9 * dpr, dpr: dpr }), dpr: dpr, map: map, cssSize: size, foliageVersion: map.foliageVersion || 0 };
+    mini = { base: W.MapArt.base(map, canvas.width, { labelPx: 9 * dpr, dpr: dpr }), dpr: dpr, map: map, cssSize: size,
+      foliageVersion: map.foliageVersion || 0, wireVersion: map.wireVersion || 0, showsWire: W.MapArt.drawsTrenchWire(map, canvas.width, dpr) };
   }
 
   function drawMinimap(world, p) {
-    if (!mini || mini.map !== world.map || mini.foliageVersion !== (world.map.foliageVersion || 0) || mini.cssSize !== (el.minimap.clientWidth || 190) || mini.dpr !== Math.min(window.devicePixelRatio || 1, 2)) buildMinimap(world.map);
+    if (!mini || mini.map !== world.map || mini.foliageVersion !== (world.map.foliageVersion || 0) || (mini.showsWire && mini.wireVersion !== (world.map.wireVersion || 0)) ||
+        mini.cssSize !== (el.minimap.clientWidth || 190) || mini.dpr !== Math.min(window.devicePixelRatio || 1, 2)) buildMinimap(world.map);
     var canvas = el.minimap, g = canvas.getContext('2d');
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(mini.base, 0, 0);

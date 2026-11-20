@@ -131,9 +131,9 @@ t.check(ITEMS.drone.duration === 60 && ITEMS.radar.radius === 1050 && ITEMS.rada
 t.check(ITEMS.riotshield.slow === 0.75, 'riot shield: 75% slower');
 t.check(ITEMS.turret.hp === 100 && ITEMS.turret.damage === 15 && ITEMS.turret.fireInterval < WEAPONS.ar.fireInterval, 'turret: 100 HP, 15 dmg, faster than the AR');
 t.check(ITEMS.sentry.hp === 50 && ITEMS.sentry.damage === 5 && ITEMS.sentry.fireInterval === WEAPONS.pistol.fireInterval, 'sentry: 50 HP, 5 dmg at pistol speed');
-t.check(ITEMS.turret2.hp === 200 && ITEMS.turret2.damage === 20 && ITEMS.turret2.fireInterval === ITEMS.turret.fireInterval / 2, 'turret II: 200 HP, 20 dmg, twice the fire rate');
+t.check(ITEMS.turret2.hp === 500 && ITEMS.turret2.damage === 20 && ITEMS.turret2.fireInterval === ITEMS.turret.fireInterval / 2, 'turret II: 500 HP, 20 dmg, twice the fire rate');
 t.check(ITEMS.sentry2.hp === 100 && ITEMS.sentry2.damage === 10 && ITEMS.sentry2.fireInterval === ITEMS.sentry.fireInterval / 2, 'sentry II: doubled');
-t.check(ITEMS.turret3.hp === 500 && ITEMS.turret3.damage === 30 && ITEMS.turret3.fireInterval === ITEMS.turret2.fireInterval, 'turret III: 500 HP, 30 dmg, turret II speed');
+t.check(ITEMS.turret3.hp === 2500 && ITEMS.turret3.damage === 30 && ITEMS.turret3.fireInterval === ITEMS.turret2.fireInterval, 'turret III: 2,500 HP, 30 dmg, turret II speed');
 t.check(ITEMS.sentry3.hp === 700 && ITEMS.sentry3.damage === 30 && ITEMS.sentry3.fireInterval === ITEMS.turret.fireInterval, 'sentry III: 700 HP, 30 dmg, turret speed');
 t.check(ITEMS.overheal.heal === 30 && ITEMS.overheal.overheal === 30, 'overheal: +30 up to 130');
 t.check(ITEMS.invisibility.duration === 30, 'invisibility 30 s');

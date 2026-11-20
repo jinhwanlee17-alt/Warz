@@ -191,10 +191,12 @@ Object.assign(Bot.prototype, {
   // ---------------------------------------------------------------- weapons
   chooseWeapon(dist) {
     const p = this.p, W = this.W, now = this.now;
+    const needLob = !this.world.directFireExposed(p) || (this.target && this.target.visible && !this.world.directFireExposed(this.target.ref));
     let best = -1, bestScore = -1;
     for (let i = 0; i < p.weapons.length; i++) {
       const w = p.weapons[i], id = w.id;
       if (!BANDS[id]) continue;
+      if (needLob && W.WEAPONS[id].kind !== 'launcher') continue;
       let s = fit(id, dist, this.band(W.WEAPONS[id])) * (POWER[id] || 1);
       if (w.reloading) s *= 0.55; else if (W.WEAPONS[id].mag && w.ammo <= 0) s *= 0.4;
       if (i === p.slot) s *= 1.3;
@@ -209,6 +211,9 @@ Object.assign(Bot.prototype, {
   // Would a bullet fired now reach them (or at least some enemy)?
   shotClear(rec) {
     const now = this.now;
+    if (!this.world.directFireExposed(this.p) || !this.world.directFireExposed(rec.ref)) {
+      this.shotBlocker = null; return false;
+    }
     if (this.shotFor === rec.id && now - this.shotAt < 0.12) return this.shotOk;
     const p = this.p, def = this.weaponDef(), o = rec.ref;
     const mount = p.mount ? this.world.structById(p.mount) : null, ox = mount ? mount.x : p.x, oy = mount ? mount.y : p.y;
@@ -504,13 +509,14 @@ Object.assign(Bot.prototype, {
   // has a line on the enemy. Not for the classes that fight up close, not when hurt, and not with the storm coming.
   turretFor(e) {
     const now = this.now, p = this.p, world = this.world;
+    if (p.trenchId || !world.directFireExposed(e.ref)) return null;
     if (now < (this.turretAt || 0)) { const s = this.turretPick; return s && s.alive && !s.mounted ? s : null; }
     this.turretAt = now + 0.8; this.turretPick = null;
     if (!e.visible || this.pusher() || this.hpFrac() < 0.45 || this.storm.must || this.evade || p.vehicle) return null;
     const o = e.ref, ride = o.vehicle ? world.vehicleById(o.vehicle) : null;
     let best = null, bd = 520;
     for (const s of world.structures) {
-      if (s.kind !== 'turret' || !s.alive || s.mounted || (s.team !== null && s.team !== p.team)) continue;
+      if (s.kind !== 'turret' || !s.alive || s.trenchId || s.mounted || (s.team !== null && s.team !== p.team)) continue;
       const d = this.dist(s), reach = Math.hypot(o.x - s.x, o.y - s.y);
       if (d >= bd || reach < 260 || reach > 980 || this.inHazard(s.x, s.y) || !this.inZone(s.x, s.y, 0) || this.guarded(s.x, s.y)) continue;
       if (!world.lineClear(s.x, s.y, o.x, o.y, s, false, ride)) continue;
@@ -542,7 +548,7 @@ Object.assign(Bot.prototype, {
   // down), not when hurt, not with the storm coming, and not while following somebody.
   pickTurret() {
     const p = this.p, now = this.now;
-    const free = (s) => s.alive && !s.mounted && (s.team === null || s.team === p.team) && !((this.badTurret.get(s.id) || 0) > now)
+    const free = (s) => s.alive && !s.trenchId && !p.trenchId && !s.mounted && (s.team === null || s.team === p.team) && !((this.badTurret.get(s.id) || 0) > now)
       && !this.inHazard(s.x, s.y) && this.inZone(s.x, s.y, 100) && !this.guardedWay(s.x, s.y);
     if (this.storm.soon || this.evade || this.hpFrac() < 0.5 || this.following()) { this.seat = null; return false; }
     const cur = this.seat;

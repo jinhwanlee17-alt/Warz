@@ -70,27 +70,30 @@
     function damage(distance) { return A.minDamage + (A.maxDamage - A.minDamage) * (1 - U.clamp(distance / R, 0, 1)); }
     if (!this.remote) {
       var owner = this.playerById(shell.owner), team = owner ? owner.team : shell.team;
+      var trenchId = this.blastTrenchAt(x, y);
       // Capture cover before destroying it, so a blast cannot hit twice through a destroyed hull.
-      var people = this.players.filter(function (p) { return p.alive && !p.vehicle && p.dropT <= 0 && (p.id === shell.owner || p.team !== team); }).map(function (p) {
+      var people = this.players.filter(function (p) { return p.alive && !p.vehicle && !p.mount && p.dropT <= 0 && (p.id === shell.owner || p.team !== team); }).map(function (p) {
         var d = Math.max(0, Math.hypot(p.x - x, p.y - y) - p.r);
-        return { p: p, n: d <= R && self.lineClear(x, y, p.x, p.y, p.mount ? self.structById(p.mount) : p) ? damage(d) : 0 };
+        return { p: p, n: d <= R && self.blastLineClear(trenchId, x, y, p) ? damage(d) : 0 };
       });
       var hulls = (this.vehicles || []).filter(function (v) { return !v.wreck && (v.id === shell.vehicle || self.vehicleTeam(v) !== team); }).map(function (v) {
         var d = Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r);
-        return { v: v, n: d <= R && self.lineClear(x, y, v.x, v.y, v) ? damage(d) : 0 };
+        return { v: v, n: d <= R && self.blastLineClear(trenchId, x, y, v) ? damage(d) : 0 };
       });
       var objects = [];
       this.solids.query(x - R, y - R, x + R, y + R, function (s) {
         if (s.crate && s.crate.alive) {
           var d = Math.hypot(x - U.clamp(x, s.x, s.x + s.w), y - U.clamp(y, s.y, s.y + s.h));
-          if (d <= R && self.lineClear(x, y, s.crate.x, s.crate.y, s.crate)) objects.push({ c: s.crate, n: damage(d) });
-        } else if (s.struct && s.struct.alive && s.struct.maxHp && (!s.struct.mounted || s.struct.neutral) && s.struct.team !== team) {
+          if (d <= R && self.blastLineClear(trenchId, x, y, s.crate)) objects.push({ c: s.crate, n: damage(d) });
+        } else if (s.struct && s.struct.alive && s.struct.maxHp && self.blastCanHitStructure(s.struct, shell.owner, team)) {
           var d = Math.max(0, Math.hypot(x - s.x, y - s.y) - s.r);
-          if (d <= R && self.lineClear(x, y, s.x, s.y, s.struct)) objects.push({ s: s.struct, n: damage(d) });
+          if (d <= R && self.blastLineClear(trenchId, x, y, s.struct)) objects.push({ s: s.struct, n: damage(d) });
         }
       });
-      this.damageFoliageInArea(x, y, R, function (plant) { return damage(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius)); }, shell.owner, 'artillery');
-      this.damageMapRocksInArea(x, y, R, 'artillery', shell.owner, false);
+      if (!trenchId) {
+        this.damageFoliageInArea(x, y, R, function (plant) { return damage(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius)); }, shell.owner, 'artillery');
+        this.damageMapRocksInArea(x, y, R, 'artillery', shell.owner, false);
+      }
       people.forEach(function (e) { if (e.n) self.damagePlayer(e.p, e.n, shell.owner, 'artillery', e.p.x, e.p.y, { x: x, y: y }); });
       hulls.forEach(function (e) { if (e.n) self.damageVehicle(e.v, e.n, shell.owner, 'artillery', x, y); });
       objects.forEach(function (e) { if (e.c) self.damageCrate(e.c, e.n, shell.owner, e.c.x, e.c.y); else self.damageStruct(e.s, e.n, shell.owner, e.s.x, e.s.y, 'artillery'); });
