@@ -80,10 +80,10 @@ export function classPlan(rng, prof, teamSize) {
 export const LEVEL_ONE = LVL1;
 
 // The level-three class a bot saves for after its level-two one: usually the one its own line leads to (Shotgunner
-// III, Magic Medic, Rocketeer, Pyromaniac), otherwise one of the two that every level-two class can take.
+// III, Magic Medic, Rocketeer, Pyromaniac), otherwise one of the shared level-three classes.
 export function thirdClass(rng, prof, second) {
   const own = { shotgunner2: 'shotgunner3', medic2: 'magicmedic', grenadier2: 'rocketeer', pyromancer: 'pyromaniac' }[second];
-  const table = { engineer: 0.5 + prof.caution * 0.9, shieldoperator: 0.6 + (1 - prof.aggression) * 0.5 };
+  const table = { engineer: 0.5 + prof.caution * 0.9, shieldoperator: 0.6 + (1 - prof.aggression) * 0.5, gastroop: 0.6 };
   if (own) table[own] = 3.2;
   return weighted(rng, table);
 }
@@ -95,7 +95,8 @@ export const ITEM_VALUE = {
   firenade: 58, shieldo: 60, firstaid: 62, strength: 44, speed: 40, health: 68, shield: 46, poison: 62, mystery: 28,
   drone: 42, rock: 60, riotshield: 38, turret: 54, sentry: 64, blackhole: 60, snowbomb: 58, overheal: 55,
   invisibility: 72, radar: 48, teleporter: 56, turret2: 70, sentry2: 78, lightning: 84, power: 76,
-  turret3: 86, sentry3: 94, power2: 90, meteor: 92
+  turret3: 86, sentry3: 94, power2: 90, meteor: 92, sniperradar: 55, sniper2radar: 88,
+  landmine: 44, vehiclemine: 50, flaregun: 58, strikegun: 36, engineerhammer2: 74
 };
 export const HEALS = { bandage: 20, smoothie: 15, health: 75, firstaid: 100, overheal: 30 };
 

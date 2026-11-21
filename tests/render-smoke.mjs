@@ -95,4 +95,23 @@ for (const remote of [false, true]) {
   }
 }
 
+{
+  const world = Object.create(W.World.prototype);
+  const mine = { x: 340, y: 380, owner: 7 };
+  world.mines = [mine, { x: 345, y: 380, owner: 8 }];
+  const owner = { id: 7, x: mine.x + 100, y: mine.y, alive: true, dropT: 0 };
+  const trace = Object.create(ctx), anchors = [], labels = [];
+  trace.moveTo = (x, y) => anchors.push([x, y]);
+  trace.fillText = (text, x, y) => labels.push([text, x, y]);
+  renderer.drawMineWarnings(trace, world, view, owner, .5);
+  t.check(anchors.length === 1 && anchors[0][0] === mine.x && anchors[0][1] === mine.y &&
+    labels.length === 1 && labels[0][0] === '!' && labels[0][1] === mine.x && labels[0][2] < mine.y,
+    'the in-world warning points to the nearby owner’s exact mine, including at scope zoom');
+  for (const viewer of [null, { ...owner, id: 9 }, { ...owner, alive: false }, { ...owner, x: mine.x + W.ITEMS.snowbomb.radius + 1 }]) {
+    renderer.drawMineWarnings(trace, world, view, viewer, 1);
+  }
+  renderer.drawMineWarnings(trace, world, { x0: 5000, y0: 5000, x1: 6000, y1: 6000 }, owner, 1);
+  t.equal(labels.length, 1, 'absent, unrelated, dead, distant and offscreen viewers see no additional warning');
+}
+
 t.done();

@@ -140,7 +140,7 @@
     revolver: { id: 'revolver', name: 'Heavy Revolver', kind: 'gun', damage: 75, mag: 5, fireInterval: 0.9, reload: 2.3, semiAuto: true, bulletSpeed: 2300, range: 980, spread: 0.015, bulletRadius: 7, recoil: 80, blurb: 'Five rounds, 75 damage. Slow, deliberate shots: click once per shot.' },
     minigun: { id: 'minigun', name: 'Minigun', kind: 'gun', damage: 5, mag: 100, fireInterval: 0.05, reload: 3.5, bulletSpeed: 1900, range: 900, spread: 0.12, bulletRadius: 4.5, recoil: 5, windup: 0.75, blurb: 'Hold fire to spin up for 0.75 seconds, then fire 20 rounds per second with moderate spread.' },
     commandpistol: { id: 'commandpistol', name: 'Command Pistol', kind: 'gun', damage: 15, mag: 12, fireInterval: 0.2, reload: 1.15, bulletSpeed: 1750, range: 820, spread: 0.02, bulletRadius: 5, recoil: 6, blurb: 'Twelve rounds, 15 damage each.' },
-    commandradar: { id: 'commandradar', name: 'Command Radar', kind: 'ability', cooldown: 45, duration: 15, radarDuration: 30, radius: 1050, bonus: 0.25, strikeRadius: 225, strikeDelay: 5, strikeDamage: 250, blurb: 'Radar plus 15 seconds of +25% team damage, speed and fire rate. Marks the cursor for an airstrike in 5 seconds: 250 damage to everyone inside, including your team.' },
+    commandradar: { id: 'commandradar', name: 'Command Radar', kind: 'ability', cooldown: 45, duration: 15, radarDuration: 30, bonus: 0.25, strikeRadius: 225, strikeDelay: 5, strikeDamage: 250, blurb: 'Radar plus 15 seconds of +25% team damage, speed and fire rate. Marks the cursor for an airstrike in 5 seconds: 250 damage to everyone inside, including your team.' },
     // Bullets fired from a mounted turret (damage comes from the turret item).
     turret: {
       id: 'turret', name: 'Turret', kind: 'turret',
@@ -150,6 +150,16 @@
   };
 
   WEAPONS.tankmg = Object.assign({}, WEAPONS.turret, { id: 'tankmg', name: 'Tank Machine Gun', damage: 8, mag: 1000, reload: 4, fireInterval: 0.09, blurb: '1000 rounds; four-second reload. 8 damage per shot.' });
+  WEAPONS.boltrifle = Object.assign({}, WEAPONS.sniper, { id: 'boltrifle', name: 'Bolt Action Rifle', damage: 85, mag: 5, fireInterval: 0.4, zoom: 0,
+    blurb: 'Five rounds. Each shot deals 85 damage, with 0.4 seconds between shots.' });
+  WEAPONS.heavydeagle = Object.assign({}, WEAPONS.deagle, { id: 'heavydeagle', name: 'Heavy Deagle', damage: 105, fireInterval: 1,
+    blurb: 'Six rounds. Each shot deals 105 damage, with one second between shots.' });
+  WEAPONS.gasgrenade = { id: 'gasgrenade', name: 'Gas Grenade', kind: 'throwable', count: 20, cooldown: WEAPONS.grenade.cooldown,
+    fuse: WEAPONS.grenade.fuse, radius: WEAPONS.grenade.explosion.radius * 2, duration: 10, dps: 25, slow: 0.8,
+    blurb: 'Throw a ten-second cloud across trenches. Enemies inside lose their sight, move at 20% speed and take 25 damage per second.' };
+  WEAPONS.gascylinder = { id: 'gascylinder', name: 'Gas Cylinder', kind: 'cylinder', count: 3, startRadius: WEAPONS.grenade.explosion.radius,
+    spreadTime: 8, duration: 18, speedGain: 0.05,
+    blurb: 'Release gas where you stand. It grows for eight seconds to twice the width of a snowbomb and lingers for ten more. Each cylinder used adds five percentage points to your movement speed.' };
   WEAPONS.hammer = { id: 'hammer', name: 'Repair Hammer', kind: 'melee', damage: 30, range: 90, halfAngle: 0.75,
     fireInterval: 0.6, mag: 1, reload: 0, recoil: 0, blurb: '30 base melee damage. Use gear to repair 100 HP every 3.5 seconds on a Humvee or every 2 seconds on a tank or artillery. Nearby enemies can see you on their map while repairing.' };
   WEAPONS.engineerhammer = Object.assign({}, WEAPONS.hammer, { id: 'engineerhammer', name: "Engineer's Hammer",
@@ -176,12 +186,12 @@
     blurb: 'Adds 300 HP to one player, including health beyond their normal maximum. Equip and click a nearby teammate or interact beside them; click open ground to heal yourself. Recharges in 30 seconds. Reviving uses no medkit.' };
   WEAPONS.pyroflamethrower = Object.assign({}, WEAPONS.flamethrower, { id: 'pyroflamethrower', name: "Pyromaniac's Flamethrower", range: 500,
     damage: 5, damageMax: 70, fireInterval: 0.25, mag: 1, reload: 0, infiniteAmmo: true,
-    blurb: 'Unlimited fuel and longer reach. Hold fire: 5, 10 and 15 damage every 0.25s, then 45 every 0.15s, then 70 every 0.1s. Heat advances every 2.5 seconds. Uses 1 fire per second but still works when the fire bar is empty. Releasing fire resets the heat.' });
+    blurb: 'Hold fire for 5 damage per pulse. Damage rises to 10 after 1s, 15 after 2s, 45 after 2.5s and 70 after 5s. The first three stages pulse every 0.25s, then every 0.15s and 0.1s. Uses 1 fire per second and works with an empty bar. Releasing fire resets heat.' });
   WEAPONS.pyrodualrevolver = Object.assign({}, WEAPONS.dualrevolver, { id: 'pyrodualrevolver', name: "Pyro's Dual Revolvers", damage: 100,
     blurb: 'Two simultaneous 100-damage bullets per click. Ten rounds, five volleys per reload. Use gear and 50 tokens to permanently transform them into a Firegun for this life.' });
   WEAPONS.firegun = { id: 'firegun', name: 'Firegun', kind: 'firegun', damage: 0, mag: 1, reload: 0, infiniteAmmo: true,
     fireInterval: 1 / 8, bulletSpeed: 1400, range: 980, spread: 0.025, bulletRadius: 9, recoil: 8, burnDps: 6, burnSeconds: 3,
-    blurb: 'Unlimited ammo, eight fireballs per second. Starts with 50 fire. Each shot deals (remaining fire / 2 / 50) × 1800 damage, then uses 7 fire. At 0 fire, firing pauses until the bar refills 60 seconds after first use. Each hit adds 3 seconds of burning at 6 HP/s; snow extinguishes burns.' };
+    blurb: 'Fires up to eight fireballs per second. A full bar gives 900 base impact damage, scaling with the fraction of fire remaining. Each shot spends 7 fire. The bar refills 60 seconds after first use. Each hit adds 3 seconds of burning at 6 base HP/s. Snow extinguishes burns.' };
 
   var CLASSES = W.CLASSES = {
     soldier: {
@@ -243,6 +253,10 @@
     loadout: ['pyroflamethrower', 'pyrodualrevolver'], color: '#ff783e',
     description: '150 HP and permanent 50% damage resistance. A longer-range flamethrower with unlimited fuel and Pyro\'s Dual Revolvers. Spend 50 tokens with Use Gear to transform the revolvers into a Firegun.' };
   W.CLASS_ORDER.push('pyromaniac');
+  CLASSES.gastroop = { id: 'gastroop', name: 'Gas Troop', tier: 3, parent: 'grenadier2', parents: levelTwoParents.slice(), hp: 135, armor: 0, speed: 0.85,
+    loadout: ['boltrifle', 'heavydeagle', 'gasgrenade', 'gascylinder'], color: '#9caf72',
+    description: 'Your gas mask protects you from gas. Carry a Bolt Action Rifle, a Heavy Deagle, 20 gas grenades and 3 cylinders. Start at 85% walk speed and gain five percentage points each time you release a cylinder.' };
+  W.CLASS_ORDER.push('gastroop');
   W.CLASS_PLANNED = {};
   [
     ['sniper3', 'Sniper III', 'sniper2'],
@@ -268,7 +282,7 @@
       loot: { legendary: 1 }, color: '#ffb020', edge: '#b86a00', dark: '#e59a10' },
     token: { id: 'token', name: 'Token Crate', share: 0, tokens: [7, 23], armor: 0, key: 0, hp: 120,
       loot: {}, color: '#ffe344', edge: '#85630b', dark: '#d1a91c' },
-    classToken: { id: 'classToken', name: 'Class Token Crate', share: 0, tokens: [0, 0], armor: 0, key: 0, hp: 180,
+    classToken: { id: 'classToken', name: 'Class Key Crate', share: 0, tokens: [0, 0], armor: 0, key: 0, hp: 180,
       loot: {}, color: '#ff8238', edge: '#843a11', dark: '#d65319' }
   };
   W.CRATE_ORDER = ['common', 'rare', 'epic', 'mythic', 'legendary'];
@@ -286,12 +300,12 @@
   var G = WEAPONS.grenade.explosion.radius;
   var ITEMS = W.ITEMS = {
     bandage: { id: 'bandage', name: 'Bandages', tier: 'common', kind: 'consume', heal: 20, stack: 9, found: 3, blurb: 'Patch up for 20 HP. Found in sets of 3.' },
-    flashbang: { id: 'flashbang', name: 'Flash Bang', tier: 'common', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G, flash: 2.5, stack: 3, found: 1,
-      blurb: 'Bursts like a grenade. Anyone caught in the blast sees white for a moment.' },
+    flashbang: { id: 'flashbang', name: 'Flash Bang', tier: 'common', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G, flash: 10, stack: 3, found: 1,
+      blurb: 'Blinds players caught in the blast for 10 seconds.' },
     grenade: { id: 'grenade', name: 'Grenade', tier: 'common', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G, explosion: WEAPONS.grenade.explosion, stack: 5, found: 2,
       blurb: 'Just like the Grenadier’s: 0–100 damage, 1.6 s fuse. Found in pairs.' },
-    smoke: { id: 'smoke', name: 'Smoke Grenade', tier: 'common', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G * 3, duration: 12, stack: 3, found: 1,
-      blurb: 'Fills an area three grenades wide with smoke nobody can see through. Lasts 12 s.' },
+    smoke: { id: 'smoke', name: 'Smoke Grenade', tier: 'common', kind: 'throw', fuse: WEAPONS.grenade.fuse, radius: G * 3, duration: 24, stack: 3, found: 1,
+      blurb: 'Conceals an area three grenades wide for 24 seconds. AI turrets and sentries inside the smoke stop firing until it clears.' },
     smoothie: { id: 'smoothie', name: 'Smoothie', tier: 'common', kind: 'consume', heal: 15, stack: 5, found: 1, blurb: 'Drink for 15 HP.' },
     energybar: { id: 'energybar', name: 'Energy Bar', tier: 'common', kind: 'consume', effect: 'energy', duration: 20, speed: 0.15, stack: 5, found: 1,
       blurb: '+15% movement speed for 20 s.' },
@@ -331,8 +345,8 @@
 
     invisibility: { id: 'invisibility', name: 'Invisibility Potion', tier: 'mythic', kind: 'consume', effect: 'invisible', duration: 30, stack: 2, found: 1,
       blurb: 'Vanish for 30 s. Only your team can see you.' },
-    radar: { id: 'radar', name: 'Radar', tier: 'mythic', kind: 'use', effect: 'radar', duration: 30, radius: G * 7, stack: 2, found: 1,
-      blurb: 'Pings every player within seven grenade radii of you for 30 s.' },
+    radar: { id: 'radar', name: 'Radar', tier: 'mythic', kind: 'use', effect: 'radar', duration: 30, radius: G * 21, stack: 2, found: 1,
+      blurb: 'Pings enemies within 21 grenade radii of you for 30 seconds.' },
     teleporter: { id: 'teleporter', name: 'Teleporter', tier: 'mythic', kind: 'place', struct: 'teleporter', radius: 36, reach: 170, stack: 4, found: 2, teamTime: 1, otherTime: 3,
       blurb: 'Comes in pairs. Place both pads, then stand on one for 1 s (3 s for anyone else) to pop out at the other.' },
     turret2: { id: 'turret2', name: 'Turret II', tier: 'mythic', kind: 'place', struct: 'turret', hp: 500, damage: 20, fireInterval: 0.045, reach: 150, stack: 2, found: 1,
@@ -353,7 +367,27 @@
     meteor: { id: 'meteor', name: 'Meteor Launcher', tier: 'legendary', kind: 'target', delay: 2, damage: 99, radius: G * 2, lock: G, range: 1400, stack: 3, found: 3,
       blurb: 'Click a spot: two seconds later a giant meteor lands there for 99 damage across two grenade radii. 3 meteors.' }
   };
+  ITEMS.sniperradar = { id: 'sniperradar', name: 'Sniper Radar', tier: 'mythic', kind: 'use', effect: 'sniperradar',
+    duration: ITEMS.radar.duration, radius: ITEMS.radar.radius * 2, stack: 2, found: 1, shopOnly: true, groundItem: 'radar',
+    blurb: 'Pings enemies at twice the range of a standard Radar for 30 seconds. Dropping it leaves a standard Radar.' };
+  ITEMS.sniper2radar = { id: 'sniper2radar', name: 'Sniper II Radar', tier: 'mythic', kind: 'use', effect: 'sniper2radar',
+    duration: ITEMS.radar.duration, stack: 2, found: 1, shopOnly: true, groundItem: 'radar',
+    blurb: 'Reveals crates, trenches and players across the island for 30 seconds. Open the map to see each player’s class and HP. Dropping it leaves a standard Radar.' };
+  ITEMS.flaregun = { id: 'flaregun', name: 'Flare Gun', tier: 'epic', kind: 'use', effect: 'flare', duration: 15, stack: 3, found: 1, shopOnly: true,
+    blurb: 'Signal your position and call down an Epic Crate containing five different items. Everyone sees its landing site on their map.' };
+  ITEMS.strikegun = { id: 'strikegun', name: 'Strike Gun', tier: 'epic', kind: 'use', effect: 'strikedrop', duration: 15, stack: 3, found: 1, shopOnly: true,
+    blurb: 'Call down a publicly marked Epic Crate. Breaking it triggers a 100-damage blast within a snowbomb radius and releases a gas grenade.' };
+  W.SIGNAL_DROP = { descent: 2, arrivalRadius: 120 };
+  ITEMS.engineerhammer2 = { id: 'engineerhammer2', name: "Engineer II's Hammer", tier: 'legendary', kind: 'target', stack: 1, found: 1, shopOnly: true,
+    blurb: 'As an Engineer, aim at a nearby friendly sentry and click to upgrade it instantly. For Sentry III, choose its Sentry IV weapon. Each upgrade uses one hammer.' };
+  ITEMS.landmine = { id: 'landmine', name: 'Landmine', tier: 'rare', kind: 'place', struct: 'mine', shopOnly: true,
+    reach: 150, radius: 18, stack: 10, found: 1, humveeDamage: 400, tankDamage: 150,
+    blurb: 'Stepping on this hidden mine is fatal. Deals 400 damage to a Humvee or 150 to a tank. Within one snowbomb radius, only the placer hears a ping and sees an exclamation mark over it.' };
+  ITEMS.vehiclemine = { id: 'vehiclemine', name: 'Anti-Vehicle Landmine', tier: 'epic', kind: 'place', struct: 'mine', shopOnly: true,
+    reach: 150, radius: 18, stack: 10, found: 1, humveeDamage: 1650, tankDamage: 1550,
+    blurb: 'Stepping on this hidden mine is fatal. Deals 1,650 damage to a Humvee or 1,550 to a tank. Within one snowbomb radius, only the placer hears a ping and sees an exclamation mark over it.' };
   W.ITEM_ORDER = Object.keys(ITEMS);
+  WEAPONS.commandradar.radius = ITEMS.radar.radius;
   W.MYSTERY = [
     { id: 'strength', w: 15 }, { id: 'speed', w: 15 }, { id: 'health', w: 15 }, { id: 'shield', w: 15 }, { id: 'poison', w: 15 },
     { id: 'overheal', w: 10 }, { id: 'invisibility', w: 8 }, { id: 'power', w: 7 }
@@ -366,7 +400,7 @@
     sniper2: { x: 80, y: 78 }, commander: { x: 200, y: 78 }, shotgunner2: { x: 320, y: 78 }, juggernaut: { x: 440, y: 78 },
     medic2: { x: 560, y: 78 }, armorcrew: { x: 680, y: 78 }, grenadier2: { x: 800, y: 78 }, pyromancer: { x: 920, y: 78 },
     engineer: { x: 500, y: 110 }, shieldoperator: { x: 790, y: 110 }, rocketeer: { x: 210, y: 110 },
-    shotgunner3: { x: 210, y: 110 }, magicmedic: { x: 210, y: 110 }, pyromaniac: { x: 210, y: 110 }
+    shotgunner3: { x: 210, y: 110 }, magicmedic: { x: 210, y: 110 }, pyromaniac: { x: 210, y: 110 }, gastroop: { x: 210, y: 110 }
   };
   W.TREE_SOON = Object.keys(W.CLASS_PLANNED).map(function (id) { return Object.assign({ x: 210, y: 110 }, W.CLASS_PLANNED[id]); });
 
@@ -402,6 +436,10 @@
     sentry: { parts: [{ x: 0.3, len: 1.6, h: 0.4 }] }
   };
   W.BARRELS.medkit2 = { held: 'medkit' };
+  W.BARRELS.boltrifle = W.BARRELS.sniper;
+  W.BARRELS.heavydeagle = { parts: [{ x: 0.2, len: 1.55, h: 0.62 }] };
+  W.BARRELS.gasgrenade = { held: 'gasgrenade' };
+  W.BARRELS.gascylinder = { held: 'gascylinder' };
   W.BARRELS.shotgun2 = { trap: { x: 0.2, len: 1.75, h0: 0.6, h1: 1.05 } };
   W.BARRELS.shotgun3 = { trap: { x: 0.2, len: 1.9, h0: 0.65, h1: 1.15 } };
   W.BARRELS.magicmedkit = { held: 'medkit' };
@@ -430,7 +468,35 @@
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+  var stationSupplies = [
+    { id: 'grenade', classes: ['grenadier'], amount: 3, cost: 1, name: 'Grenades', detail: 'Refills your class grenade slot.' },
+    { id: 'grenade', classes: ['grenadier2'], amount: 5, cost: 1, name: 'Grenades', detail: 'Refills your class grenade slot.' },
+    { id: 'firenade', classes: ['grenadier2', 'rocketeer'], amount: 3, cost: 5, name: 'Molotovs', detail: 'Ignite the landing area.' },
+    { id: 'flashbang', classes: ['grenadier2', 'rocketeer'], amount: 5, cost: 2, name: 'Flash Bangs', detail: ITEMS.flashbang.blurb },
+    { id: 'landmine', classes: ['grenadier2', 'rocketeer'], amount: 3, cost: 1, name: 'Landmines', detail: 'Hidden on the battlefield. Eliminate a player on contact or damage a vehicle.' },
+    { id: 'smoke', classes: ['grenadier2', 'rocketeer'], amount: 5, cost: 2, name: 'Smoke Grenades', detail: 'Disable AI turrets and sentries inside the cloud for up to 24 seconds.' },
+    { id: 'vehiclemine', classes: ['rocketeer'], amount: 10, cost: 5, name: 'Anti-Vehicle Landmines', detail: 'Deal 1,650 damage to a Humvee or 1,550 to a tank.' },
+    { id: 'bandage', classes: ['medic', 'medic2', 'magicmedic'], amount: 3, cost: 1, name: 'Bandages', detail: 'Each bandage restores 20 HP.' },
+    { id: 'firstaid', classes: ['medic', 'medic2', 'magicmedic'], amount: 1, cost: 1, name: 'First Aid Kit', detail: 'Restores 100 HP over 15 seconds.' },
+    { id: 'sniperradar', classes: ['sniper'], amount: 1, cost: 3, name: 'Sniper Radar', detail: 'Scans twice as far as a standard radar for 30 seconds.' },
+    { id: 'sniper2radar', classes: ['sniper2'], amount: 1, cost: 5, name: 'Sniper II Radar', detail: 'Shows every crate, trench and player island-wide, including player classes and health, for 30 seconds.' },
+    { id: 'drone', classes: ['sniper2'], amount: 1, cost: 3, name: 'Drone', detail: 'Shares enemy locations with your team for 60 seconds.' },
+    { id: 'fireupgrade', classes: ['pyromancer'], amount: 1, cost: 3, name: 'Fire Upgrade', detail: 'Adds 10 flamethrower rounds and 10% fire weapon damage per upgrade.' },
+    { id: 'fireupgrade', classes: ['pyromaniac'], amount: 1, cost: 3, name: 'Fire Upgrade', detail: 'Adds 10 fire bar capacity and 10% fire weapon damage per upgrade.' },
+    { id: 'flaregun', classes: ['commander'], amount: 1, cost: 10, name: 'Flare Gun', detail: 'Mark your location for everyone and call in an epic crate with five different items.' },
+    { id: 'strikegun', classes: ['commander'], amount: 1, cost: 10, name: 'Strike Gun', detail: 'Call in a marked epic crate that explodes and releases toxic gas when opened.' },
+    { id: 'sentry3', classes: ['engineer'], amount: 1, cost: 8, name: 'Sentry III', detail: 'Place a 700 HP sentry.' },
+    { id: 'engineerhammer2', classes: ['engineer'], amount: 1, cost: 15, name: "Engineer II’s Hammer", detail: 'Instantly upgrade one eligible sentry. Each hammer has one use.' },
+    { id: 'gascylinder', classes: ['gastroop'], amount: 1, cost: 1, name: 'Gas Cylinder', detail: 'Adds one charge to slot 4.' }
+  ];
+
   var Rules = W.Rules = {
+    magazineSize: function (p, id) {
+      return WEAPONS[id].mag + (id === 'flamethrower' && p.classId === 'pyromancer' ? 10 * (p.pyroFireUpgrades || 0) : 0);
+    },
+    stationOffers: function (classId) {
+      return stationSupplies.filter(function (offer) { return offer.classes.indexOf(classId) >= 0; });
+    },
     shotgunDamage: function (distance, weapon) {
       var w = weapon || WEAPONS.shotgun;
       var t = clamp((distance - w.pointBlank) / (w.range - w.pointBlank), 0, 1);
@@ -479,13 +545,16 @@
       if (!CLASSES[o.to] || !CLASSES[o.from]) return { ok: false, reason: 'unknown' };
       var rel = Rules.relation(o.from, o.to);
       if (rel !== 'available') return { ok: false, reason: rel };
-      var useClassToken = o.classTokens > 0, cost = useClassToken ? 0 : Rules.upgradeCostFor(o.to);
+      if (o.payment !== undefined && o.payment !== 'tokens' && o.payment !== 'classKey') return { ok: false, reason: 'payment' };
+      var useClassToken = o.payment === 'classKey' || (o.payment === undefined && o.classTokens > 0);
+      if (useClassToken && !(o.classTokens > 0)) return { ok: false, reason: 'classKey' };
+      var cost = useClassToken ? 0 : Rules.upgradeCostFor(o.to);
       if (o.tokens < cost) return { ok: false, reason: 'tokens', need: cost - o.tokens, cost: cost };
       if (o.stationCooldown > 0 && o.keys < 1) return { ok: false, reason: 'cooldown' };
       return { ok: true, useKey: o.stationCooldown > 0, useClassToken: useClassToken, cost: cost };
     },
     itemsOfTier: function (tier) {
-      return W.ITEM_ORDER.filter(function (id) { return ITEMS[id].tier === tier; });
+      return W.ITEM_ORDER.filter(function (id) { return ITEMS[id].tier === tier && !ITEMS[id].shopOnly; });
     },
     // Every class has ten hotbar slots: its tools, then items. Each tool beyond the second takes the place of
     // the first item slots, which are closed for that class. Item indices never move.
@@ -541,12 +610,14 @@
     },
     weaponLine: function (id) {
       var w = WEAPONS[id];
+      if (id === 'gascylinder') return '3 cylinders · expanding cloud · +5% walk speed per use';
+      if (id === 'gasgrenade') return '20 grenades · 25 damage/s · blinds and slows enemies by 80%';
       if (id === 'wrench') return w.buildSeconds + ' s to build a normal sentry · hold fire';
       if (id === 'medicstaff') return 'Equip to heal · click to place · interact to retrieve · 25 s recharge';
       if (id === 'magicmedkit') return '+' + w.heal + ' HP with overheal · ' + w.cooldown + ' s cooldown';
       if (id === 'dualrevolver' || id === 'pyrodualrevolver') return '2 × ' + w.damage + ' base dmg per click · ' + w.mag + ' rounds';
-      if (id === 'pyroflamethrower') return '5 → 10 → 15 → 45 → 70 damage · heat rises every 2.5s · unlimited fuel';
-      if (id === 'firegun') return 'Up to 900 impact damage · 8 fireballs/s · 50 fire capacity · unlimited ammo';
+      if (id === 'pyroflamethrower') return '5 → 10 → 15 → 45 → 70 damage · reaches full heat in 5s · unlimited fuel';
+      if (id === 'firegun') return '900 base damage at full fire · 8 fireballs/s · 7 fire per shot';
       if (id === 'explosiveshield') return 'Frontal bullet, grenade and flash protection · tank weapons bypass';
       if (w.kind === 'gun') {
         if (w.pellets) return w.damageFar + '–' + w.damageNear + ' dmg by distance · ' + w.mag + ' rounds';

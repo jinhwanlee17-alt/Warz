@@ -231,5 +231,24 @@ try {
   foe.sentrySnow = []; foe.sentryFreezeUntil = 0; foe.sentryBurn = null;
   tank.sentrySnow = []; tank.sentryBurn = null; humvee.sentrySnow = []; humvee.sentryBurn = null; flush();
   t.check(!state.me.sentrySnow.length && !state.me.sentryFreezeUntil && !state.me.sentryBurn && !state.world.vehicleById(tank.id).sentrySnow.length && !state.world.vehicleById(humvee.id).sentryBurn, 'absent authoritative status clears every stale effect');
+  // The purchased hammer uses the normal hotbar and sentry-variant packet.
+  p.x = 6000; p.y = 6000; p.tokens = 0; p.itemCd = 0;
+  const prepaid = world.addStruct({ kind: 'sentry', item: 'sentry3', team: p.team, owner: p.id, x: 6100, y: 6000, r: 22,
+    hp: 2, maxHp: ServerW.ITEMS.sentry3.hp });
+  world.addItem(p, 'engineerhammer2', 1);
+  connect(p, true); flush();
+  const slot = p.items.findIndex(s => s?.id === 'engineerhammer2');
+  Online.selectItem(slot); clientInput([], ['Mouse1']);
+  t.check(state.me.sentryChoice?.instant && state.me.sentryChoice.struct === prepaid.id && state.me.items[slot]?.n === 1, 'network click on a damaged sentry opens the prepaid choice with the hammer still held');
+  connect(p, true);
+  t.check(state.me.sentryChoice?.instant && state.me.held === slot, 'rejoin restores a pending instant upgrade');
+  choice('rockets');
+  t.check(p.sentryChoice?.instant && prepaid.item === 'sentry3', 'a variant packet without its instant offer identity preserves the hammer');
+  world.damageStruct(prepaid, 1, foe.id, prepaid.x, prepaid.y, 'pistol');
+  Online.chooseSentryUpgrade('rockets');
+  const fast = sent.at(-1); match.onMessage(p.net.conn, JSON.stringify(fast)); flush();
+  t.check(!p.items[slot] && !state.me.items[slot] && prepaid.item === 'sentry4rockets' && state.world.structById(prepaid.id).item === prepaid.item, 'one accepted selection replicates consumption and the upgraded sentry together');
+  match.onMessage(p.net.conn, JSON.stringify(fast)); flush();
+  t.check(p.tokens === 0 && !p.sentryWork && !p.sentryChoice && prepaid.hp === ServerW.SENTRY_IV.rockets.hp, 'repeated selection cannot charge again');
 } finally { match.destroy(); }
 t.done();

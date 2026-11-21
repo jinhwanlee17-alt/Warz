@@ -33,6 +33,10 @@
     this.strikes = [];      // pending lightning and meteors
     this.reveal = {};       // team -> seconds of drone reveal left
     this.baseContacts = []; // map-only positions supplied to this viewer online
+    this.mines = []; // Only the authoritative world and the placer's map know a mine's position.
+    this.flares = [];
+    this.signalDrops = [];
+    this.nextFlareId = 1;
     this.nextId = 1;
     this.nextStructId = 1;
     this.cleanupT = 5;
@@ -104,11 +108,13 @@
     m.stations.forEach(function (st) {
       h.insert({ type: 'station', shape: 'circle', x: st.x, y: st.y, r: cr, station: st }, st.x - cr, st.y - cr, st.x + cr, st.y + cr);
     });
-    m.crates.forEach(function (c) {
-      var half = c.size / 2;
-      h.insert({ type: 'crate', shape: 'rect', x: c.x - half, y: c.y - half, w: c.size, h: c.size, crate: c },
-        c.x - half, c.y - half, c.x + half, c.y + half);
-    });
+    m.crates.forEach(this.indexCrate, this);
+  };
+
+  World.prototype.indexCrate = function (crate) {
+    var half = crate.size / 2;
+    this.solids.insert({ type: 'crate', shape: 'rect', x: crate.x - half, y: crate.y - half, w: crate.size, h: crate.size, crate: crate },
+      crate.x - half, crate.y - half, crate.x + half, crate.y + half);
   };
 
   // ---------------------------------------------------------------- players
@@ -199,7 +205,12 @@
     });
     p.slot = 0;
     p.lastSlot = p.weapons.length > 1 ? 1 : 0;
-    p.grenades = c.loadout.indexOf('grenade') >= 0 ? WEAPONS.grenade.count : 0;
+    var throwable = c.loadout.find(function (id) { return WEAPONS[id].kind === 'throwable'; });
+    p.grenades = throwable ? WEAPONS[throwable].count : 0;
+    p.gasCylinders = classId === 'gastroop' ? WEAPONS.gascylinder.count : 0;
+    p.gasCylindersUsed = 0;
+    p.gasExposure = 0;
+    p.inGas = false;
     p.medkitCd = 0;
     p.throwCd = 0;
     if (this.fitItems) this.fitItems(p); // items.js: a third class tool closes the first item slot
@@ -227,6 +238,7 @@
 
   World.prototype.update = function (dt) {
     this.time += dt;
+    while (this.flares.length && this.flares[0].until <= this.time) this.flares.shift();
     var i, st = this.map.stations, crates = this.map.crates;
     for (i = 0; i < st.length; i++) if (st[i].cooldown > 0) st[i].cooldown = Math.max(0, st[i].cooldown - dt);
     for (i = 0; i < crates.length; i++) if (crates[i].shake > 0) crates[i].shake = Math.max(0, crates[i].shake - dt * 5);
@@ -243,6 +255,7 @@
       this.updateBarbedWireContacts(dt);
       if (this.teams) this.updateRevives(dt);
       if (this.storm) this.storm.update(dt);
+      if (this.signalDrops.length) this.updateSignalDrops();
     }
     this.updateBullets(dt);
     this.updateGrenades(dt);
@@ -314,7 +327,7 @@
     if (cur.reloading) {
       cur.reloadT -= dt;
       if (cur.reloadT <= 0.00000001) {
-        cur.reloading = false; cur.reloadT = 0; cur.ammo = WEAPONS[cur.id].mag;
+        cur.reloading = false; cur.reloadT = 0; cur.ammo = Rules.magazineSize(p, cur.id);
         this.emit({ type: 'reloaded', player: p, weapon: cur.id });
       }
     }
@@ -511,12 +524,17 @@
     var steps = this.practice && p.isLocal && p.practiceSpeed > 1
       ? Math.max(1, Math.ceil(Math.hypot(p.vx, p.vy) * dt / (p.r * 0.5))) : 1;
     for (var step = 0; step < steps; step++) {
+      var fromX = p.x, fromY = p.y;
       var travelTime = dt / steps;
       // At boosted practice speeds a single frame can cross an entire coil.
       if (steps > 1 && !onWire && !p.trenchId && len && W.Trenches.wireAt(this.map, p.x, p.y, p.r)) travelTime *= C.barbedWireSpeedMul;
       p.x += p.vx * travelTime;
       p.y += p.vy * travelTime;
       this.collide(p);
+      if (!this.remote && this.mines.length) {
+        this.checkMineContact(p, fromX, fromY, false);
+        if (!p.alive) return;
+      }
       if (!p.trenchId && this.map.trenches && this.map.trenches.length) {
         var trench = W.Trenches.at(this.map, p.x, p.y);
         if (trench) { this.enterTrench(p, trench); break; }
@@ -691,7 +709,7 @@
 
   World.prototype.startReload = function (p) {
     var w = p.weapons[p.slot], def = WEAPONS[w.id];
-    if (!def.mag || w.reloading || w.ammo >= def.mag) return false;
+    if (!def.mag || w.reloading || w.ammo >= Rules.magazineSize(p, w.id)) return false;
     w.reloading = true;
     w.reloadT = def.reload;
     this.emit({ type: 'reload', player: p, weapon: w.id });
@@ -714,6 +732,12 @@
       } while (def.kind === 'gun' && !def.semiAuto && intent.fire && w.cooldown <= 0.00000001 && fired < 8);
     } else if (intent.firePressed) {
       if (def.kind === 'throwable') this.throwGrenade(p, intent);
+      else if (def.kind === 'cylinder' && !this.remote && p.alive && !p.downed && !p.mount && p.dropT <= 0 && p.gasCylinders > 0) {
+        p.gasCylinders--;
+        p.gasCylindersUsed++;
+        this.addZone({ kind: 'cylindergas', x: p.x, y: p.y, r: def.startRadius, dur: def.duration, owner: p.id, team: p.team });
+        return true;
+      }
       else if (def.kind === 'medkit') this.useMedkit(p);
     }
   };
@@ -776,6 +800,7 @@
         x: p.x, y: p.y, ox: p.x, oy: p.y, dx: Math.cos(a), dy: Math.sin(a),
         speed: def.bulletSpeed * (n > 1 ? 0.9 + this.rng.next() * 0.2 : 1), traveled: 0, range: def.range, r: def.bulletRadius
       };
+      if (def.burnDps) b.burnDps = def.burnDps;
       if (trenchId) b.bankDistance = distanceToBank(trench, p.x, p.y, b.dx, b.dy);
       // Bullets start at the player's center and sweep out to the muzzle, so a barrel poking through a wall cannot shoot through it.
       if (this.advanceBullet(b, muzzle)) this.bullets.push(b);
@@ -834,7 +859,7 @@
       x: sx, y: sy, startX: sx, startY: sy, targetX: end.x, targetY: end.y,
       vx: (end.x - sx) / duration, vy: (end.y - sy) / duration,
       flightTime: duration, peakHeight: (launcher ? 65 : 70) + travel * 0.16, range: distance,
-      radius: item ? item.radius : def.explosion.radius, travel: travel };
+      radius: item ? item.radius : def.radius || def.explosion.radius, travel: travel };
   };
   World.prototype.trajectoryPoint = function (solution, progress) {
     var k = U.clamp(progress, 0, 1);
@@ -870,15 +895,16 @@
   World.prototype.throwGrenade = function (p, intent) {
     if (p.grenades <= 0) { this.emit({ type: 'deny', player: p, reason: 'nogrenades' }); return false; }
     if (p.throwCd > 0) return false;
-    var def = WEAPONS.grenade, ax = intent && intent.aimX, ay = intent && intent.aimY;
+    var gas = p.classId === 'gastroop', def = gas ? WEAPONS.gasgrenade : WEAPONS.grenade;
+    var ax = intent && intent.aimX, ay = intent && intent.aimY;
     if (ax === null || ax === undefined) {
-      ax = p.x + Math.cos(p.angle) * def.throwRange;
-      ay = p.y + Math.sin(p.angle) * def.throwRange;
+      ax = p.x + Math.cos(p.angle) * WEAPONS.grenade.throwRange;
+      ay = p.y + Math.sin(p.angle) * WEAPONS.grenade.throwRange;
     }
-    var g = this.lob(p, ax, ay, def.fuse, null, intent && intent.charge);
+    var g = this.lob(p, ax, ay, def.fuse, gas ? def.id : null, intent && intent.charge);
     p.grenades--;
     p.throwCd = def.cooldown;
-    this.emit(Object.assign({ type: 'throw', player: p, left: p.grenades, fuse: g.fuse }, this.projectileEvent(g)));
+    this.emit(Object.assign({ type: 'throw', player: p, left: p.grenades, fuse: g.fuse, item: g.item }, this.projectileEvent(g)));
     return true;
   };
 
@@ -893,7 +919,7 @@
   World.prototype.spawnGrenade = function (p, s) {
     // Landing-triggered items stay that way when an online event includes the
     // server's placeholder fuse, rather than the item's original zero fuse.
-    var it = s.item ? W.ITEMS[s.item] : null, instant = !!it && it.fuse === 0;
+    var it = W.ITEMS[s.item] || (s.item === 'gasgrenade' ? WEAPONS.gasgrenade : null), instant = !!it && it.fuse === 0;
     var duration = s.flightTime || 0.55, sx = s.startX === undefined ? s.x : s.startX, sy = s.startY === undefined ? s.y : s.startY;
     var tx = s.targetX === undefined ? sx + s.vx / 3.2 : s.targetX, ty = s.targetY === undefined ? sy + s.vy / 3.2 : s.targetY;
     var g = {
@@ -1049,10 +1075,10 @@
     var weapon = WEAPONS[b.weapon], distance = Math.hypot(hx - b.ox, hy - b.oy);
     var dmg = weapon && weapon.pellets ? Rules.shotgunDamage(distance, weapon) : b.damage;
     if (weapon && weapon.damageRampRange) dmg = weapon.damage + (weapon.damageMax - weapon.damage) * U.clamp(distance / weapon.damageRampRange, 0, 1);
-    if (hit.player) this.damagePlayer(target, dmg, b.owner, b.weapon, hx, hy, { x: hx - b.dx * 40, y: hy - b.dy * 40 });
+    if (hit.player) this.damagePlayer(target, dmg, b.owner, b.weapon, hx, hy, { x: hx - b.dx * 40, y: hy - b.dy * 40, burnDps: b.burnDps });
     else if (vehicle && this.damageVehicle) {
       var occupants = b.shot ? Object.keys(vehicle.seats).map(function (seat) { return vehicle.seats[seat]; }) : [];
-      this.damageVehicle(vehicle, dmg, b.owner, b.weapon, hx, hy);
+      this.damageVehicle(vehicle, dmg, b.owner, b.weapon, hx, hy, b.burnDps);
       if (b.shot && vehicle.wreck) occupants.forEach(function (id) { if (id) b.shot.hit['p' + id] = true; });
     }
     else if (struct) {
@@ -1220,50 +1246,54 @@
     var R = ex.radius, self = this, crates = [], i;
     var trenchId = this.blastTrenchAt(x, y);
     var owner = ownerId ? this.playerById(ownerId) : null, ownerTeam = owner ? owner.team : null;
+    function damageAt(distance) { return ex.flatDamage ? ex.maxDamage : Rules.explosionDamage(ex.maxDamage, R, distance); }
     if (!this.remote) {
       for (i = 0; i < this.players.length; i++) {
         var p = this.players[i];
-        if (!p.alive || p.vehicle || p.mount || p.dropT > 0 || (p.id !== ownerId && ownerTeam !== null && p.team === ownerTeam)) continue;
+        if (!p.alive || p.vehicle || p.mount || p.dropT > 0 || (!ex.friendly && p.id !== ownerId && ownerTeam !== null && p.team === ownerTeam)) continue;
         var d = Math.hypot(p.x - x, p.y - y) - p.r;
         if (d >= R || !this.blastLineClear(trenchId, x, y, p)) continue;
-        var dmg = Rules.explosionDamage(ex.maxDamage, R, d);
+        var dmg = damageAt(d);
         if (dmg > 0) this.damagePlayer(p, dmg, ownerId, cause, p.x, p.y - p.r, { x: x, y: y });
       }
       // Collect first, then damage: lineClear queries the same spatial hash.
       var structs = [];
       this.solids.query(x - R, y - R, x + R, y + R, function (s) {
         if (s.type === 'crate' && s.crate.alive) crates.push(s);
-        else if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && self.blastCanHitStructure(s.struct, ownerId, ownerTeam)) structs.push(s.struct);
+        else if (s.type === 'struct' && s.struct.alive && s.struct.maxHp && (ex.friendly || self.blastCanHitStructure(s.struct, ownerId, ownerTeam))) structs.push(s.struct);
       });
       crates.forEach(function (s) {
         var nx = U.clamp(x, s.x, s.x + s.w), ny = U.clamp(y, s.y, s.y + s.h), d2 = Math.hypot(x - nx, y - ny);
         if (d2 >= R || trenchId || !self.lineClear(x, y, nx, ny)) return;
-        var dmg2 = ex.demolition ? s.crate.hp : Rules.explosionDamage(ex.maxDamage, R, d2);
+        var dmg2 = ex.demolition ? s.crate.hp : damageAt(d2);
         if (dmg2 > 0) self.damageCrate(s.crate, dmg2, ownerId, s.crate.x, s.crate.y - s.h / 2);
       });
       structs.forEach(function (s) {
         var d3 = Math.hypot(x - s.x, y - s.y) - s.r;
         if (d3 >= R || !self.blastLineClear(trenchId, x, y, s)) return;
-        var dmg3 = Rules.explosionDamage(ex.maxDamage, R, Math.max(0, d3));
+        var dmg3 = damageAt(Math.max(0, d3));
         if (dmg3 > 0) self.damageStruct(s, dmg3, ownerId, s.x, s.y - s.r, cause);
       });
       if (this.damageVehiclesInArea) this.damageVehiclesInArea(x, y, R, function (v) {
-        return Rules.explosionDamage(ex.maxDamage, R, Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r));
-      }, ownerId, cause, { lineOfSight: true });
+        return damageAt(Math.max(0, Math.hypot(v.x - x, v.y - y) - v.r));
+      }, ownerId, cause, { lineOfSight: true, friendly: !!ex.friendly });
       if (!trenchId && cause === 'tank-cannon') this.damageMapRocksInArea(x, y, R, cause, ownerId, false);
       if (!trenchId) this.damageFoliageInArea(x, y, R, function (plant) {
-        return Rules.explosionDamage(ex.maxDamage, R, Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius));
+        return damageAt(Math.max(0, Math.hypot(plant.x - x, plant.y - y) - plant.hitRadius));
       }, ownerId, cause);
     }
-    this.explosions.push({ x: x, y: y, r: R, t: 0, dur: 0.6, power: ex.maxDamage });
-    var big = ex.maxDamage >= 80;
-    for (i = 0; i < (big ? 22 : 14); i++) {
+    this.explosionFx(x, y, R, ex.maxDamage, ownerId, cause);
+  };
+  World.prototype.explosionFx = function (x, y, radius, power, ownerId, cause) {
+    this.explosions.push({ x: x, y: y, r: radius, t: 0, dur: 0.6, power: power });
+    var big = power >= 80;
+    for (var i = 0; i < (big ? 22 : 14); i++) {
       var a = this.rng.next() * U.TAU, sp = (big ? 260 : 190) * (0.4 + this.rng.next() * 0.8);
       this.particles.push({ kind: 'dot', x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.5, max: 0.5,
         size: 5 + this.rng.next() * 6, color: this.rng.chance(0.5) ? '#ffb347' : '#ffe08a', drag: 3.5 });
     }
     this.smoke(x, y, big ? 12 : 8, '#8f8f8f', big ? 22 : 16, 1.1, big ? 120 : 90);
-    this.emit({ type: 'explosion', x: x, y: y, power: ex.maxDamage, owner: ownerId, cause: cause });
+    this.emit({ type: 'explosion', x: x, y: y, radius: radius, power: power, owner: ownerId, cause: cause });
   };
 
   // ---------------------------------------------------------------- damage
@@ -1272,11 +1302,16 @@
   World.prototype.outgoingClassDamageMul = function (p) {
     return 1 + (p && CLASSES[p.classId] ? CLASSES[p.classId].damageBonus || 0 : 0);
   };
+  World.prototype.gasProtected = function (p) {
+    return p.classId === 'gastroop' || !!(p.vehicle && W.vehicleHasTankArmor(this.vehicleById(p.vehicle)));
+  };
   // `from` is where the hit came from (a raised riot shield blocks damage arriving from the front). Lightning is true
   // damage: it ignores shields, armor, potions and overheal. The storm and snow ignore potions too.
   World.prototype.damagePlayer = function (p, amount, sourceId, cause, hx, hy, from) {
     if (!p.alive || amount <= 0) return;
-    if (p.mount) {
+    var gas = cause === 'gas';
+    if (gas && this.gasProtected(p)) return;
+    if (p.mount && !gas) {
       var turret = this.structById(p.mount);
       if (turret && turret.alive && turret.kind === 'turret' && turret.mounted === p.id) {
         this.damageStruct(turret, amount, sourceId, hx, hy, cause);
@@ -1284,7 +1319,7 @@
       }
     }
     if (cause === 'poison' && p.vehiclePoisonProtectionAt === this.time) return;
-    if (p.vehicle && this.damageVehicle) {
+    if (p.vehicle && this.damageVehicle && !gas) {
       var vehicle = this.vehicleById(p.vehicle);
       if (vehicle && !vehicle.wreck) {
         if (cause === 'poison' && vehicle.poisonAt === this.time) return;
@@ -1401,6 +1436,7 @@
   // ---------------------------------------------------------------- pickups & stations
   // type: token | classToken | key | armor | item (with `item` = item id and `amount` = how many)
   World.prototype.spawnPickup = function (type, x, y, amount, scatter, item, lockT) {
+    if (type === 'item' && W.ITEMS[item] && W.ITEMS[item].groundItem) item = W.ITEMS[item].groundItem;
     var pk = { id: this.map.nextPickupId++, type: type, item: item || null, x: x, y: y, amount: amount || 1, alive: true, age: 0, vx: 0, vy: 0, lockT: Math.max(0, lockT || 0) };
     if (scatter) {
       var a = this.rng.next() * U.TAU, sp = 160 + this.rng.next() * 200;
@@ -1453,7 +1489,7 @@
   World.prototype.pickupText = function (p, what, amount, total, item) {
     if (!this.remote || !p.hidden) {
       if (what === 'token') this.text(p.x, p.y - p.r - 16, '+' + amount + (amount === 1 ? ' token' : ' tokens'), '#ffd23f', 18);
-      else if (what === 'classToken') this.text(p.x, p.y - p.r - 16, '+' + amount + (amount === 1 ? ' class token' : ' class tokens'), W.CRATES.classToken.color, 18);
+      else if (what === 'classToken') this.text(p.x, p.y - p.r - 16, '+' + amount + (amount === 1 ? ' class key' : ' class keys'), W.CRATES.classToken.color, 18);
       else if (what === 'key') this.text(p.x, p.y - p.r - 16, '+1 station key', '#c9a2ff', 18);
       else if (what === 'armor') this.text(p.x, p.y - p.r - 16, '+' + (C.armorPlate * (amount || 1)) + ' armor', '#9cc6ff', 18);
       else if (what === 'item' && item && W.ITEMS[item]) this.text(p.x, p.y - p.r - 16, '+' + amount + ' ' + W.ITEMS[item].name, W.TIERS[W.ITEMS[item].tier].color, 18);
@@ -1531,11 +1567,41 @@
     return true;
   };
 
-  // A class token pays for one legal upgrade. A recharging station still needs a key.
-  World.prototype.upgrade = function (p, station, classId) {
+  World.prototype.stationAccess = function (p, station) {
     if (!p.alive || p.downed) return { ok: false, reason: 'dead' };
     if (!station || Math.hypot(station.x - p.x, station.y - p.y) > C.stationInteractRadius + p.r + 30) return { ok: false, reason: 'far' };
-    var check = Rules.upgradeCheck({ from: p.classId, to: classId, tokens: p.tokens, classTokens: p.classTokens, keys: p.keys, stationCooldown: station.cooldown });
+    return { ok: true };
+  };
+
+  World.prototype.checkStationSupply = function (p, station, offer) {
+    var access = this.stationAccess(p, station);
+    if (!access.ok) return access;
+    if (p.mount || p.vehicle || p.dropT > 0) return { ok: false, reason: 'unavailable' };
+    if (!offer || offer.classes.indexOf(p.classId) < 0) return { ok: false, reason: 'class' };
+    if (offer.id === 'fireupgrade' && p.pyroFireUpgrades >= 2) return { ok: false, reason: 'max' };
+    if (p.tokens < offer.cost) return { ok: false, reason: 'tokens' };
+    if (offer.id !== 'grenade' && W.ITEMS[offer.id] && !this.canTake(p, offer.id, offer.amount)) return { ok: false, reason: 'full' };
+    return { ok: true };
+  };
+
+  World.prototype.buyStationSupply = function (p, station, id) {
+    if (this.remote) return { ok: false, reason: 'remote' };
+    var offer = Rules.stationOffers(p.classId).find(function (entry) { return entry.id === id; });
+    var check = this.checkStationSupply(p, station, offer);
+    if (!check.ok) return check;
+    if (id === 'grenade') p.grenades += offer.amount;
+    else if (id === 'gascylinder') p.gasCylinders += offer.amount;
+    else if (id === 'fireupgrade') {
+      if (!this.applyPyroFireUpgrade(p)) return { ok: false, reason: 'max' };
+    } else if (this.addItem(p, id, offer.amount) > 0) return { ok: false, reason: 'full' };
+    p.tokens -= offer.cost;
+    return { ok: true };
+  };
+
+  World.prototype.upgrade = function (p, station, classId, payment) {
+    var access = this.stationAccess(p, station);
+    if (!access.ok) return access;
+    var check = Rules.upgradeCheck({ from: p.classId, to: classId, tokens: p.tokens, classTokens: p.classTokens, keys: p.keys, stationCooldown: station.cooldown, payment: payment });
     if (!check.ok) return check;
     p.tokens -= check.cost;
     if (check.useClassToken) p.classTokens--;
@@ -1591,7 +1657,7 @@
     }
   };
   World.prototype.flash = function (x, y, angle, weapon, trenchId) {
-    var heavy = weapon === 'sniper' || weapon === 'shotgun' || weapon === 'deagle' || weapon === 'launcher';
+    var heavy = weapon === 'sniper' || weapon === 'boltrifle' || weapon === 'shotgun' || weapon === 'deagle' || weapon === 'heavydeagle' || weapon === 'launcher';
     this.particles.push({ kind: 'flash', x: x, y: y, vx: 0, vy: 0, life: 0.07, max: 0.07, size: heavy ? 24 : 14, color: '#fff3b0', drag: 0, angle: angle, trenchId: trenchId });
     if (heavy) this.smoke(x, y, 3, '#e6e6e6', 9, 0.5, 60, trenchId);
   };

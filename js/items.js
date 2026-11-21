@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   var W = window.Warz, U = W.U, C = W.CONFIG, ITEMS = W.ITEMS, CRATES = W.CRATES, WEAPONS = W.WEAPONS, Rules = W.Rules, World = W.World;
-  var FX_KEYS = W.FX_KEYS = ['energy', 'speed', 'strength', 'shield', 'poison', 'invisible', 'power', 'immune', 'reduce', 'deathImmune', 'radar', 'flash'];
+  var FX_KEYS = W.FX_KEYS = ['energy', 'speed', 'strength', 'shield', 'poison', 'invisible', 'power', 'immune', 'reduce', 'deathImmune', 'radar', 'flash', 'sniperradar', 'sniper2radar'];
   var MOUNT_RANGE = 96, PICKUP_RANGE = 85, DROP_LOCK = 0.35, TURRET_R = 38, SENTRY_R = 20, FIRE_TICK = 0.25, POISON_TICK = 0.5, SNOW_TICK = 1, SNOW_MIN_DPS = 2;
   var ZONE_COLORS = { fire: '#ff7a2a', smoke: '#9aa0a8', snow: '#bfe9ff' };
   var SAVED_HP = 30;
@@ -59,8 +59,8 @@
         p.items[i] = null;
         if (to >= 0) p.items[to] = stack;
         else {
-          this.spawnPickup('item', p.x, p.y, stack.n, false, stack.id);
-          this.emit({ type: 'item-dropped', player: p, item: stack.id, amount: stack.n, reason: 'noroom' });
+          var drop = this.spawnPickup('item', p.x, p.y, stack.n, false, stack.id);
+          this.emit({ type: 'item-dropped', player: p, item: drop.item, amount: stack.n, reason: 'noroom' });
         }
       }
       if (p.held === i) p.held = to;
@@ -79,12 +79,14 @@
     }
     return left;
   };
-  World.prototype.canTake = function (p, id) {
+  World.prototype.canTake = function (p, id, amount) {
     var it = ITEMS[id];
     if (!it) return false;
+    var needed = amount || 1;
     for (var i = 0; i < p.items.length; i++) {
       var s = p.items[i];
-      if (this.itemSlotOpen(p, i) && (!s || (s.id === id && s.n < it.stack))) return true;
+      if (this.itemSlotOpen(p, i) && (!s || s.id === id)) needed -= it.stack - (s ? s.n : 0);
+      if (needed <= 0) return true;
     }
     return false;
   };
@@ -116,8 +118,8 @@
     if (!spot) { this.emit({ type: 'deny', player: p, reason: 'blocked' }); return false; }
     var id = stack.id, n = stack.n;
     p.items[index] = null; p.held = -1; p.shieldUp = false; p.scoping = false;
-    this.spawnPickup('item', spot.x, spot.y, n, false, id, DROP_LOCK);
-    this.emit({ type: 'item-dropped', player: p, item: id, amount: n });
+    var drop = this.spawnPickup('item', spot.x, spot.y, n, false, id, DROP_LOCK);
+    this.emit({ type: 'item-dropped', player: p, item: drop.item, amount: n });
     return true;
   };
   // Capacity is deliberately not considered here: a nearby full-stack item must
@@ -162,10 +164,13 @@
     else if (it.kind === 'target') ok = this.targetItem(p, it, intent);
     else if (it.kind === 'use') ok = this.activateItem(p, it);
     if (!ok) return false;
+    return this.finishItemUse(p, held, it.id);
+  };
+  World.prototype.finishItemUse = function (p, held, id) {
     this.takeItem(p, held, 1);
     p.itemCd = 0.4;
     p.recoil = 0.6;
-    this.emit({ type: 'item-used', player: p, item: it.id });
+    this.emit({ type: 'item-used', player: p, item: id });
     return true;
   };
 
@@ -217,13 +222,24 @@
     p.poisonBy = byId || 0;
   };
   World.prototype.activateItem = function (p, it) {
+    if (this.remote) return false;
+    if (it.effect === 'flare' || it.effect === 'strikedrop') {
+      var spot = this.signalDropSite(p);
+      if (!spot) { this.emit({ type: 'deny', player: p, reason: 'blocked' }); return false; }
+      var flare = { id: this.nextFlareId++, x: p.x, y: p.y, until: this.time + it.duration };
+      this.flares.push(flare);
+      this.signalDrops.push({ x: spot.x, y: spot.y, landAt: this.time + W.SIGNAL_DROP.descent,
+        owner: p.id, trap: it.effect === 'strikedrop', arrived: new Set(), crate: null, stormed: false });
+      this.emit({ type: 'flare', x: flare.x, y: flare.y });
+      return true;
+    }
     if (it.effect === 'drone') {
       this.reveal[p.team] = Math.max(this.reveal[p.team] || 0, it.duration);
       this.emit({ type: 'buff', player: p, effect: 'drone', duration: it.duration, item: it.id, team: p.team });
       return true;
     }
-    if (it.effect === 'radar') {
-      p.fx.radar = Math.max(p.fx.radar, it.duration);
+    if (it.effect === 'radar' || it.effect === 'sniperradar' || it.effect === 'sniper2radar') {
+      p.fx[it.effect] = Math.max(p.fx[it.effect], it.duration);
       this.emit({ type: 'buff', player: p, effect: 'radar', duration: it.duration, item: it.id });
       return true;
     }
@@ -275,7 +291,7 @@
     if (['sentry-fireballs', 'sentry-burn', 'sentry-cannons'].indexOf(cause) >= 0) return false;
     if (shield !== 'legacy') {
       if (['fire', 'flamethrower', 'firenade', 'snow', 'snowbomb', 'blackhole', 'smoke', 'poison', 'lightning', 'meteor', 'airstrike', 'tank-cannon', 'tankmg', 'ram'].indexOf(cause) >= 0) return false;
-      if (['grenade', 'launcher', 'launcher2', 'rpg', 'sentry-grenades', 'sentry-rockets', 'flashbang'].indexOf(cause) >= 0 && shield !== 'explosive') return false;
+      if (['grenade', 'launcher', 'launcher2', 'rpg', 'sentry-grenades', 'sentry-rockets', 'flashbang', 'strikegun'].indexOf(cause) >= 0 && shield !== 'explosive') return false;
     } else if (cause === 'flashbang') return false;
     var a = Math.atan2(fy - p.y, fx - p.x);
     return Math.abs(U.angleDiff(p.angle, a)) <= ITEMS.riotshield.arc;
@@ -326,6 +342,11 @@
     var it = ITEMS[id], self = this, owner = ownerId ? this.playerById(ownerId) : null, team = owner ? owner.team : null, sim = !this.remote;
     var climate = this.biomeWeather(x, y), trenchId = this.blastTrenchAt(x, y);
     switch (id) {
+      case 'gasgrenade':
+        var gas = WEAPONS.gasgrenade;
+        this.smoke(x, y, 9, '#99b75b', 18, 0.8, 100);
+        if (sim) this.addZone({ kind: 'gas', x: x, y: y, r: gas.radius, dur: gas.duration, owner: ownerId, team: team });
+        break;
       case 'grenade':
         this.explode(x, y, it.explosion, ownerId, 'grenade');
         return;
@@ -352,7 +373,8 @@
       case 'firenade':
         this.burst(x, y, 24, '#ff9a3c', 300, 0.6, 6);
         this.explosions.push({ x: x, y: y, r: it.radius, t: 0, dur: 0.45, ring: true, color: '#ff7a2a' });
-        if (sim) this.addZone({ kind: 'fire', x: x, y: y, r: it.radius, dur: it.duration * climate.fireDuration, owner: ownerId, team: team, dps: it.dps * climate.fireDamage });
+        if (sim) this.addZone({ kind: 'fire', x: x, y: y, r: it.radius, dur: it.duration * climate.fireDuration, owner: ownerId, team: team,
+          dps: it.dps * climate.fireDamage * (W.Pyro ? W.Pyro.weaponMultiplier(this.map, owner, true) : 1) });
         break;
       case 'snowbomb':
         this.burst(x, y, 30, '#ffffff', 380, 0.8, 5);
@@ -424,16 +446,38 @@
     for (var i = 0; i < this.zones.length; i++) if (this.zones[i].id === id) return this.zones[i];
     return null;
   };
+  function markGasContacts(world, zone, dt, contacts) {
+    var active = Math.min(dt, zone.t), initial = zone.r, growthRate = 0;
+    if (zone.kind === 'cylindergas') {
+      var def = WEAPONS.gascylinder, maxRadius = ITEMS.snowbomb.radius * 2;
+      growthRate = (maxRadius - def.startRadius) / def.spreadTime;
+      zone.r = Math.min(maxRadius, def.startRadius + (zone.age + active) * growthRate);
+    }
+    for (var i = 0; i < world.players.length; i++) {
+      var p = world.players[i];
+      if (!p.alive || p.dropT > 0 || p.team === zone.team || world.gasProtected(p)) continue;
+      var distance = Math.hypot(p.x - zone.x, p.y - zone.y);
+      if (distance >= zone.r) continue;
+      if (zone.t > dt) p.inGas = true;
+      // If the advancing edge crossed the player this frame, count only time inside it.
+      var exposure = active - (growthRate && distance > initial ? (distance - initial) / growthRate : 0);
+      if (!contacts[i] || exposure > contacts[i].time) contacts[i] = { time: exposure, owner: zone.owner };
+    }
+  }
   World.prototype.updateZones = function (dt) {
-    var i, j, out = [], players = this.players, p, z, inside;
+    var i, j, out = [], players = this.players, p, z, inside, gasContacts = [];
     for (j = 0; j < players.length; j++) {
+      players[j].inGas = false;
       players[j].inSnow = false; players[j].snowSlow = 0; players[j].snowDamage = 0; players[j].snowFreezeAfter = 0;
     }
     for (i = 0; i < this.zones.length; i++) {
       z = this.zones[i];
+      var gas = z.kind === 'gas' || z.kind === 'cylindergas';
+      if (gas) markGasContacts(this, z, dt, gasContacts);
       z.t -= dt; z.age += dt;
       if (z.t <= 0) continue;
       out.push(z);
+      if (gas) continue;
       this.zoneAmbience(z, dt);
       for (j = 0; j < players.length; j++) {
         p = players[j];
@@ -471,6 +515,16 @@
     this.zones = out;
     for (j = 0; j < players.length; j++) {
       p = players[j];
+      if (!this.remote && gasContacts[j]) {
+        p.gasExposure += gasContacts[j].time;
+        // Batch damage at five ticks per second so the combat log and network stay readable.
+        var ticks = Math.floor((p.gasExposure + 1e-9) * 5);
+        if (ticks) {
+          p.gasExposure = Math.max(0, p.gasExposure - ticks / 5);
+          this.damagePlayer(p, ticks * WEAPONS.gasgrenade.dps / 5, gasContacts[j].owner, 'gas');
+        }
+      }
+      if (!p.inGas) p.gasExposure = 0;
       if (!p.inSnow || !p.alive || p.vehicle) { p.snowT = 0; p.snowTick = 0; p.tundraSnowT = 0; p.snowFrozen = false; continue; }
       p.snowT += dt;
       p.tundraSnowT = p.snowFreezeAfter ? (p.tundraSnowT || 0) + dt : 0;
@@ -517,6 +571,7 @@
     return null;
   };
   World.prototype.placeItem = function (p, it, intent) {
+    if (this.remote && it.struct === 'mine') return false;
     var ax = intent.aimX, ay = intent.aimY, reach = it.reach || 150;
     if (ax === null || ax === undefined) { ax = p.x + Math.cos(p.angle) * reach * 0.6; ay = p.y + Math.sin(p.angle) * reach * 0.6; }
     var dx = ax - p.x, dy = ay - p.y, d = Math.hypot(dx, dy) || 1;
@@ -524,6 +579,11 @@
     var r = it.radius || W.STRUCT_RADIUS[it.struct] || 30, pad = it.struct === 'teleporter';
     if (((it.struct === 'turret' || it.struct === 'sentry') && this.blastTrenchAt(ax, ay)) || !this.spotFree(ax, ay, r, pad)) {
       this.emit({ type: 'deny', player: p, reason: 'blocked' }); return false;
+    }
+    if (it.struct === 'mine') {
+      this.mines.push({ id: this.nextId++, item: it.id, x: ax, y: ay, owner: p.id, trenchId: this.blastTrenchAt(ax, ay),
+        alert: false, pings: 0 });
+      return true;
     }
     var s = this.addStruct({ kind: it.struct, item: it.id, x: ax, y: ay, r: r, owner: p.id, team: p.team, hp: it.hp || 0, maxHp: it.hp || 0, angle: p.angle });
     if (it.struct === 'turret') this.mountTurret(p, s);
@@ -563,6 +623,49 @@
       }
     }
     return true;
+  };
+
+  World.prototype.checkMineContact = function (body, fromX, fromY, vehicle) {
+    var contacts = [], depth = vehicle ? 0 : body.trenchId || 0;
+    for (var i = 0; i < this.mines.length; i++) {
+      var mine = this.mines[i];
+      if (mine.trenchId !== depth) continue;
+      var hit = U.segCircle(fromX, fromY, body.x, body.y, mine.x, mine.y, body.r + ITEMS[mine.item].radius);
+      if (hit >= 0) contacts.push({ hit: hit, mine: mine });
+    }
+    contacts.sort(function (a, b) { return a.hit - b.hit; });
+    for (var j = 0; j < contacts.length; j++) {
+      var contact = contacts[j], trap = contact.mine, def = ITEMS[trap.item];
+      var damage = vehicle ? (W.vehicleHasTankArmor(body) ? def.tankDamage : def.humveeDamage) : 0;
+      this.mines.splice(this.mines.indexOf(trap), 1);
+      this.explosionFx(trap.x, trap.y, 97.5, 80, trap.owner, trap.item);
+      if (!vehicle || body.hp <= damage) {
+        body.x = fromX + (body.x - fromX) * contact.hit;
+        body.y = fromY + (body.y - fromY) * contact.hit;
+      }
+      if (vehicle) {
+        this.damageVehicle(body, damage, trap.owner, trap.item);
+        if (body.wreck) break;
+      } else {
+        this.killPlayer(body, this.playerById(trap.owner), trap.item);
+        break;
+      }
+    }
+  };
+  World.prototype.mineWarningVisible = function (mine, viewer) {
+    return !!viewer && viewer.id === mine.owner && viewer.alive && viewer.dropT <= 0 &&
+      Math.hypot(viewer.x - mine.x, viewer.y - mine.y) <= ITEMS.snowbomb.radius;
+  };
+  World.prototype.updateMineAlerts = function () {
+    this.mines.forEach(function (mine) {
+      var owner = this.playerById(mine.owner);
+      var inRange = this.mineWarningVisible(mine, owner);
+      if (inRange && !mine.alert) {
+        mine.pings++;
+        this.emit({ type: 'mine-alert', player: owner, item: mine.item, x: mine.x, y: mine.y });
+      }
+      mine.alert = inRange;
+    }, this);
   };
   World.prototype.addStruct = function (o) {
     var portableRock = o.kind === 'rock', rockHp = W.PLAYER_ROCK ? W.PLAYER_ROCK.hp : 1000;
@@ -767,7 +870,7 @@
     s.angle = p.angle;
     s.cooldown -= dt;
     p.vx = 0; p.vy = 0;
-    if (!(intent.fire || intent.firePressed) || s.cooldown > 0 || s.trenchId) return;
+    if (!(intent.fire || intent.firePressed) || s.cooldown > 0 || s.trenchId || (p.bot && this.structureInSmoke(s))) return;
     var it = ITEMS[s.item], def = Object.assign({}, WEAPONS.turret, { damage: it.damage });
     s.cooldown = it.fireInterval;
     var a = p.angle + (this.rng.next() - 0.5) * 2 * def.spread;
@@ -781,15 +884,29 @@
     s.flash = 1;
     s.angle = a;
   };
+  World.prototype.structureInSmoke = function (s) {
+    for (var i = 0; i < this.zones.length; i++) {
+      var z = this.zones[i];
+      if (z.kind !== 'smoke' || z.t <= 0) continue;
+      var dx = s.x - z.x, dy = s.y - z.y;
+      if (dx * dx + dy * dy <= z.r * z.r) return true;
+    }
+    return false;
+  };
   World.prototype.automaticGuardRange = function (s) {
     if (!s.alive || s.trenchId) return 0;
-    if (s.kind === 'sentry') return ITEMS[s.item].range;
-    return s.aiRider && !s.mounted ? ITEMS.sentry3.range : 0;
+    var range = s.kind === 'sentry' ? ITEMS[s.item].range : s.aiRider && !s.mounted ? ITEMS.sentry3.range : 0;
+    return range && !this.structureInSmoke(s) ? range : 0;
   };
   World.prototype.updateSentry = function (s, dt) {
     var it = ITEMS[s.item], target = null, targetCrate = false, targetVehicle = false;
     var bd = this.automaticGuardRange(s);
-    if (this.remote || !bd) return;
+    if (this.remote) return;
+    if (!bd) {
+      s.target = 0; s.targetKind = null;
+      if (!s.mounted) s.cooldown = Math.max(0, s.cooldown - dt);
+      return;
+    }
     s.cooldown -= dt;
     for (var i = 0; i < this.players.length; i++) {
       var p = this.players[i];
@@ -887,6 +1004,7 @@
 
   // ---------------------------------------------------------------- lightning and meteor strikes
   World.prototype.targetItem = function (p, it, intent) {
+    if (it.id === 'engineerhammer2') return this.useInstantSentryHammer(p);
     var ax = intent.aimX, ay = intent.aimY;
     if (ax === null || ax === undefined) { this.emit({ type: 'deny', player: p, reason: 'notarget' }); return false; }
     var dx = ax - p.x, dy = ay - p.y, d = Math.hypot(dx, dy) || 1;
@@ -972,6 +1090,7 @@
   // ---------------------------------------------------------------- per tick
   World.prototype.updateItems = function (dt) {
     var i, team;
+    if (!this.remote && this.mines.length) this.updateMineAlerts();
     for (team in this.reveal) if (this.reveal[team] > 0) this.reveal[team] = Math.max(0, this.reveal[team] - dt);
     for (i = 0; i < this.structures.length; i++) {
       var s = this.structures[i];
@@ -993,21 +1112,69 @@
   // Drone/radar targets and nearby crew exposed by active vehicle repair.
   World.prototype.revealedEnemies = function (viewer) {
     if (!viewer) return [];
-    var drone = (this.reveal[viewer.team] || 0) > 0, radar = viewer.fx && viewer.fx.radar > 0, R = ITEMS.radar.radius;
+    var drone = (this.reveal[viewer.team] || 0) > 0, fx = viewer.fx || {}, intel = fx.sniper2radar > 0;
+    var radius = fx.sniperradar > 0 ? ITEMS.sniperradar.radius : fx.radar > 0 ? ITEMS.radar.radius : 0;
     var repairRadius = ITEMS.smoke.radius * W.ARMOR_CREW.repairRevealMul, out = [];
     for (var i = 0; i < this.players.length; i++) {
       var o = this.players[i];
-      if (o === viewer || !o.alive || o.team === viewer.team || o.hidden || o.dropT > 0) continue;
+      if (o === viewer || !o.alive || o.team === viewer.team || o.hidden || (o.dropT > 0 && !intel)) continue;
       var distance = Math.hypot(o.x - viewer.x, o.y - viewer.y);
       var repairing = o.classId === 'armorcrew' && o.repairVehicle && !o.downed && !o.vehicle && !o.mount;
-      if (drone || (radar && distance < R) || (repairing && distance <= repairRadius)) out.push(o);
+      if (intel || drone || distance < radius || (repairing && distance <= repairRadius)) out.push(o);
     }
     return out;
+  };
+
+  World.prototype.signalDropSite = function (p) {
+    var clearance = C.crateSize * Math.SQRT1_2 + 6;
+    for (var ring = 0; ring < 4; ring++) {
+      for (var i = 0; i < 24; i++) {
+        var angle = p.angle + Math.ceil(i / 2) * (i % 2 ? 1 : -1) * Math.PI / 12;
+        var x = Math.round(p.x + Math.cos(angle) * (200 + 90 * ring));
+        var y = Math.round(p.y + Math.sin(angle) * (200 + 90 * ring));
+        if (this.inPond(x, y) || this.blastTrenchAt(x, y) || !this.spotFree(x, y, clearance, false)) continue;
+        if (this.map.buildings.some(function (b) { return x > b.x - clearance && x < b.x + b.w + clearance && y > b.y - clearance && y < b.y + b.h + clearance; })) continue;
+        if (!this.signalDrops.some(function (d) { return !d.crate && Math.hypot(d.x - x, d.y - y) < clearance * 2; })) return { x: x, y: y };
+      }
+    }
+    return null;
+  };
+  World.prototype.landSignalDrop = function (drop) {
+    var crate = { id: this.map.crates.length, x: drop.x, y: drop.y, size: C.crateSize, tier: 'epic',
+      hp: CRATES.epic.hp, maxHp: CRATES.epic.hp, alive: true, shake: 0, signalDrop: this.signalDrops.indexOf(drop) };
+    this.map.crates.push(crate);
+    this.indexCrate(crate);
+    drop.crate = crate;
+    if (!this.remote) this.emit({ type: 'crate-landed', crate: crate });
+    return crate;
+  };
+  World.prototype.updateSignalDrops = function () {
+    var self = this, storm = this.storm;
+    this.signalDrops.forEach(function (drop) {
+      if (!drop.crate && self.time >= drop.landAt) self.landSignalDrop(drop);
+      if (drop.stormed || (drop.crate && !drop.crate.alive)) return;
+      if (storm && (storm.r <= 0 || Math.hypot(drop.x - storm.x, drop.y - storm.y) > storm.r)) {
+        drop.stormed = true;
+        return;
+      }
+      self.players.forEach(function (p) {
+        if (p.alive && p.dropT <= 0 && Math.hypot(drop.x - p.x, drop.y - p.y) <= W.SIGNAL_DROP.arrivalRadius) drop.arrived.add(p.id);
+      });
+    });
+  };
+  World.prototype.signalDropPing = function (drop, viewer) {
+    return !!viewer && (!drop.crate || drop.crate.alive) && (this.remote ? !!drop.ping : !drop.stormed && !drop.arrived.has(viewer.id));
   };
 
   // ---------------------------------------------------------------- crate loot
   World.prototype.crateLoot = function (c, src) {
     var tier = CRATES[c.tier] || CRATES.common, rng = this.rng, t;
+    var signal = this.signalDrops[c.signalDrop];
+    if (signal && signal.trap) {
+      this.explode(c.x, c.y, { radius: ITEMS.snowbomb.radius, maxDamage: 100, flatDamage: true, friendly: true }, signal.owner, 'strikegun');
+      this.itemBurst('gasgrenade', c.x, c.y, signal.owner);
+      return { tokens: 0, item: null };
+    }
     if (tier.id === 'classToken') {
       this.spawnPickup('classToken', c.x, c.y, 1, true);
       return { tokens: 0, classTokens: 1, item: null };
@@ -1026,6 +1193,22 @@
       legendaryItems.forEach(function (id) { this.spawnPickup('item', c.x, c.y, 1, true, id); }, this);
       this.emit({ type: 'legendary-crate-broken', crate: c, player: src || null });
       return { tokens: tokens, item: 'legendary' };
+    }
+    if (signal) {
+      var supply = [], pools = W.CRATE_ORDER.filter(function (rarity) { return tier.loot[rarity] > 0; })
+        .map(function (rarity) { return { odds: tier.loot[rarity], ids: Rules.itemsOfTier(rarity) }; })
+        .filter(function (pool) { return pool.ids.length; });
+      for (t = 0; t < 5; t++) {
+        // Only four legendary items exist. Once a tier runs out, keep the relative odds of the remaining tiers.
+        var roll = rng.next() * pools.reduce(function (sum, pool) { return sum + pool.odds; }, 0);
+        var i = 0;
+        while (i + 1 < pools.length && roll >= pools[i].odds) { roll -= pools[i].odds; i++; }
+        var pool = pools[i], choice = pool.ids.splice(rng.int(0, pool.ids.length - 1), 1)[0];
+        if (!pool.ids.length) pools.splice(i, 1);
+        supply.push(choice);
+        this.spawnPickup('item', c.x, c.y, ITEMS[choice].found, true, choice);
+      }
+      return { tokens: tokens, items: supply };
     }
     var lootTier = Rules.crateLootTier(tier.id, rng.next());
     if (lootTier) {

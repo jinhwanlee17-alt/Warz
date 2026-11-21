@@ -15,7 +15,7 @@ const match = new Match({ W: ServerW, id: 'pyro-firebar-network', seed: 17, mode
   clock: false, emptyTimeout: Infinity, teams: [{ members: [{ name: 'Pyro' }, { name: 'Observer' }] }] });
 const world = match.world, [p, observer] = match.players;
 function clear(w) {
-  for (const key of ['rocks', 'trees', 'buildings', 'crates', 'pickups', 'ponds', 'stations']) w.map[key] = [];
+  for (const key of ['rocks', 'trees', 'buildings', 'crates', 'pickups', 'ponds', 'stations', 'biomes']) w.map[key] = [];
   w.solids = new W.U.SpatialHash(256); w.storm = null;
 }
 function connect(who, rejoin = false) {
@@ -96,6 +96,11 @@ try {
   connect(p); world.switchSlot(p, 0); world.updateClassCombat(p, { fire: true }, 1.25); flush();
   t.equal(state.me.pyroFireBar, 48.75, 'fractional flamethrower fuel drain replicates without rounding to whole units');
   t.near(state.me.pyroFireResetT, 60, .001, 'flamethrower use starts its own fresh reset window');
+  world.setClass(p, 'pyromancer', true); world.applyPyroFireUpgrade(p); p.weapons[0].ammo = 105; flush();
+  t.check(state.me.pyroFireUpgrades === 1 && state.me.weapons[0].ammo === 105 && W.Pyro.fireCapacity(state.me) === 110, 'upgraded Pyromancer fuel arrives above its original cap');
+  world.setClass(p, 'pyromaniac', false); world.applyPyroFireUpgrade(p); connect(p, true);
+  t.check(state.me.pyroFireUpgrades === 2 && state.me.pyroFireBar === 70 && W.Pyro.fireCapacity(state.me) === 70, 'reconnecting after advancement preserves both stacks and enlarged fire bar');
+  t.check(!state.world.applyPyroFireUpgrade(state.me), 'client mirrors cannot author fire upgrades');
   world.setClass(p, 'soldier', true); flush();
   t.check(!state.me.pyroFireBar && !state.me.pyroFireResetT, 'changing class clears stale fire-bar HUD state');
 } finally { match.destroy(); }

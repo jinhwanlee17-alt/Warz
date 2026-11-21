@@ -101,7 +101,7 @@ The server verifies Apple's ID token the same way (issuer `https://appleid.apple
 | Tokens | a few in the open, in buildings and inside every crate. **8 tokens buy level 1; 15 tokens buy level 2; 40 tokens buy level 3.** |
 | Crates | 420 regular crates: 80% common, 10% rare, 8% epic, 2% mythic (whole-crate rounding). Exactly one legendary crate at the center drops all four legendary items and announces its destruction to everyone. Its gold marker appears on both maps until the crate breaks. |
 | Items | Every class has ten hotbar slots: two weapons/class gear (`1`–`2`) and eight items (`3`–`9`, `0`). Engineer and Magic Medic keep a third class tool in slot `3` and have seven item slots (`4`–`9`, `0`), with no extra slot. Press `E` near an item to pick it up; select an item and left click to use it or `Q` to drop its entire stack. `Tab` opens item details. Class weapons stay with you. See **Items** below. |
-| Upgrade Stations | 9 per island (glowing blue hexagons). `E` opens the class tree. A used station recharges for **1:30** unless you spend a **station key**. |
+| Upgrade Stations | 9 per island (glowing blue hexagons). Press `E` to see class upgrades and supplies for your current class. Pay for a class upgrade with tokens or one class key. A station key skips the 90-second class-upgrade recharge. Supplies stay available during recharge. |
 | Ammo | infinite; magazines reload automatically |
 | Humvees | Eight per island near the outer rounded-square coastal path, 1,000 HP each. WASD steers through gradual curves at up to 378 units/s (30% slower than the previous speed). At cruising speed the hull crushes contacted crates of every tier, releasing their normal loot; slower vehicles stop against crates. Ram damage is 65 × current speed / maximum speed. E boards from any side or exits. Seats fill in order: driver, machine gunner if equipped, then rear passengers, limited by the match team size. Solo vehicles have only a driver seat. In team modes every Humvee has two rear passenger seats; two also have a separate Turret I gunner position on the side. The hull absorbs damage for all occupants. A destroyed Humvee ejects its crew and remains an indestructible, solid wreck. |
 | SP artillery | Up to four near the middle rounded-square vehicle path, 1,200 HP, one driver, and tank movement speed. E boards/exits; 1 selects driving and 2 opens full-screen fire control. WASD pans the targeting map, click selects a target and Enter fires. Esc returns to driving. The hull must remain stationary for 10 seconds before firing; moving resets setup. Shells arc over terrain and deal 75–1,050 damage in a blast radius 1.5 times a grenade, with a 10-second firing interval. Armor Crewmember drives 10% faster, fires every 7.5 seconds and launches shells with 25% faster travel speed. SP artillery uses tank damage resistance: 75% less damage from bullets, turrets and sentries, tank snowball resistance and residual-burn immunity. Existing armor-bypassing weapons keep their exceptions. Both artillery types can be repaired by Armor Crewmember for 100 HP every 2 seconds. |
@@ -238,6 +238,10 @@ Aim in a direction and release fire to throw a grenade or launcher shell. A quic
 
 ## Level-three classes
 
+Gas Troop is available from any level-two class for 40 tokens or one class key. It has 135 HP, wears its gas mask as its character body, and starts at 85% walk speed. Slots 1–4 hold a five-round Bolt Action Rifle (85 damage every 0.4s), a six-round Heavy Deagle (105 damage every 1s), 20 Gas Grenades and three Gas Cylinders.
+
+Gas grenades cover twice a grenade’s radius for 10 seconds. A cylinder starts at one grenade radius, spreads to two snowbomb radii over eight seconds and lingers for ten more. Each cylinder used adds five percentage points to walk speed. Gas blinds exposed opponents, slows them by 80% and deals 25 damage per second across trench boundaries. Turret and fixed artillery operators are exposed. Gas Troops, tanks and SP artillery are immune.
+
 Engineer and Shield Operator are available from **any level-two class for 40 tokens** and have 100 HP. Rocketeer requires **Grenadier II**, costs **40 tokens**, and has **65 HP**. All use the same station recharge and key rules.
 
 Shotgunner III requires **Shotgunner II** and Magic Medic requires **Medic II**, each for **40 tokens**. Shotgunner III has **175 HP**, permanent **25% damage resistance**, and **10% extra damage** with everything it uses. Shotgun III deals 50–500 base damage by distance; Dual Heavy Revolvers fire two 75-base-damage bullets together, consuming two of their ten rounds per click.
@@ -251,9 +255,11 @@ Equip the staff to heal the nearby teammate with the lowest health percentage, e
 | Held | 1 HP/s for 10s; 2 for 10s; 3 for 5s; 10 for 3s; 25 for 5s |
 | Placed | 1 HP/s for 5s; 2 for 5s; 3 for 2s; 10 for 5s; 25 for 5s; 50 for 30s |
 
-Pyromaniac requires **Pyromancer** and **40 tokens**. It has **150 HP** and permanent **50% damage reduction**. Its dual revolvers fire two 100-damage rounds at once, using two of ten rounds. Its upgraded flamethrower reaches 500 world units and never needs ammo or reloads. Holding fire ramps through 5, 10, 15, 45 and 70 damage, advancing every **2.5 seconds**. The first three stages fire every 0.25s, the 45-damage stage every 0.15s, and the final 70-damage stage every 0.1s. Releasing fire resets the ramp. After continuous exposure ends, the residual burn deals 10% of the direct damage taken per second for 40% of the exposure time.
+Pyromaniac requires **Pyromancer** and **40 tokens**. It has **150 HP** and permanent **50% damage reduction**. Its dual revolvers fire two 100-damage rounds per click from a ten-round magazine. The flamethrower reaches 500 world units and never reloads. Each pulse starts at 5 damage, rising to 10 after **1 second**, 15 after **2 seconds**, 45 after **2.5 seconds** and 70 after **5 seconds** of continuous fire. The first three stages pulse every 0.25 seconds. The last two pulse every 0.15 and 0.1 seconds respectively. Releasing fire resets the heat. The residual burn deals 10% of the direct damage per second for 40% of the exposure time.
 
-Press the gear binding (F or G by default) as Pyromaniac to spend **50 additional tokens** and replace the dual revolvers with one Firegun. It fires eight fireballs per second with unlimited ammo and no reload. A shared **50-point fire bar** starts full, spending one point per second of flamethrower use and seven points per Firegun shot. Each fireball's impact damage is `(remaining fire bar / 2 / 50) * 1800`, calculated before spending that shot's fire: the first shot from a full bar deals 900 damage, then 774, 648, and so on. The final shot can use the remaining amount below seven points. At zero the Firegun pauses; the flamethrower continues normally. The bar refills to 50 after 60 seconds from the first use, even while weapons are stowed. Each Firegun hit still adds three seconds to a 6-HP-per-second burn; duration stacks, damage rate does not. Snowbombs and snowball sentry hits extinguish burns. Tanks remain immune to residual burns; Humvees can burn.
+Press the gear binding (F or G by default) as Pyromaniac to spend **50 additional tokens** and transform the dual revolvers into a Firegun. Its shared **50-point fire bar** spends one point per second of flamethrower use or seven per fireball, at up to eight fireballs per second. Each fireball deals `900 × remaining fire / capacity` base impact damage before spending fire. Even the last point can fire a shot. An empty bar pauses the Firegun, and the flamethrower keeps working. The bar refills to capacity 60 seconds after first use. Each Firegun hit adds three seconds to the burn at 6 base damage per second. Snowbombs and snowball sentry hits extinguish burns. Humvees can burn and tanks are immune to residual burns.
+
+Pyromancers and Pyromaniacs can each buy up to **two fire upgrades at 3 tokens each**. Each adds 10 current and maximum fuel plus 10% of base fire damage. Pyromancer’s ammo counter shows its reloadable flamethrower magazine, with capacities of 100, 110 and 120. Only Pyromaniac has a fire bar, with capacities of 50, 60 and 70. Upgrades carry over when advancing to Pyromaniac. Both classes deal 80% less weapon damage while in Tundra or Tundra Forest and 5% more in Desert. Savannah gives no class damage adjustment.
 
 | Class | Equipment |
 | --- | --- |
@@ -286,15 +292,36 @@ Esc opens the same practice tools: tokens, keys, damage, class reset, armor, ite
 
 ## Items
 
+### Class shop supplies
+
+| Class | Purchase | Token cost |
+| --- | --- | --- |
+| Grenadier II and Rocketeer | 3 Molotovs | 5 |
+| Grenadier II and Rocketeer | 5 flash bangs | 2 |
+| Grenadier II and Rocketeer | 3 landmines | 1 |
+| Grenadier II and Rocketeer | 5 smoke grenades | 2 |
+| Rocketeer | 10 anti-vehicle landmines | 5 |
+| Commander | 1 Flare Gun shot or 1 Strike Gun shot | 10 each |
+| Engineer | 1 Sentry III | 8 |
+| Engineer | 1 use of Engineer II’s Hammer | 15 |
+
+Only the player who placed a mine can see its map pin. When that player enters one snowbomb radius, they hear a ping and see an exclamation mark at the mine on the battlefield and map. Leaving range clears the warning, and returning triggers it again. Both mine types have an 18-unit contact radius and eliminate the first player to step on them. A normal mine deals 400 damage to a Humvee or 150 to a tank. An anti-vehicle mine deals 1,650 or 1,550 respectively.
+
+Both Commander guns reveal the firing location and call down an epic crate. A Flare Gun crate drops five different items rolled at epic-crate rarity odds. A Strike Gun crate explodes for 100 base damage within a snowbomb radius and releases a gas grenade cloud. The crate marker clears for each player who reaches the drop, and for everyone when the crate breaks or the storm overtakes it.
+
+Engineer II’s Hammer instantly upgrades a friendly sentry by one tier. On a Sentry III, choose the Sentry IV weapon. A completed upgrade consumes the hammer.
+
+### Crate items
+
 | Rarity | Items |
 | --- | --- |
-| Common | Bandages (+20 HP, sets of 3), Flash Bang (grenade range and timing, whites out the screen), Grenade (like the Grenadier's, pairs), Smoke Grenade (3× a grenade, 12 s), Smoothie (+15 HP), Energy Bar (+15% speed, 20 s) |
+| Common | Bandages (+20 HP, sets of 3), Flash Bang (grenade range and timing, blinds for 10 seconds), Grenade (like the Grenadier's, pairs), Smoke Grenade (3× a grenade, 24 s, disables automatic turrets and sentries inside), Smoothie (+15 HP), Energy Bar (+15% speed, 20 s) |
 | Rare | Molotov (bursts on landing, 2× wide fire wall, base 25 HP/s for 5 s with biome modifiers, spares your team), Shieldo Shieldo (1 s immune to weapons, then 50% less damage for 5 s), First Aid Kit (+100 HP over 15 s), Strength (+10% dmg, 30 s), Speed (+15%, 45 s), Health (+75), Shield (−15% damage taken, 30 s), Poison Potion (thrown: 10 HP/s for 10 s and half speed to enemies splashed), Mystery Potion (random potion effect, poison included) |
 | Epic | Drone (every enemy on your team's map for 1 min), Rock (double-size boulder, blue to its team and red to enemies; owner or teammates can reclaim it with E), Riot Shield (blocks everything from the front while held, −75% speed), Turret (100 HP, 15 damage per shot, faster than an AR, `E` to mount or dismount), Sentry (automatic, never misses, 5 dmg at pistol speed, 50 HP), Black Hole Grenade (bursts on landing, pulls enemies and loose pickups within 3× a grenade into its middle), Snowbomb (5× a grenade, 20 s, half speed, storm damage after 4 s inside), Overheal Potion (+30 HP up to 130) |
-| Mythic | Invisibility (30 s, only your team sees you; shooting still shows muzzle flashes), Radar (pings enemies within 7× a grenade for 30 s), Teleporter (pairs: stand 1 s on your pad, 3 s on someone else's), Turret II (500 HP, 20 dmg, 2× fire rate), Sentry II (100 HP, 10 dmg, 2× rate), Lightning Strike (click an enemy, auto-aims within a grenade radius; 1 s later 50 true damage through armor, shields and overheal; stacks of 5), Power Potion (+15% dmg/speed, −15% damage taken, 1 min) |
+| Mythic | Invisibility (30 s, only your team sees you; shooting still shows muzzle flashes), Radar (pings enemies within 21 grenade radii for 30 s), Teleporter (pairs: stand 1 s on your pad, 3 s on someone else's), Turret II (500 HP, 20 dmg, 2× fire rate), Sentry II (100 HP, 10 dmg, 2× rate), Lightning Strike (click an enemy, auto-aims within a grenade radius; 1 s later 50 true damage through armor, shields and overheal; stacks of 5), Power Potion (+15% dmg/speed, −15% damage taken, 1 min) |
 | Legendary | Turret III (2,500 HP, 30 dmg, Turret II rate), Sentry III (700 HP, 30 dmg, Turret rate), Power Potion II (1:15 of Power plus 10 s death immunity: a killing blow leaves you at 30 HP and ends the potion), Meteor Launcher (3 meteors: click a spot, 2 s later 99 damage across 2× a grenade) |
 
-All three turret levels absorb incoming damage while occupied. The hit that destroys a turret ejects its gunner safely. Subsequent hits can damage the exposed player.
+All three turret levels absorb incoming weapon hits while occupied. Gas clouds can reach the gunner directly. The hit that destroys a turret ejects its gunner safely. Subsequent hits can damage the exposed player.
 
 Your items drop where you die. All numbers live in `W.ITEMS` / `W.CRATES` in `js/config.js`.
 

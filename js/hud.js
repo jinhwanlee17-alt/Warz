@@ -13,6 +13,8 @@
     return VEHICLE_ROLES[seat] || 'Passenger';
   }
   var BUFF_LABELS = {
+    gas: 'In gas · blinded · 80% slower · 25 damage/s',
+    sniperradar: 'Sniper Radar', sniper2radar: 'Sniper II Radar',
     baseLocal: 'Base alert · nearby players see your location', baseGlobal: 'Turret alert · everyone sees your location',
     command: 'Command boost · +25% damage, speed, fire rate',
     energy: 'Energy bar · +15% speed', speed: 'Speed potion · +15%', strength: 'Strength · +10% dmg', shield: 'Shield · −15% dmg taken', poison: 'Poisoned · −10 HP/s, slowed',
@@ -57,7 +59,7 @@
       '<span>' + k('interact') + ' pick up / station / revive / mount</span><span>' + k('weapon1') + '…' + k('slot10') + ' hotbar · click to use</span>' +
       '<span>' + k('drop') + ' drop held item</span><span>' + k('inventory') + ' inventory</span><span>' + k('sprint') + ' sprint</span>' +
       '<span>' + k('map') + ' map · ' + k('reload') + ' reload</span><span>' + k('emotes') + ' emotes</span>' +
-      '<span>' + k('weapon1') + k('weapon2') + (p && p.weapons.length > 2 ? k('item1') : '') + ' / wheel switch weapons</span><span><kbd>Esc</kbd> menu</span>';
+      '<span>' + (p ? p.weapons.map(function (_, i) { return k(Controls.weaponAction(p, i)); }).join('') : k('weapon1') + k('weapon2')) + ' / wheel switch weapons</span><span><kbd>Esc</kbd> menu</span>';
     if (el['hud-keys']) el['hud-keys'].innerHTML = baseHints;
     delete cache.keyhints;
     lastWeaponsKey = '';
@@ -87,6 +89,7 @@
     if (p.regen > 0) parts.push('regen:' + Math.ceil(p.regen) + ' HP');
     if ((world.reveal[p.team] || 0) > 0) parts.push('drone:' + Math.ceil(world.reveal[p.team]));
     if (p.inSnow && p.alive) parts.push(p.snowFrozen ? 'frozen:' : 'snow:');
+    if (p.inGas && p.alive) parts.push('gas:');
     if (p.mount) parts.push('mount:');
     var signal = p.alive && p.baseSignal;
     if (signal && (!signal.until || signal.until > world.time)) {
@@ -103,7 +106,7 @@
     }).join('');
   }
 
-  function show(on) { el.hud.hidden = !on; }
+  function show(on) { el.hud.hidden = !on; if (!on) document.body.classList.remove('in-gas'); }
 
   function reset(world, player, label) {
     cache = {};
@@ -146,12 +149,13 @@
     if (w.id === 'wrench') return p.sentryBuild ? Math.round(p.sentryBuild.elapsed / def.buildSeconds * 100) + '% built' : 'Hold to build';
     if (def.kind === 'shield') return 'Blocks blasts';
     if (def.kind === 'throwable') return '×' + p.grenades;
+    if (def.kind === 'cylinder') return '×' + p.gasCylinders;
     if (def.kind === 'medkit') return p.medkitCd > 0 ? Math.ceil(p.medkitCd) + 's' : 'Ready';
     if (def.kind === 'ability') return p.commandCd > 0 ? Math.ceil(p.commandCd) + 's' : 'Ready';
     if (def.kind === 'melee') return 'Melee';
     if (def.infiniteAmmo) return w.id === 'firegun' ? (p.pyroFireBar <= 1e-8 ? 'Fire bar empty' : '8 fireballs/s') : 'Unlimited';
     if (w.reloading) return 'Reloading';
-    return w.ammo + '/' + def.mag;
+    return w.ammo + '/' + W.Rules.magazineSize(p, w.id);
   }
 
   // Teammates panel: name, HP, state. Only in team modes.
@@ -290,13 +294,16 @@
     set('stt', el['hud-stamina-text'], 'text', Math.round(stamina) + ' / 100 Stamina' + (p.sprintExhausted ? ' · Recovering' : ''));
     set('stc', el['hud-stamina-fill'], 'class', p.sprintExhausted ? 'exhausted' : '');
     set('sttitle', el['hud-stamina'], 'title', p.sprintExhausted ? 'Exhausted: refill to 100 stamina before sprinting again.' : 'Hold ' + Controls.primary('sprint') + ' while moving to sprint.');
-    var fireMax = W.Pyro ? W.Pyro.fireBarMax : 50, fireLeft = U.clamp(Number.isFinite(p.pyroFireBar) ? p.pyroFireBar : fireMax, 0, fireMax);
-    var fireTime = world.pyroFireTime ? world.pyroFireTime(p) : p.pyroFireResetT || 0, fireEmpty = fireLeft <= 1e-8;
-    set('fireh', el['hud-fire'], 'hidden', p.classId !== 'pyromaniac');
-    set('firew', el['hud-fire-fill'], 'width', (fireLeft / fireMax * 100).toFixed(2) + '%');
-    set('firec', el['hud-fire'], 'class', 'pyro-fire' + (fireEmpty ? ' is-empty' : ''));
-    set('firet', el['hud-fire-text'], 'text', Number(fireLeft.toFixed(1)) + ' / ' + fireMax + ' remaining');
-    set('firereset', el['hud-fire-reset'], 'text', fireTime > 0 ? 'Refills in ' + Math.ceil(fireTime) + 's' : 'Ready');
+    var showFire = p.classId === 'pyromaniac' && W.Pyro;
+    set('fireh', el['hud-fire'], 'hidden', !showFire);
+    if (showFire) {
+      var fireMax = W.Pyro.fireCapacity(p), fireLeft = U.clamp(p.pyroFireBar, 0, fireMax);
+      var fireTime = world.pyroFireTime(p), fireEmpty = fireLeft <= 1e-8;
+      set('firew', el['hud-fire-fill'], 'width', (fireLeft / fireMax * 100).toFixed(2) + '%');
+      set('firec', el['hud-fire'], 'class', 'pyro-fire' + (fireEmpty ? ' is-empty' : ''));
+      set('firet', el['hud-fire-text'], 'text', Number(fireLeft.toFixed(1)) + ' / ' + fireMax + ' remaining');
+      set('firereset', el['hud-fire-reset'], 'text', fireTime > 0 ? 'Refills in ' + Math.ceil(fireTime) + 's' : 'Ready');
+    }
     updateTeam(world, p);
 
     var wkey = p.weapons.map(function (w) { return w.id; }).join(',') + '|' +
@@ -312,10 +319,11 @@
       else if (w.reloading) cd = w.reloadT / def.reload;
       set('sc' + idx, $('hud-slot-cd-' + idx), 'width', (cd * 100).toFixed(1) + '%');
       var classes = 'slot' + (p.held < 0 && idx === p.slot ? ' selected' : '') +
-        ((def.kind === 'throwable' && p.grenades <= 0) || (def.kind === 'medkit' && p.medkitCd > 0) ? ' spent' : '');
+        ((def.kind === 'throwable' && p.grenades <= 0) || (def.kind === 'cylinder' && p.gasCylinders <= 0) || (def.kind === 'medkit' && p.medkitCd > 0) ? ' spent' : '');
       set('sl' + idx, $('hud-slot-' + idx), 'class', classes);
     });
     updateBuffs(world, p);
+    document.body.classList.toggle('in-gas', !!(p.inGas && p.alive));
     el.flash.style.opacity = p.fx.flash > 0 ? Math.min(1, p.fx.flash / ITEMS.flashbang.flash * 1.3).toFixed(2) : 0;
 
     var cur = p.weapons[p.slot], cdef = WEAPONS[cur.id], big, max, label, heldIt = p.held >= 0 && p.items[p.held] ? ITEMS[p.items[p.held].id] : null;
@@ -334,7 +342,8 @@
     else if (p.mount) { big = '∞'; max = ''; label = 'turret · click to fire · ' + Controls.primary('interact') + ' to get off'; }
     else if (heldIt) { big = String(p.items[p.held].n); max = ''; label = heldIt.name + (heldIt.kind === 'hold' ? ' · raised' : heldIt.kind === 'target' ? ' · click a target' : ' · click to use'); }
     else if (p.held >= 0) { big = 'Empty'; max = ''; label = 'Empty hands · choose a weapon or item'; }
-    else if (cdef.kind === 'throwable') { big = String(p.grenades); max = ''; label = 'grenades'; }
+    else if (cdef.kind === 'throwable') { big = String(p.grenades); max = ''; label = cur.id === 'gasgrenade' ? 'Gas grenades · hold and release to throw' : 'grenades'; }
+    else if (cdef.kind === 'cylinder') { big = String(p.gasCylinders); max = ''; label = 'Click to release gas · ' + Math.round((CLASSES.gastroop.speed + p.gasCylindersUsed * cdef.speedGain) * 100) + '% walk speed'; }
     else if (cdef.kind === 'medkit') { big = p.medkitCd > 0 ? Math.ceil(p.medkitCd) + 's' : 'Ready'; max = ''; label = cur.id === 'magicmedkit' ? '+300 HP · click teammate to heal them · click ground to heal yourself' : 'medkit'; }
     else if (cur.id === 'medicstaff') {
       var staffStatus = W.MedicStaff && W.MedicStaff.status(p);
@@ -347,14 +356,15 @@
     else if (cdef.kind === 'melee') { big = 'Hammer'; max = ''; label = cur.id === 'engineerhammer' ? '30 damage · hold near a sentry to repair or upgrade' : 'Hold click to swing · ' + gearKeys + ' repairs nearby vehicles'; }
     else if (cur.id === 'pyroflamethrower') {
       var pyroStage = W.Pyro && W.Pyro.flameStage ? W.Pyro.flameStage(p.pyroHeat || 0) : { damage: 5, interval: .25 };
-      big = '∞'; max = ''; label = pyroStage.damage + ' damage / ' + pyroStage.interval + 's · hold fire to build heat';
+      var flameDamage = pyroStage.damage * W.Pyro.weaponMultiplier(world.map, p, true);
+      big = '∞'; max = ''; label = Number(flameDamage.toFixed(1)) + ' damage / ' + pyroStage.interval + 's · hold fire to build heat';
     }
     else if (cur.id === 'firegun') {
       big = '∞'; max = '';
       label = fireEmpty ? 'Fire bar empty · ready in ' + Math.ceil(fireTime) + 's · flamethrower still ready' :
-        Math.round(fireLeft / 2 / fireMax * 1800) + ' next shot damage · 8 fireballs/s · 7 fire per shot';
+        Math.round(W.Pyro.firegunDamage(fireLeft, fireMax) * W.Pyro.weaponMultiplier(world.map, p, true)) + ' next shot damage · 8 fireballs/s · 7 fire per shot';
     }
-    else { big = String(cur.ammo); max = '/ ' + cdef.mag; label = cur.id === 'shieldpistol' ? (cur.reloading ? 'Reloading · riot shield lowered' : 'Riot shield raised · pistol · ∞ reserve') : cur.id === 'rpg' ? (cur.reloading ? 'Reloading RPG · ' + cdef.reload + ' seconds' : 'RPG · unlimited range · ∞ reserve') : cdef.zoom ? (p.scoping ? 'scoped' : 'hold ' + Controls.primary('scope') + ' to scope') : '∞ ammo'; }
+    else { big = String(cur.ammo); max = '/ ' + W.Rules.magazineSize(p, cur.id); label = cur.id === 'shieldpistol' ? (cur.reloading ? 'Reloading · riot shield lowered' : 'Riot shield raised · pistol · ∞ reserve') : cur.id === 'rpg' ? (cur.reloading ? 'Reloading RPG · ' + cdef.reload + ' seconds' : 'RPG · unlimited range · ∞ reserve') : cdef.zoom ? (p.scoping ? 'scoped' : 'hold ' + Controls.primary('scope') + ' to scope') : '∞ ammo'; }
     if (p.classId === 'pyromaniac' && !p.pyroFiregun && !p.vehicle && !p.mount && p.held < 0) label += ' · ' + gearKeys + ' unlocks Firegun · 50 tokens';
     if (!vehicle && p.held < 0 && cdef.windup && p.minigunSpin > 0 && p.minigunSpin < cdef.windup) label = 'Spinning up · ' + Math.round(p.minigunSpin / cdef.windup * 100) + '%';
     if (!vehicle && world.aimedProjectile(p)) label = 'Hold 0.75 s for range · release to throw';
@@ -395,7 +405,7 @@
     else if (p.alive && p.fullNoteT > 0) prompt = 'Items full · select an item and ' + dropKey + ' drop its stack';
     else if (p.alive && p.dropT <= 0 && p.nearStation) {
       var st = p.nearStation;
-      if (!canUpgrade) prompt = '<kbd>' + key + '</kbd> Upgrade Station · maximum class level';
+      if (!canUpgrade) prompt = '<kbd>' + key + '</kbd> Upgrade Station · ' + (W.Rules.stationOffers(p.classId).length ? 'class shop' : 'maximum class level');
       else if (st.cooldown > 0) prompt = '<kbd>' + key + '</kbd> Upgrade Station recharging · ' + U.formatTime(st.cooldown) + (p.keys > 0 ? ' · you have a station key' : '');
       else if (p.classTokens > 0) prompt = '<kbd>' + key + '</kbd> Open Upgrade Station · free class upgrade';
       else if (p.tokens >= upgradeCost) prompt = '<kbd>' + key + '</kbd> Open Upgrade Station · upgrade ready!';

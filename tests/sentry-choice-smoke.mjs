@@ -18,13 +18,16 @@ function fixture() {
       if (sel === 'button') return this.querySelectorAll('button')[0];
       if (sel === '.modal-close') return this.closeButton;
       if (sel === '.sentry-upgrade-options') return this.grid;
+      if (sel === '.sentry-upgrade-cost') return this.cost;
+      if (sel === '.modal-note') return this.note;
     }
     querySelectorAll(sel) { return this.children.flatMap(child => [...(child.tag === sel ? [child] : []), ...child.querySelectorAll(sel)]); }
     set innerHTML(value) {
       this.closeButton = new Element('button'); this.grid = new Element('div');
-      this.appendChild(this.closeButton); this.appendChild(this.grid);
+      this.cost = new Element('p'); this.note = new Element('p');
+      this.appendChild(this.closeButton); this.appendChild(this.cost); this.appendChild(this.grid); this.appendChild(this.note);
     }
-    set textContent(value) { this.children = []; }
+    set textContent(value) { this.children = []; this.text = value; }
   }
   document.createElement = tag => new Element(tag); document.body = new Element('body');
   const sandbox = { Warz: W, document }; sandbox.window = sandbox;
@@ -35,7 +38,7 @@ function fixture() {
   const s = world.addStruct({ kind: 'sentry', item: 'sentry3', x: 5100, y: 5000, r: 22,
     hp: W.ITEMS.sentry3.hp, maxHp: W.ITEMS.sentry3.hp, owner: p.id, team: p.team });
   const match = { player: p, world }, result = { accepted: null, closes: 0 };
-  W.SentryUpgradeUI.init({ onChoose(variant) { result.accepted = world.chooseSentryUpgrade(p, variant); }, onClose() { result.closes++; } });
+  W.SentryUpgradeUI.init({ onChoose(variant, nonce) { result.accepted = world.chooseSentryUpgrade(p, variant, nonce); }, onClose() { result.closes++; } });
   const ui = W.SentryUpgradeUI, root = document.body.children[0];
   function frame(fire = false) { world.updateEngineerWork(p, { fire }, .05); ui.tick(match); }
   frame(true);
@@ -93,5 +96,21 @@ for (const reason of ['range', 'tokens', 'tier', 'destroyed', 'class', 'vehicle'
   a.world.setClass(a.p, 'soldier', true); a.ui.tick(a.match);
   a.world.setClass(a.p, 'engineer', true); a.p.slot = 2; a.p.tokens = 30; a.frame(true);
   t.check(a.p.sentryChoice.nonce > old && a.ui.isOpen(), 'offer identities remain monotonic across class changes');
+}
+{
+  const { p, s, world, root, frame, ui, result } = fixture();
+  root.closeButton.onclick(); p.tokens = 0; world.addItem(p, 'engineerhammer2', 1); world.selectItem(p, 1);
+  world.useHeld(p, { firePressed: true }); frame();
+  t.check(ui.isOpen() && root.cost.text.includes('instant') && p.items[1]?.n === 1, 'instant variant picker shows the prepaid cost and keeps the hammer pending');
+  const nonce = p.sentryChoice.nonce;
+  root.closeButton.onclick(); world.useHeld(p, { firePressed: true }); frame();
+  t.check(ui.isOpen() && !world.chooseSentryUpgrade(p, 'bullets', nonce), 'a canceled offer cannot spend a replacement hammer choice');
+  s.hp--; frame();
+  t.check(ui.isOpen() && p.sentryChoice?.instant && p.items[1]?.n === 1, 'a damaged sentry keeps its instant choice and the hammer remains pending');
+  p.x -= 500; frame();
+  t.check(!ui.isOpen() && !p.sentryChoice && p.items[1]?.n === 1, 'leaving the sentry cancels the instant choice without consuming the hammer');
+  p.x += 500; world.useHeld(p, { firePressed: true }); frame();
+  root.grid.children[5].onclick();
+  t.check(result.accepted && s.item === 'sentry4cannons' && s.hp === s.maxHp && !p.items[1] && !p.sentryWork, 'the instant choice upgrades a damaged sentry to its full-health specialization');
 }
 t.done();

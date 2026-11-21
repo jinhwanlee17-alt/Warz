@@ -50,6 +50,33 @@ function arena(remote = false) {
   t.check(!world.structById(turret.id), 'destroying the turret removes its gunner');
 }
 {
+  const world = arena(), turret = world.structures[0];
+  const intruder = world.addPlayer({ x: X + 320, y: Y, team: 2 });
+  const ordinary = world.addStruct({ kind: 'sentry', item: 'sentry3', x: X, y: Y + 100, r: 20, team: 1, owner: 0 });
+  const advanced = world.addStruct({ kind: 'sentry', item: 'sentry4rockets', x: X, y: Y - 100, r: 20, team: 1, owner: 0 });
+  world.itemBurst('smoke', X, Y, intruder.id);
+  world.updateItems(.05);
+  t.check([turret, ordinary, advanced].every(s => !world.automaticGuardRange(s) && !s.target), 'smoke shuts down the base gunner and sentries of all tiers');
+  t.check(intruder.hp === intruder.maxHp && !world.sentryProjectiles?.length, 'covered defenses deal no hits and launch no projectiles');
+  world.zones[0].t = .05;
+  world.itemBurst('smoke', X, Y, intruder.id);
+  world.updateItems(.05);
+  world.updateItems(.05);
+  t.equal(world.automaticGuardRange(turret), 0, 'overlapping smoke continues suppressing the gunner');
+  const rider = world.addPlayer({ x: X + 75, y: Y, team: 1 });
+  t.check(world.mountTurret(rider, turret), 'a player can still take over a turret in smoke');
+  world.updateMounted(rider, { aimX: intruder.x, aimY: intruder.y, fire: true }, .1);
+  t.equal(rider.stats.shots, 1, 'a human-controlled turret can fire in smoke');
+  rider.bot = true;
+  world.updateMounted(rider, { aimX: intruder.x, aimY: intruder.y, fire: true }, .1);
+  t.equal(rider.stats.shots, 1, 'a bot-controlled turret remains disabled');
+  world.dismount(rider); rider.x = X + 2500;
+  world.updateZones(24);
+  world.updateItems(.05);
+  t.check([turret, ordinary, advanced].every(s => world.automaticGuardRange(s) > 0 && s.target === intruder.id), 'all defenses reacquire the enemy after the last cloud expires');
+  t.check(intruder.hp < intruder.maxHp && world.sentryProjectiles.length === 1, 'normal and advanced defenses resume without a backlog of shots');
+}
+{
   const world = arena(true), p = world.addPlayer({ x: X + 200, y: Y, team: 2 });
   world.updateItems(.05);
   t.check(p.hp === p.maxHp && !world.events.some(e => e.type === 'sentry-shot'), 'browser replicas cannot author AI shots or damage');

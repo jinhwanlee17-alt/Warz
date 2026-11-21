@@ -64,10 +64,12 @@
     opts = opts || {};
     var cls = W.CLASSES[classId], cx = 44, cy = 56, r = 22, color = opts.color || cls.color;
     var weapon = cls.loadout[0];
+    var head = classId === 'gastroop'
+      ? '<path d="M24 52C22 23 66 23 64 52Q63 62 55 66L51 74Q44 80 37 74L33 66Q25 62 24 52Z" fill="' + color + '" stroke="#354536" stroke-width="3"/><g fill="#b5e6d3" stroke="#28322c" stroke-width="3"><ellipse cx="35" cy="52" rx="6.4" ry="5"/><ellipse cx="53" cy="52" rx="6.4" ry="5"/><circle cx="44" cy="66" r="6" fill="#677763"/></g><path d="M41 64H47M41 67H47" stroke="#273428" stroke-width="1.5"/>'
+      : '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + color + '" stroke="' + U.shade(color, -0.38) + '" stroke-width="4"/>' + emblemSvg(classId, cx, cy, r);
     return '<svg class="' + (opts.className || 'class-icon') + '" viewBox="0 0 100 100" aria-hidden="true" focusable="false">' +
       '<g transform="rotate(-32 ' + cx + ' ' + cy + ')">' + barrelSvg(weapon, cx, cy, r) + '</g>' +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + color + '" stroke="' + U.shade(color, -0.38) + '" stroke-width="4"/>' +
-      emblemSvg(classId, cx, cy, r) + '</svg>';
+      head + '</svg>';
   }
 
   var WEAPON_ART = {
@@ -92,6 +94,10 @@
   };
 
   WEAPON_ART.engineerhammer = WEAPON_ART.hammer;
+  WEAPON_ART.boltrifle = WEAPON_ART.sniper + '<path d="M34 17L38 22" stroke="#cda97a" stroke-width="3"/><circle cx="39" cy="23" r="2.3" fill="#d6bc98"/>';
+  WEAPON_ART.heavydeagle = WEAPON_ART.deagle + '<rect x="34" y="5" width="17" height="3" rx="1" fill="#aebbc3"/>';
+  WEAPON_ART.gasgrenade = '<rect x="23" y="8" width="18" height="23" rx="5" fill="#9eb659" stroke="#344331" stroke-width="2"/><path d="M23 16H41" stroke="#dbe4ac" stroke-width="4"/><path d="M27 8V3H36L40 6V13" fill="none" stroke="currentColor" stroke-width="3"/>';
+  WEAPON_ART.gascylinder = '<rect x="23" y="6" width="18" height="25" rx="5" fill="#68856a" stroke="#344331" stroke-width="2"/><rect x="29" y="2" width="6" height="5"/><path d="M25 2H39" stroke="#ecc470" stroke-width="3"/><path d="M24 15H40" stroke="#dbe4ac" stroke-width="4"/>';
   WEAPON_ART.rpg = '<path d="M3 11L10 9V22L3 20Z" fill="#59633e"/><rect x="9" y="11" width="37" height="9" rx="2" fill="#8d9a5b"/><path d="M37 10L49 6 62 15 49 24 37 21Z" fill="#b4b986" stroke="#3e4c38" stroke-width="2"/><path d="M20 20H27L25 29H19Z"/><rect x="24" y="6" width="9" height="5" rx="1"/>';
   WEAPON_ART.shotgun2 = WEAPON_ART.shotgun + '<rect x="35" y="7" width="27" height="3"/><path d="M7 6l2-4 2 4 4 1-3 3 1 4-4-2-4 2 1-4-3-3z" fill="#ffd76c"/>';
   WEAPON_ART.shotgun3 = WEAPON_ART.shotgun2 + '<path d="M43 22v7m5-7v7m5-7v7" stroke="#ffd76c" stroke-width="3"/>';
@@ -203,6 +209,15 @@
     for (var i = 0; i < rank; i++) out += '<rect x="' + (24 - rank * 3 + i * 6) + '" y="' + y + '" width="4" height="3" rx=".7" fill="' + color + '" stroke="none"/>';
     return out;
   }
+  ITEM_ART.sniperradar = ITEM_ART.radar + art('<rect x="13" y="34" width="22" height="10" rx="3" fill="#23453f"/>' + rankPips(1, 38, '#b0ffe4'));
+  ITEM_ART.engineerhammer2 = art('<g transform="rotate(40 24 24)"><rect x="20" y="14" width="8" height="32" rx="2" fill="#b87d48"/>' +
+    '<rect x="9" y="7" width="30" height="14" rx="3" fill="#e1ae48"/><path d="M21 11v6m6-6v6" stroke="#fff1b2"/></g>');
+  ITEM_ART.sniper2radar = ITEM_ART.radar + art('<rect x="13" y="34" width="22" height="10" rx="3" fill="#23453f"/>' + rankPips(2, 38, '#b0ffe4'));
+  ITEM_ART.flaregun = art('<path d="m7 29 20-19 10 11-19 16-5 8-8-6 6-8z" fill="#db633b"/>' +
+    '<path d="m23 14 5-5 12 12-6 5z" fill="#f8be72"/><path d="m15 32 6 3 5-5" fill="none" stroke="#e4a37c"/>' +
+    '<path d="m33 6 1-4m5 9 5-2m-7-3 4-4" stroke="#ffde72" stroke-width="2"/>');
+  ITEM_ART.strikegun = ITEM_ART.flaregun.replace('#db633b', '#72784b').replace('#f8be72', '#cfdf92') +
+    art('<circle cx="31" cy="19" r="4" fill="#29382b"/><circle cx="31" cy="19" r="1.6" fill="#f4e8b6"/>');
   function turretArt(rank, color) {
     var barrels = rank === 1 ? '<rect x="27" y="17" width="17" height="7" rx="1" fill="#d8e0e8"/>' :
       '<rect x="27" y="13" width="17" height="6" rx="1" fill="#d8e0e8"/><rect x="27" y="23" width="17" height="6" rx="1" fill="#d8e0e8"/>';
@@ -212,6 +227,8 @@
       '<path d="m14 12 15-3v20H14l-4-7z" fill="' + color + '"/><path d="M18 17v7" stroke="#f6f7ff"/>' +
       (rank === 3 ? '<path d="m11 10 7-5 11 3" fill="#ffdd89"/>' : '') + rankPips(rank, 39, '#f6f7ff'));
   }
+  ITEM_ART.landmine = art('<path d="M5 27q0-9 19-9t19 9v6q-1 8-19 8T5 33z" fill="#6c7958"/><ellipse cx="24" cy="26" rx="18" ry="8" fill="#9caa77"/><ellipse cx="24" cy="23" rx="9" ry="4" fill="#d8d49a"/><circle cx="36" cy="27" r="2" fill="#fb9859"/>');
+  ITEM_ART.vehiclemine = art('<path d="m4 24 11-10h18l11 10v11l-12 7H16L4 35z" fill="#737977"/><path d="m4 24 12 8h16l12-8M16 32v9m16-9v9" fill="none"/><path d="m13 24 6-5h10l6 5-7 4h-8z" fill="#e6ad58"/>');
   function sentryArt(rank, color) {
     var barrels = '<rect x="34" y="19" width="10" height="5" rx="1" fill="#a5b8cb"/>';
     if (rank > 1) barrels += '<rect x="4" y="19" width="10" height="5" rx="1" fill="#a5b8cb"/>';

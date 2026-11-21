@@ -220,6 +220,23 @@
     }
   }
 
+  function applySignalDrops(rows, pings, serverTime) {
+    var world = state.world, active = new Set(pings || []);
+    (rows || []).forEach(function (row, index) {
+      var drop = world.signalDrops[index];
+      if (!drop) {
+        drop = { x: row[0], y: row[1], landAt: world.time + row[2] - serverTime, crate: null };
+        world.signalDrops.push(drop);
+      }
+      if (row[3] >= 0) {
+        var crate = drop.crate || world.landSignalDrop(drop);
+        crate.hp = row[3];
+        crate.alive = crate.hp > 0;
+      }
+    });
+    if (pings) world.signalDrops.forEach(function (drop, index) { drop.ping = active.has(index); });
+  }
+
   function applySnapshot(s) {
     if (!state) return;
     var world = state.world, me = state.me, now = performance.now() / 1000;
@@ -234,6 +251,17 @@
     state.serverTime = s.time;
     state.recvAt = now;
     state.snapCount++;
+    world.flares = (s.flares || []).map(function (row) {
+      if (row[0] >= world.nextFlareId) {
+        world.nextFlareId = row[0] + 1;
+        world.emit({ type: 'flare', x: row[1], y: row[2] });
+      }
+      return { id: row[0], x: row[1], y: row[2], until: world.time + row[3] };
+    });
+    (s.destroyedCrates || []).forEach(function (id) {
+      var crate = world.map.crates[id];
+      if (crate) { crate.alive = false; crate.hp = 0; }
+    });
     world.baseContacts = (s.basePings || []).map(function (row) { return { id: row[0], x: row[1], y: row[2], team: row[3] }; });
     applySentryProjectiles(s.sp);
     applyRpgRockets(s.rp);
@@ -241,6 +269,7 @@
     // The packet's terrain state must be current before replay: an input sent
     // before a crate broke must not collide with its obsolete client hitbox.
     for (var ci = 0; ci < s.e.length; ci++) if (terrainEvent(s.e[ci])) applyEvent(s.e[ci]);
+    applySignalDrops(s.signalDrops, s.dropPings, s.time);
     if (s.structs) applySentryStructures(s.structs);
     function syncLegendary(id, hp) {
       var crate = world.map.crates[id];
@@ -262,6 +291,15 @@
     }
     applyVehicles(s.vehicles, s.time, y && y.seat === 'driver' ? y.veh : 0, false);
     if (y) {
+      if (y.mines) {
+        var priorMines = new Map(world.mines.map(function (mine) { return [mine.id, mine.pings]; }));
+        world.mines = y.mines.map(function (row) {
+          var mine = { id: row[0], item: row[1], x: row[2], y: row[3], owner: me.id, alert: !!row[4], pings: row[5] };
+          if (y.alive && mine.alert && mine.pings > (priorMines.get(mine.id) || 0))
+            world.emit({ type: 'mine-alert', player: me, item: mine.item, x: mine.x, y: mine.y });
+          return mine;
+        });
+      }
       if (y.cosmetics) world.applyCosmetics(me, y.cosmetics);
       setEmote(me, y.em);
       me.emoteReadyAt = world.time + U.clamp(y.emcd || 0, 0, W.Cosmetics.EMOTE_COOLDOWN);
@@ -292,6 +330,7 @@
         w.reloadT = rel;
       });
       me.grenades = y.gren; me.medkitCd = y.med; me.scoping = y.sc; me.inStorm = !!y.storm;
+      me.gasCylinders = y.cyl || 0; me.gasCylindersUsed = y.cylUsed || 0; me.inGas = !!y.inGas;
       me.commandCd = y.cmd || 0; me.commandBuff = y.cb || 0; me.minigunSpin = y.spin || 0; me.flameTicks = y.ft || 0;
       me.nearStation = y.near >= 0 ? world.map.stations[y.near] : null;
       // Inventory, held item, turret mount and potion timers: the server owns them, prediction only reads them.
@@ -428,7 +467,11 @@
     if (state.world.applyPyroFiregun) state.world.applyPyroFiregun(p, !!(value && value.up));
     p.pyroHeat = value && value.heat || 0;
     p.pyroBurning = value && value.burn || 0;
-    p.pyroFireBar = value && Number.isFinite(value.fire) ? U.clamp(value.fire, 0, W.Pyro ? W.Pyro.fireBarMax : 50) : p.classId === 'pyromaniac' ? (W.Pyro ? W.Pyro.fireBarMax : 50) : 0;
+    p.pyroFireUpgrades = U.clamp(value && Number.isInteger(value.stacks) ? value.stacks : 0, 0, 2);
+    var capacity = W.Pyro && W.Pyro.isPyro(p.classId) ? W.Pyro.fireCapacity(p) : 0;
+    var fuel = value && Number.isFinite(value.fire) ? U.clamp(value.fire, 0, capacity) : capacity;
+    p.pyroFireBar = p.classId === 'pyromaniac' ? fuel : 0;
+    if (p.classId === 'pyromancer') p.weapons[0].ammo = fuel;
     p.pyroFireResetT = value && Number.isFinite(value.reset) ? U.clamp(value.reset, 0, W.Pyro ? W.Pyro.fireWindow : 60) : 0;
   }
   function applyMedicStaffMarkers(rows) {
@@ -674,7 +717,7 @@
         world.emit({ type: 'legendary-crate-broken', crate: world.map.crates[e.id], player: byId(e.by) });
         return;
       case 'boom':
-        world.explode(e.x, e.y, { maxDamage: e.pw, radius: WEAPONS.grenade.explosion.radius }, e.o, e.c);
+        world.explosionFx(e.x, e.y, e.r || WEAPONS.grenade.explosion.radius, e.pw, e.o, e.c);
         return;
       case 'burst':
         world.itemBurst(e.it, e.x, e.y, e.o);
@@ -812,6 +855,7 @@
     if (typeof m.time === 'number') { state.serverTime = m.time; state.recvAt = performance.now() / 1000; }
     applyVehicles(m.vehicles, state.serverTime, 0, true);
     state.pending = []; state.latch = freshLatch(); state.corr.x = state.corr.y = 0; state.vehicleCorr.x = state.vehicleCorr.y = state.vehicleCorr.a = 0;
+    applySignalDrops(m.signalDrops, m.dropPings, state.serverTime);
     m.crates.forEach(function (c) { var crate = map.crates[c[0]]; if (!crate) return; crate.hp = c[1]; if (c[1] <= 0) crate.alive = false; });
     m.gone.forEach(function (id) { var pk = world.pickupById(id); if (pk) pk.alive = false; });
     (m.rocks || []).forEach(function (id) { if (map.rocks[id]) map.rocks[id].alive = false; });
@@ -896,7 +940,7 @@
     L.r = L.r || Controls.hit(input, 'reload');
     L.sw = L.sw || Controls.hit(input, 'swap');
     L.dp = L.dp || Controls.hit(input, 'drop');
-    var grenadeGear = state.me.weapons.some(function (w) { return w.id === 'grenade'; });
+    var grenadeGear = state.me.weapons.some(function (w) { return WEAPONS[w.id].kind === 'throwable'; });
     if (grenadeGear ? !!(gear && gear.released) : Controls.hit(input, 'gear')) { L.u = true; L.uch = grenadeGear ? gear.seconds : 0; }
     var selectedWeapon = Controls.weaponSlotHit(input, state.me);
     if (selectedWeapon !== null) L.sl = selectedWeapon;
@@ -947,14 +991,17 @@
     state.latch = freshLatch();
   }
 
-  function requestUpgrade(classId) { return MatchNet.request({ t: 'upgrade', cls: classId }, 'upgrade-result', 6000); }
+  function requestUpgrade(classId, payment) { return MatchNet.request({ t: 'upgrade', cls: classId, payment: payment }, 'upgrade-result', 6000); }
+  function buyStationSupply(id) { return MatchNet.request({ t: 'buy-supply', id: id }, 'supply-result', 6000); }
   function practiceCommand(action, data) {
     if (!state || !state.info.practice) return Promise.resolve({ ok: false, reason: 'practice-only' });
     return MatchNet.request(Object.assign({}, data || {}, { t: 'practice', action: action }), 'practice-result', 6000);
   }
-  function chooseSentryUpgrade(variant) {
-    if (!state) return false;
-    MatchNet.send({ t: 'sentry-choice', variant: variant });
+  function chooseSentryUpgrade(variant, nonce) {
+    if (!state || !state.me.sentryChoice) return false;
+    var choice = state.me.sentryChoice;
+    if (nonce !== undefined && choice.nonce !== nonce) return false;
+    MatchNet.send({ t: 'sentry-choice', variant: variant, nonce: choice.nonce });
     state.me.sentryChoice = null;
     return true;
   }
@@ -985,7 +1032,7 @@
   W.Online = {
     init: init, join: join, leave: leave, stop: stop, start: start,
     applySnapshot: applySnapshot, applyEvent: applyEvent, applySync: applySync, applyStorm: applyStorm,
-    latch: latch, step: step, interpolate: interpolate, frame: frame, requestUpgrade: requestUpgrade, practiceCommand: practiceCommand, focus: focus,
+    latch: latch, step: step, interpolate: interpolate, frame: frame, requestUpgrade: requestUpgrade, buyStationSupply: buyStationSupply, practiceCommand: practiceCommand, focus: focus,
     selectItem: selectItem, useItem: useItem, pressInteract: pressInteract,
     updateCosmetics: updateCosmetics, emote: emote, clearActions: clearActions, chooseSentryUpgrade: chooseSentryUpgrade,
     state: function () { return state; }, joining: function () { return !!pendingJoin; }, STEP: STEP

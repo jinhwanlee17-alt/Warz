@@ -34,7 +34,7 @@ try {
   await b.waitFor('Warz.App.state()==="play" && Warz.debug.player()');
   await evaluate(() => {
     const W = Warz, w = W.debug.match().world, p = W.debug.player(); w.storm = null;
-    for (const key of ['trees', 'bushes', 'buildings', 'crates', 'pickups', 'ponds', 'drops', 'rocks']) w.map[key] = [];
+    for (const key of ['trees', 'bushes', 'buildings', 'crates', 'pickups', 'ponds', 'drops', 'rocks', 'biomes']) w.map[key] = [];
     w.solids = new W.U.SpatialHash(256); w.structures = [];
     w.vehicles.forEach((v, i) => { v.x = 15000 + i * 100; v.y = 15000; });
     w.players.forEach(o => { if (o !== p) { o.x = o.y = 17000; o.controller = () => ({ mx: 0, my: 0 }); } });
@@ -42,7 +42,9 @@ try {
     w.setClass(p, 'pyromancer', true); p.tokens = 40;
     w.map.stations = [{ ...w.map.stations[0], id: 0, number: 1, x: 4940, y: 5000, cooldown: 0 }]; p.nearStation = w.map.stations[0];
   });
-  await sleep(500); await press('KeyE'); await b.waitFor('Warz.UpgradeTree.isOpen()');
+  await b.waitFor('document.getElementById("hud-ammo").textContent === "100"');
+  check(await evaluate(() => document.getElementById('hud-fire').hidden), 'Pyromancer shows its 100-round magazine with the shared fire bar hidden');
+  await press('KeyE'); await b.waitFor('Warz.UpgradeTree.isOpen()');
   await click('#ut-node-pyromaniac');
   check(await evaluate(() => document.getElementById('ut-stats').textContent.includes('150') && document.getElementById('ut-stats').textContent.includes('50%') && document.getElementById('ut-action').textContent.includes('40 tokens')), 'class preview describes 150 HP, 50% resistance and the 40-token upgrade');
   await b.shot('01-pyromaniac-upgrade.png');
@@ -54,7 +56,7 @@ try {
   await mouse(true); await b.waitFor('Warz.debug.player().pyroHeat>1');
   check(await evaluate(() => pyroQA.sounds.includes('pyroflamethrower') && !Warz.debug.player().weapons[0].reloading), 'held upgraded flamethrower plays its sound without reloading');
   check(await evaluate(() => Warz.debug.player().pyroFireBar <= 49 && Warz.debug.player().pyroFireBar > 40 && document.getElementById('hud-fire-reset').textContent.includes('Refills in')), 'running the flamethrower drains the fire bar and starts its refill timer');
-  for (const [heat, damage, interval] of [[2.5, 10, .25], [5, 15, .25], [7.5, 45, .15], [10, 70, .1]]) {
+  for (const [heat, damage, interval] of [[1, 10, .25], [2, 15, .25], [2.5, 45, .15], [5, 70, .1]]) {
     await evaluate(h => { Warz.debug.player().pyroHeat = h; }, heat); await sleep(100);
     check(await evaluate((d, i) => document.getElementById('hud-ammo-label').textContent.includes(d + ' damage / ' + i + 's'), damage, interval), 'flamethrower displays ' + damage + ' damage every ' + interval + 's after ' + heat + ' seconds');
   }

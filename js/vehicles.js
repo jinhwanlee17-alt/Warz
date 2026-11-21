@@ -508,6 +508,7 @@
       var driver = this.playerById(v.seats.driver), oldX = v.x, oldY = v.y;
       this.driveVehicle(v, driver && driver.alive ? driver.vehicleIntent : IDLE, dt);
       this.syncVehicleSeats(v);
+      if (!v.wreck && !v.fixed && this.mines.length && (v.x !== oldX || v.y !== oldY)) this.checkMineContact(v, oldX, oldY, true);
       if (v.wreck) continue;
       var def = W.vehicleDef(v), maxSpeed = this.vehicleMaxSpeed(v), speed = Math.min(maxSpeed, Math.hypot(v.x - oldX, v.y - oldY) / dt);
       for (var j = 0; j < this.players.length; j++) {
@@ -607,9 +608,10 @@
   World.prototype.damageVehicle = function (v, amount, sourceId, cause, hx, hy) {
     if (this.remote || !v || v.wreck || !(amount > 0)) return false;
     var src = sourceId ? this.playerById(sourceId) : null;
-    if (src && src.vehicle !== v.id && this.vehicleTeam(v) === src.team && cause !== 'airstrike') return false;
-    if (src && src.vehicle !== v.id && cause !== 'airstrike' && cause !== 'lightning' && cause !== 'storm' && cause !== 'snow' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn' && cause !== 'pyro-burn') amount *= this.damageMul(src);
-    amount *= this.outgoingClassDamageMul(src);
+    var mine = cause === 'landmine' || cause === 'vehiclemine';
+    if (!mine && src && src.vehicle !== v.id && this.vehicleTeam(v) === src.team && cause !== 'airstrike') return false;
+    if (!mine && src && src.vehicle !== v.id && cause !== 'airstrike' && cause !== 'lightning' && cause !== 'storm' && cause !== 'snow' && cause !== 'ram' && cause !== 'tank-cannon' && cause !== 'tankmg' && cause !== 'sentry-cannons' && cause !== 'sentry-burn' && cause !== 'pyro-burn') amount *= this.damageMul(src);
+    if (!mine) amount *= this.outgoingClassDamageMul(src);
     amount = Math.round(amount * this.vehicleSentryDamageMul(v, cause) * 100) / 100;
     if (!(amount > 0)) return false;
     v.hp = Math.max(0, v.hp - amount); v.hitFlash = 1;

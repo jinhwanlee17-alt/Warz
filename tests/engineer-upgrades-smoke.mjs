@@ -82,4 +82,24 @@ for (const kind of ['release', 'slot', 'empty', 'range', 'team', 'death', 'damag
   a.world.trigger(a.p, a.intent);
   t.equal(enemy.hp, enemy.maxHp - 30, 'Engineer hammer retains Armor Crew hammer melee damage');
 }
+for (const [item, next] of [['sentry', 'sentry2'], ['sentry2', 'sentry3']]) {
+  const a = arena(item); a.p.tokens = 0; a.s.hp = 1;
+  a.world.addItem(a.p, 'engineerhammer2', 1);
+  a.intent.held = 1; a.intent.firePressed = true; run(a, DT);
+  t.check(a.s.item === next && a.s.hp === W.ITEMS[next].hp && !a.p.sentryWork, 'one click upgrades a damaged ' + item + ' in place to its next tier at full HP');
+  t.check(a.p.tokens === 0 && !a.p.items[1] && a.p.held === -1, 'successful use consumes its hammer with no additional tokens');
+}
+for (const invalid of ['enemy', 'destroyed', 'distant', 'facing away', 'max tier', 'other class', 'wall']) {
+  const a = arena(invalid === 'max tier' ? 'sentry4rockets' : 'sentry');
+  if (invalid === 'enemy') a.s.team = a.p.team + 1;
+  if (invalid === 'destroyed') { a.s.hp = 0; a.s.alive = false; }
+  if (invalid === 'distant') a.p.x -= 80;
+  if (invalid === 'facing away') a.intent.aimX = a.p.x - 20;
+  if (invalid === 'other class') a.world.setClass(a.p, 'soldier', true);
+  if (invalid === 'wall') a.world.solids.insert({ type: 'wall', shape: 'rect', x: 5040, y: 4950, w: 10, h: 100 }, 5040, 4950, 5050, 5050);
+  a.p.tokens = 0;
+  a.p.items[1] = { id: 'engineerhammer2', n: 1 }; a.intent.held = 1; a.intent.firePressed = true;
+  const old = a.s.item; run(a, DT);
+  t.check(a.s.item === old && a.p.items[1]?.n === 1 && !a.p.sentryChoice, invalid + ' target keeps the purchased hammer');
+}
 t.done();

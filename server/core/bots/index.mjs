@@ -175,6 +175,13 @@ export class BotDirector {
         break;
       case 'explosion': this.noise(0, e.x, e.y, time); break;
       case 'death': { const by = e.killer && this.byId.get(e.killer.id); if (by) by.onKill(e.victim); break; }
+      case 'crate-landed': {
+        const c = e.crate, building = this.cover.buildingAt(c.x, c.y);
+        this.crateMeta[c.id] = { building, tree: this.cover.canopiesAt(c.x, c.y, []).length > 0 };
+        if (building >= 0) this.cratesIn[building].push(c.id);
+        this.nav.invalidate(c.x, c.y, c.size);
+        break;
+      }
       case 'crate': this.nav.invalidate(e.crate.x, e.crate.y, 40); this.claims.delete(e.crate.id); break;
       case 'rock-gone': this.nav.invalidate(e.rock.x, e.rock.y, e.rock.r); break;
       case 'foliage': if (e.plant && e.plant.alive === false) this.nav.invalidate(e.plant.x, e.plant.y, e.plant.r); break;   // a cactus shot down

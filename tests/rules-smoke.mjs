@@ -127,7 +127,7 @@ t.check(ITEMS.strength.damage === 0.1 && ITEMS.strength.duration === 30, 'streng
 t.check(ITEMS.speed.speed === 0.15 && ITEMS.speed.duration === 45, 'speed +15% for 45 s');
 t.check(ITEMS.health.heal === 75 && ITEMS.shield.reduce === 0.15 && ITEMS.shield.duration === 30, 'health 75, shield 15% for 30 s');
 t.check(ITEMS.poison.dps === 10 && ITEMS.poison.duration === 10 && ITEMS.poison.slow === 0.5, 'poison 10/s for 10 s, half speed');
-t.check(ITEMS.drone.duration === 60 && ITEMS.radar.radius === 1050 && ITEMS.radar.duration === 30, 'drone 1 minute, radar 7 grenade radii');
+t.check(ITEMS.drone.duration === 60 && ITEMS.radar.radius === 3150 && ITEMS.radar.duration === 30, 'drone lasts one minute and standard radar covers 21 grenade radii for 30 seconds');
 t.check(ITEMS.riotshield.slow === 0.75, 'riot shield: 75% slower');
 t.check(ITEMS.turret.hp === 100 && ITEMS.turret.damage === 15 && ITEMS.turret.fireInterval < WEAPONS.ar.fireInterval, 'turret: 100 HP, 15 dmg, faster than the AR');
 t.check(ITEMS.sentry.hp === 50 && ITEMS.sentry.damage === 5 && ITEMS.sentry.fireInterval === WEAPONS.pistol.fireInterval, 'sentry: 50 HP, 5 dmg at pistol speed');

@@ -81,8 +81,8 @@
           else if (e.op === 'gone' && e.reason !== 'recovered') { kind = 'Debris'; at = position(e, e.struct); }
           owner = e.struct && ('s' + e.struct.id); break;
         case 'strike': case 'strike-hit': kind = 'strike'; at = position(e, e.strike); owner = e.strike && e.strike.owner; break;
-        case 'burst': kind = e.item === 'snowbomb' ? 'Snow' : e.item === 'firenade' ? 'Flames' : 'Grenade'; at = position(e); owner = 0; break;
-        case 'zone': kind = e.zone && e.zone.kind === 'fire' ? 'Flames' : e.zone && e.zone.kind === 'snow' ? 'Snow' : 'Smoke'; at = position(e, e.zone); break;
+        case 'burst': kind = e.item === 'snowbomb' ? 'Snow' : e.item === 'firenade' ? 'Flames' : e.item === 'gasgrenade' ? 'Gas' : 'Grenade'; at = position(e); owner = 0; break;
+        case 'zone': kind = { fire: 'Flames', snow: 'Snow', gas: 'Gas', cylindergas: 'Gas' }[e.zone && e.zone.kind] || 'Smoke'; at = position(e, e.zone); break;
         case 'item-used':
           if (W.ITEMS[e.item] && W.ITEMS[e.item].kind === 'consume') { kind = 'consume'; at = position(e, e.player); sound = e.player !== p ? 'drink' : null; }
           break;

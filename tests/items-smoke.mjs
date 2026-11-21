@@ -444,7 +444,7 @@ for (const seed of [1, 42, 9001]) {
   use(world, p, 'smoke', 3500, 3200);
   steps(world, 2.2);
   const smoke = world.zones.find((z) => z.kind === 'smoke');
-  t.check(!!smoke && smoke.r === 450 && smoke.t > 11, 'smoke grenade: a 450-wide cloud for 12 s');
+  t.check(!!smoke && smoke.r === 450 && smoke.dur === 24 && smoke.t > 23, 'smoke grenade creates a 450-radius cloud lasting 24 seconds');
   t.check(events(world, 'burst').some((b) => b.item === 'smoke'), 'burst event for the client');
 }
 {
@@ -688,7 +688,7 @@ for (const seed of [1, 42, 9001]) {
   idle(mate, 3000, 3000); idle(near, 3000, 3000); idle(farAway, 3000, 3000);
   t.equal(world.revealedEnemies(p).length, 0, 'nothing revealed by default');
   use(world, p, 'radar');
-  t.check(p.fx.radar > 29.5 && world.revealedEnemies(p).map((o) => o.id).join() === String(near.id), 'radar pings enemies within 1050');
+  t.check(p.fx.radar > 29.5 && world.revealedEnemies(p).map((o) => o.id).join() === String(near.id), 'radar pings enemies within 3150');
   use(world, p, 'drone');
   t.check(world.reveal[1] > 59.5 && world.revealedEnemies(mate).length === 2, 'drone shows every enemy to the whole team for 60 s');
   t.equal(world.revealedEnemies(near).length, 0, 'the other teams see nothing');

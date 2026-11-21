@@ -18,7 +18,7 @@ function fly(a, seconds = .5) { for (let i = 0; i < seconds / .01; i++) a.world.
   t.equal(a.p.weapons.map(w => w.id).join(), 'pyroflamethrower,pyrodualrevolver', 'class loadout has upgraded flame and paired heavy revolvers');
   t.equal(W.Rules.classParents('pyromaniac').join(), 'pyromancer', 'Pyromancer is the required predecessor');
   t.equal(W.Rules.upgradeCostFor('pyromaniac'), 40, 'class costs40tokens separately fromfiregun');
-  t.check(!W.CLASS_PLANNED.pyromaniac && W.CLASS_ORDER.at(-1) === 'pyromaniac', 'class is released with existing network indices preserved');
+  t.check(!W.CLASS_PLANNED.pyromaniac && W.CLASS_ORDER[18] === 'pyromaniac', 'class is released with its network index preserved');
   t.check(W.CLASS_ORDER.every(id => W.TREE_LAYOUT[id] && Number.isFinite(W.TREE_LAYOUT[id].x) && Number.isFinite(W.TREE_LAYOUT[id].y)), 'every released class has a finite menu layout');
   t.check(W.WEAPONS.pyroflamethrower.range > W.WEAPONS.flamethrower.range, 'upgraded flame reaches farther than Pyromancer');
   for (const cause of ['pistol', 'grenade', 'lightning', 'storm', 'snow', 'pyro-burn', 'tank-cannon', 'sentry-cannons']) {
@@ -38,16 +38,16 @@ function fly(a, seconds = .5) { for (let i = 0; i < seconds / .01; i++) a.world.
 }
 {
   const a = arena(); a.intent.fire = true;
-  for (const [seconds, total, damage] of [[2.5, 50, 10], [2.5, 150, 15], [2.5, 300, 45]]) {
+  for (const [seconds, total, damage] of [[1, 20, 10], [1, 60, 15], [.5, 90, 45]]) {
     tick(a, seconds);
     t.near(100000 - a.target.hp, total, .001, 'continuous flame stage has correct cumulative direct damage');
     t.equal(W.Pyro.flameStage(a.p.pyroHeat).damage, damage, 'heat reaches the next stage at its exact duration');
   }
-  t.near(a.target.pyroBurn.flame.damage, 300, .001, 'residual burn tracks direct damage once');
-  t.near(a.target.pyroBurn.flame.exposure, 7.5, .001, 'residual burn tracks 7.5 seconds of flame exposure');
-  t.near(a.target.pyroBurn.flame.dps, 30, .001, 'residual DPS is 10% of cumulative direct damage');
-  tick(a, 1.5); t.near(100000 - a.target.hp, 750, .001, 'fourth stage sustains 45 damage every .15 seconds');
-  tick(a, 1); t.equal(W.Pyro.flameStage(a.p.pyroHeat).damage, 70, 'fifth stage becomes available after ten seconds');
+  t.near(a.target.pyroBurn.flame.damage, 90, .001, 'residual burn tracks direct damage once');
+  t.near(a.target.pyroBurn.flame.exposure, 2.5, .001, 'residual burn tracks the first 2.5 seconds of flame exposure');
+  t.near(a.target.pyroBurn.flame.dps, 9, .001, 'residual DPS is 10% of cumulative direct damage');
+  tick(a, 1.5); t.near(100000 - a.target.hp, 540, .001, 'fourth stage sustains 45 damage every .15 seconds');
+  tick(a, 1); t.equal(W.Pyro.flameStage(a.p.pyroHeat).damage, 70, 'fifth stage becomes available after five seconds');
   const before = a.target.hp; tick(a, 1);
   t.near(before - a.target.hp, 700, .001, 'final stage sustains 70 damage every .1 seconds');
   t.check(a.p.weapons[0].ammo === 1 && !a.p.weapons[0].reloading && !a.world.startReload(a.p), 'flamethrower never consumes ammo or reloads');
@@ -56,9 +56,9 @@ function fly(a, seconds = .5) { for (let i = 0; i < seconds / .01; i++) a.world.
   t.equal(a.world.events.filter(e => e.type === 'flame').at(-1).damage, 5, 'a fresh burst returns to five damage');
 }
 {
-  const a = arena(); a.intent.fire = true; tick(a, 5); a.intent.fire = false;
-  tick(a, 2.05);
-  t.near(100000 - a.target.hp, 180, .11, '150 direct damage over five seconds leaves 30 residual damage (15 DPS for two seconds)');
+  const a = arena(); a.intent.fire = true; tick(a, 2.5); a.intent.fire = false;
+  tick(a, 1.05);
+  t.near(100000 - a.target.hp, 99, .11, '90 direct damage over 2.5 seconds leaves 9 residual damage');
   t.equal(a.world.pyroBurnTime(a.target), 0, 'residual burn ends after its calculated duration');
 }
 {
@@ -204,5 +204,37 @@ for (const type of ['humvee', 'tank']) {
   a.p.pyroFireBar = 21; a.p.pyroFireResetT = 42;
   t.equal(a.world.pyroFireTime(a.p), 42, 'client fire timer uses replicated remaining time');
   t.equal(a.p.pyroFireBar, 21, 'client cannot spend authoritative fire usage locally');
+}
+for (const id of ['pyromancer', 'pyromaniac']) {
+  for (const [regions, multiplier] of [[[], 1], [['tundra'], .2], [['tundra', 'forest'], .2], [['desert'], 1.05], [['desert', 'grassland'], 1]]) {
+    const a = arena({ biomes: regions.map(id => ({ id, x: X - 50, y: Y - 50, w: 100, h: 100 })) });
+    a.world.setClass(a.p, id, true);
+    a.world.applyPyroFireUpgrade(a.p); a.world.applyPyroFireUpgrade(a.p);
+    const base = id === 'pyromancer' ? 10 : 5;
+    a.world.trigger(a.p, { fire: true });
+    t.near(100000 - a.target.hp, Math.round(base * multiplier * 1.2 * 10) / 10, .001, id + ' fire uses the shooter biome and both fire upgrades in ' + regions.join('/'));
+    a.p.slot = 1; a.world.trigger(a.p, { firePressed: true });
+    t.near(a.world.bullets[0].damage, W.WEAPONS[a.p.weapons[1].id].damage * multiplier, .001, id + ' sidearm gets the biome modifier only');
+    a.world.itemBurst('firenade', a.target.x, a.target.y, a.p.id);
+    t.near(a.world.zones.at(-1).dps, W.ITEMS.firenade.dps * multiplier * 1.2, .001, 'Molotov damage includes the Pyro fire bonus');
+  }
+}
+{
+  const a = arena(); a.world.setClass(a.p, 'pyromancer', true);
+  const flame = a.p.weapons[0]; flame.ammo = 20;
+  t.check(a.world.applyPyroFireUpgrade(a.p) && a.world.applyPyroFireUpgrade(a.p) && !a.world.applyPyroFireUpgrade(a.p), 'fire upgrades cap at two');
+  t.equal(flame.ammo, 40, 'two upgrades add twenty current fuel without filling an empty magazine');
+  flame.ammo = 101; t.check(a.world.startReload(a.p), 'an upgraded magazine can reload above its original limit');
+  tick(a, 2.6); t.equal(flame.ammo, 120, 'reload fills the Pyromancer’s enlarged fuel supply');
+  a.world.setClass(a.p, 'pyromaniac', false);
+  t.equal(a.p.pyroFireBar, 70, 'class advancement carries both stacks into the shared fire bar');
+  a.world.applyPyroFiregun(a.p, true); a.p.slot = 1; a.world.trigger(a.p, { fire: true }); fly(a);
+  t.equal(a.target.hp, 98920, 'a fully upgraded fireball deals twenty percent more damage at full fuel');
+  t.near(a.target.pyroBurn.firegun.dps, 7.2, .001, 'Firegun’s residual burn also benefits once');
+  a.world.time = a.p.pyroFireResetAt; a.world.resetExpiredPyroFire(a.p);
+  t.equal(a.p.pyroFireBar, 70, 'minute refill restores the purchased capacity');
+  a.world.setClass(a.p, 'pyromaniac', true);
+  t.check(a.p.pyroFireUpgrades === 0 && a.p.pyroFireBar === 50, 'fresh battle life resets fire upgrades');
+  a.world.setClass(a.p, 'soldier', true); t.check(!a.world.applyPyroFireUpgrade(a.p), 'other classes cannot receive fire upgrades');
 }
 t.done();

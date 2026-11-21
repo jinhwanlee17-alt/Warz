@@ -41,7 +41,9 @@
     if (!firing) p.automaticWeapon = null;
   };
   World.prototype.speedMul = function (p) {
-    return baseSpeed.call(this, p) * (CLASSES[p.classId].speed || 1) * (p.commandBuff > 0 ? 1.25 : 1);
+    var speed = CLASSES[p.classId].speed || 1;
+    if (p.classId === 'gastroop') speed += p.gasCylindersUsed * WEAPONS.gascylinder.speedGain;
+    return baseSpeed.call(this, p) * speed * (p.inGas ? 1 - WEAPONS.gasgrenade.slow : 1) * (p.commandBuff > 0 ? 1.25 : 1);
   };
   World.prototype.classDamageMul = function (p) { return p && p.classId === 'armorcrew' ? CREW.damageMul : 1; };
   World.prototype.damageMul = function (p) { return baseDamage.call(this, p) * (p && p.commandBuff > 0 ? 1.25 : 1); };
@@ -171,6 +173,7 @@
     var pulses = 0, self = this;
     do {
       var damage = Math.min(def.damageMax, def.damage + (p.flameTicks || 0) * def.damageStep);
+      if (W.Pyro) damage *= W.Pyro.weaponMultiplier(this.map, p, true);
       p.flameTicks = Math.min(8, (p.flameTicks || 0) + 1);
       w.ammo--; w.cooldown += def.fireInterval / this.fireRateMul(p); p.stats.shots++; pulses++;
       function inFlame(o, radius) {

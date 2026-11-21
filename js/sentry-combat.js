@@ -115,8 +115,8 @@
   };
   World.prototype.updateSentry = function (s, dt) {
     var def = this.sentryVariant(s);
-    if (!def) return baseSentry.call(this, s, dt);
-    if (this.remote || !s.alive || s.trenchId) return;
+    if (!def || !this.automaticGuardRange(s)) return baseSentry.call(this, s, dt);
+    if (this.remote) return;
     var chosen = this.sentryIVTarget(s, def);
     if (!chosen) { s.cooldown = Math.max(0, s.cooldown - dt); s.target = 0; s.targetKind = null; return; }
     var target = chosen.target;

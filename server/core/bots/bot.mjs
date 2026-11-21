@@ -172,7 +172,7 @@ export class Bot {
   }
   sense() {
     const p = this.p, world = this.world, now = this.now, known = this.known, cover = this.cover;
-    const half = viewHalf(this.W, p), blind = p.fx.flash > 0.5;
+    const half = viewHalf(this.W, p), blind = p.inGas || p.fx.flash > 0.5;
     const reveal = world.revealedEnemies(p);
     const revealed = reveal && reveal.length ? new Set(reveal.map((o) => o.id)) : null;
     const basePings = new Set(world.militaryPingsFor(p).map(o => o.id));
@@ -287,7 +287,7 @@ export class Bot {
   }
   // Is this player drawn on our screen right now (inside the view, not under a roof or leaves, not invisible,
   // unless they have just fired)?
-  shows(o) { return !(this.p.fx.flash > 0.5) && canSee(this.W, this.cover, this.p, o, viewHalf(this.W, this.p), null); }
+  shows(o) { return !this.p.inGas && !(this.p.fx.flash > 0.5) && canSee(this.W, this.cover, this.p, o, viewHalf(this.W, this.p), null); }
   onHit(e) {
     this.outHeat += e.amount;
     const rec = this.known.get(e.target.id);
@@ -327,7 +327,7 @@ export class Bot {
     };
     for (const g of world.grenades) {
       const own = g.owner === p.id, mate = !own && g.team === p.team, it = g.item;
-      if (it === 'smoke') continue;
+      if (it === 'smoke' || (it === 'gasgrenade' && world.gasProtected(p))) continue;
       if (mate && it !== 'flashbang' && it !== 'snowbomb') continue;         // teammates' blasts, fire and poison spare you
       if (own && (it === 'blackhole' || it === 'snowbomb')) continue;        // thrown on purpose; the snow rim is handled as a zone
       const R = it === 'firenade' ? 300 : it === 'snowbomb' ? 0 : it === 'blackhole' ? 0 : (g.radius || (g.explosion && g.explosion.radius) || 150);
@@ -340,6 +340,7 @@ export class Bot {
     for (const z of world.zones) {
       if (z.kind === 'fire') { if (z.owner !== p.id && z.team !== null && z.team !== undefined && z.team === p.team) continue; add('z' + z.id, z.x, z.y, z.r + 26, 0, 'fire', true); }
       else if (z.kind === 'snow') add('z' + z.id, z.x, z.y, z.r + 10, 0, 'snow', true);
+      else if ((z.kind === 'gas' || z.kind === 'cylindergas') && p.team !== z.team && !world.gasProtected(p)) add('z' + z.id, z.x, z.y, z.r + 20, 0, 'gas', true);
     }
     for (const s of world.strikes) {
       if (s.t <= 0) continue;
@@ -948,7 +949,7 @@ export class Bot {
       else if (out.mx || out.my) { tx = p.x + out.mx * 200; ty = p.y + out.my * 200; tau = 0.3; }
       else { tx = ox + Math.cos(this.aimA) * 200; ty = oy + Math.sin(this.aimA) * 200; }
     }
-    if (p.fx.flash > 0.4) wobble *= 4;
+    if (p.inGas || p.fx.flash > 0.4) wobble *= 4;
     const want = Math.atan2(ty - oy, tx - ox), maxStep = prof.turnRate * dt;
     // Tracking: the hand matches the target's sweep across the screen (as well as this bot can) and closes the rest
     // of the gap with a lag. The sweep it matches is a smoothed estimate, so every time the target changes direction

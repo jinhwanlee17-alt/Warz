@@ -127,7 +127,7 @@ const shotsBy = (a, b) => a.count('shot', (e) => e.player === b.p);
     if (!W.CLASSES[third] || W.CLASSES[third].tier !== 3 || !W.Rules.classParents(third).includes(second)) legal = false;
   }
   t.check(legal, 'every bot plans a level-three class its level-two class really leads to');
-  t.check(['engineer', 'shieldoperator', 'rocketeer', 'shotgunner3', 'magicmedic', 'pyromaniac'].every((c) => seen.has(c)), 'between them bots go for all six level-three classes');
+  t.check(['engineer', 'shieldoperator', 'rocketeer', 'shotgunner3', 'magicmedic', 'pyromaniac', 'gastroop'].every((c) => seen.has(c)), 'between them bots go for all seven level-three classes');
 }
 {
   const station = { id: 0, x: 9300, y: 9000, cooldown: 0 };
@@ -185,6 +185,8 @@ function fight(classId, d, secs, o = {}) {
   t.check(r.a.count('blocked', (e) => e.player === r.b.p && e.how === 'shield') >= 5 && r.dmg('shieldpistol') > 0, 'a Shield Operator keeps the riot shield toward the shooter while firing (' + r.a.count('blocked', (e) => e.player === r.b.p) + ' bullets stopped)');
   r = fight('engineer', 450, 10);
   t.check(r.dmg('pistol') > 0 && r.a.count('struct', (e) => e.op === 'add') === 0, 'an Engineer in a fight puts the wrench away and shoots (' + Math.round(r.dmg('pistol')) + ' damage)');
+  r = fight('gastroop', 170, 6, { passive: true });
+  t.check(r.b.p.gasCylinders === 2 && r.dmg('gas') > 0 && r.selfHurt === 0, 'a Gas Troop bot releases one cylinder against a nearby opponent');
   t.check([r].every((x) => x.a.dir.errors === 0), 'none of it throws');
 }
 {
@@ -200,6 +202,20 @@ function fight(classId, d, secs, o = {}) {
   a.step(3);
   t.check(!!W.WEAPONS[b.p.weapons[b.p.slot].id].bulletSpeed, 'then puts the tools away and has a gun in hand again (' + b.p.weapons[b.p.slot].id + ')');
   t.equal(a.dir.errors, 0, 'building does not throw');
+}
+{
+  const a = arena();
+  const b = a.bot(9000, 9000, {}, { classId: 'soldier', team: 4, items: [['engineerhammer2', 1]] });
+  t.check(b.wantItem('engineerhammer2') === 0 && b.worstSlot()?.value === 0, 'other classes leave the Engineer hammer for an Engineer and can drop an unusable one');
+  a.world.setClass(b.p, 'engineer', true);
+  t.check(b.wantItem('engineerhammer2') > 0, 'an Engineer recognizes a dropped instant-upgrade hammer');
+}
+for (const item of ['sentry', 'sentry3']) {
+  const a = arena(), b = a.bot(9000, 9000, {}, { classId: 'engineer', team: 5, items: [['engineerhammer2', 1]] });
+  const s = a.world.addStruct({ kind: 'sentry', item, x: 8950, y: 9050, r: 22, hp: 1, maxHp: W.ITEMS[item].hp, team: b.p.team, owner: 1234 });
+  const used = a.until(() => a.used('engineerhammer2', b.p) > 0, 3);
+  t.check(used >= 0 && (item === 'sentry3' ? Object.values(W.SENTRY_IV).some(v => v.item === s.item) : s.item === 'sentry2'), 'an Engineer bot aims its hammer at a damaged friendly ' + item + ' and upgrades it');
+  t.check(!a.world.countItem(b.p, 'engineerhammer2') && b.p.tokens === 0 && s.hp === s.maxHp && !a.dir.errors, 'the authoritative ' + item + ' upgrade consumes one hammer with zero tokens');
 }
 
 t.done();

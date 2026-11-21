@@ -68,6 +68,13 @@ Object.assign(Bot.prototype, {
     }
     const a = this.act, slot = p.items[a.idx];
     if (!slot || slot.id !== a.id) return this.endAct(a.phase >= 2);   // the stack is gone: we just used the last one (or lost it)
+    if (a.id === 'engineerhammer2' && a.kind === 'use') {
+      out.slot = null; out.fire = false;
+      if (a.phase === 2 && p.sentryChoice?.instant) {
+        const choice = p.sentryChoice;
+        return this.endAct(this.world.chooseSentryUpgrade(p, this.rng.pick(choice.options), choice.nonce));
+      }
+    }
     a.t += dt;
     if (a.phase === 1 && p.held !== a.idx) { a.phase = 0; a.sent = false; a.t = 0; a.chargeAt = null; }   // it got put away (knocked down, mounted): take it out again
     if (a.phase === 0) {
@@ -209,6 +216,14 @@ Object.assign(Bot.prototype, {
       return this.startAct({ kind: 'hold', idx: i, id: 'riotshield', until: this.now + this.rng.range(2, 3.5),
         face: () => this.whereIs(e.id), done: () => !this.fleeing || !this.fleeing.exposed });
     }
+    if (S.vis && S.dist > 150 && (p.trenchId || 0) === (e.ref.trenchId || 0)) {
+      i = e.ref.vehicle ? this.slotOf('vehiclemine', 'landmine') : this.slotOf('landmine', 'vehiclemine');
+      if (i >= 0 && !this.world.mines.some(m => m.owner === p.id && this.dist(m) < this.W.ITEMS.snowbomb.radius)) {
+        const find = () => this.structSpot(p.items[i].id, e.x - p.x, e.y - p.y), spot = find();
+        if (spot) return this.useItem(i, { aim: spot, aimFn: find, place: true });
+      }
+    }
+    if ((i = this.slotOf('strikegun')) >= 0 && !this.hasPendingDrop()) return this.useItem(i);
     return false;
   },
   // Where an enemy is as far as we know: where they stand while they are on screen, where we last saw them otherwise.
@@ -418,12 +433,24 @@ Object.assign(Bot.prototype, {
   },
 
   // Quiet moments.
+  hasPendingDrop() {
+    return this.world.signalDrops.some(d => d.owner === this.p.id && !d.stormed && (!d.crate || d.crate.alive));
+  },
   itemCalm(S) {
     const p = this.p, now = this.now;
     let i;
     // Someone is shooting and we cannot see who: radar.
-    if ((i = this.slotOf('radar')) >= 0 && !(p.fx.radar > 0) && ((this.bearing && now - this.bearing.at < 3 && !S.vis) || (this.mode === 'hunt' && S.calm)) && this.ready('calm-radar', true)) return this.useItem(i);
+    if ((i = this.slotOf('sniper2radar', 'sniperradar', 'radar')) >= 0 && !(p.fx.radar || p.fx.sniperradar || p.fx.sniper2radar) && ((this.bearing && now - this.bearing.at < 3 && !S.vis) || (this.mode === 'hunt' && S.calm)) && this.ready('calm-radar', true)) return this.useItem(i);
     if (!S.calm) return false;
+    if (p.classId === 'engineer' && (i = this.slotOf('engineerhammer2')) >= 0) {
+      let nearest = null, distance = Infinity;
+      for (const s of this.world.structures) {
+        if (!s.alive || s.kind !== 'sentry' || s.team !== p.team || !['sentry', 'sentry2', 'sentry3'].includes(s.item)) continue;
+        const d = this.dist(s);
+        if (d < distance && d - s.r <= this.W.ENGINEER.reach && this.world.lineClear(p.x, p.y, s.x, s.y, s)) { nearest = s; distance = d; }
+      }
+      if (nearest) return this.useItem(i, { aim: nearest, place: true });
+    }
     // The first teleporter pad goes down somewhere safe; the second is the way back when a fight goes wrong.
     if ((i = this.slotOf('teleporter')) >= 0 && p.items[i].n >= 2 && !p.openPad && !this.storm.soon && this.inSafe(p.x, p.y, 260)
       && (this.mode === 'loot' || this.mode === 'roam') && this.world.spotFree(p.x, p.y, 36, true) && this.ready('calm-pad', true)) {
@@ -433,6 +460,8 @@ Object.assign(Bot.prototype, {
     if ((i = this.slotOf('drone')) >= 0 && !((this.world.reveal[p.team] || 0) > 0) && (this.d.late || this.mode === 'hunt') && this.ready('calm-drone', true)) return this.useItem(i);
     // Mystery potion: it can be poison (100 damage over 10 s), so only with health to spare.
     if ((i = this.slotOf('mystery')) >= 0 && p.hp + p.armor + (this.hasHeal() ? 30 : 0) >= 125 && this.ready('calm-mystery', true)) return this.useItem(i);
+    if ((i = this.slotOf('flaregun')) >= 0 && !this.storm.soon && this.inSafe(p.x, p.y, 260) &&
+        !this.hasPendingDrop() && this.ready('calm-flare', true)) return this.useItem(i);
     return false;
   }
 });

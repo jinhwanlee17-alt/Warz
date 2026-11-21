@@ -122,7 +122,7 @@ try {
     const select = document.getElementById('practice-item-slot'), p = Warz.debug.player();
     return select.value === '7' && select.options.length === 8 && [...select.options].every((o, i) =>
       o === window.pickerOptions[i] && o.textContent.includes('(' + Warz.Controls.primary(Warz.Controls.itemAction(p, i)) + ')') && o.disabled === (i === 0)) &&
-      select.options[0].textContent.includes('Third class tool') && p.items[0] === null && select.options[2].textContent.includes(Warz.ITEMS.smoke.name);
+      select.options[0].textContent.includes(Warz.WEAPONS[p.weapons[2].id].name) && p.items[0] === null && select.options[2].textContent.includes(Warz.ITEMS.smoke.name);
   }), 'leaving the picker refreshes inventory and class bindings without replacing options or resetting the choice: the slot the Engineer hammer closes is disabled and its stack shows in the next free slot');
   // A choice left on the slot that closes moves to the first open slot, and the closed slot cannot be filled.
   await evaluate(() => {

@@ -63,9 +63,16 @@
     launcher: function (t, v) { tone(t, 'sine', 240, 80, 0.16, 0.5 * v); noise(t, 0.12, 'lowpass', 900, 200, 0.6, 0.35 * v); },
     explosion: function (t, v) { noise(t, 0.9, 'lowpass', 1400, 120, 0.6, 0.95 * v); tone(t, 'sine', 90, 28, 0.6, 0.7 * v); },
     throw: function (t, v) { noise(t, 0.18, 'bandpass', 700, 2200, 1.4, 0.18 * v); },
+    gas: function (t, v) { noise(t, 0.75, 'highpass', 2100, 650, 0.6, 0.34 * v); },
     reload: function (t, v) { noise(t, 0.03, 'highpass', 3000, 0, 0.7, 0.25 * v); noise(t + 0.13, 0.03, 'highpass', 2200, 0, 0.7, 0.25 * v); },
     reloaded: function (t, v) { noise(t, 0.04, 'highpass', 2600, 0, 0.7, 0.3 * v); tone(t, 'square', 900, 0, 0.03, 0.04 * v); },
     token: function (t, v) { tone(t, 'sine', 990, 0, 0.08, 0.22 * v); tone(t + 0.07, 'sine', 1480, 0, 0.12, 0.2 * v); },
+    purchase: function (t, v) {
+      noise(t, 0.025, 'bandpass', 1850, 0, 1.1, 0.12 * v);
+      tone(t, 'triangle', 659, 0, 0.055, 0.17 * v);
+      tone(t + 0.055, 'triangle', 880, 0, 0.14, 0.2 * v);
+      tone(t + 0.06, 'sine', 1319, 0, 0.11, 0.085 * v);
+    },
     key: function (t, v) { tone(t, 'triangle', 660, 0, 0.1, 0.22 * v); tone(t + 0.08, 'triangle', 880, 0, 0.1, 0.22 * v); tone(t + 0.16, 'triangle', 1320, 0, 0.18, 0.22 * v); },
     upgrade: function (t, v) {
       [523, 659, 784, 1047].forEach(function (f, i) { tone(t + i * 0.09, 'triangle', f, 0, 0.28, 0.25 * v); tone(t + i * 0.09, 'square', f * 2, 0, 0.12, 0.03 * v); });
@@ -96,6 +103,7 @@
     fire: function (t, v) { noise(t, 0.7, 'bandpass', 600, 1800, 0.5, 0.5 * v); tone(t, 'sine', 120, 50, 0.3, 0.3 * v); },
     blackhole: function (t, v) { tone(t, 'sawtooth', 400, 40, 0.8, 0.3 * v, 0.05); noise(t, 0.6, 'lowpass', 1200, 100, 0.6, 0.4 * v); },
     drone: function (t, v) { tone(t, 'square', 180, 260, 0.6, 0.08 * v, 0.1); tone(t, 'square', 183, 266, 0.6, 0.08 * v, 0.1); },
+    minePing: function (t, v) { tone(t, 'sine', 920, 740, 0.16, 0.22 * v); },
     mount: function (t, v) { noise(t, 0.06, 'highpass', 2000, 0, 0.7, 0.3 * v); tone(t + 0.07, 'square', 300, 0, 0.06, 0.08 * v); }
   };
 
@@ -104,6 +112,8 @@
   SOUNDS.shotgun2 = SOUNDS.shotgun;
   SOUNDS.shotgun3 = SOUNDS.shotgun;
   SOUNDS.sniper2 = SOUNDS.sniper;
+  SOUNDS.boltrifle = SOUNDS.sniper;
+  SOUNDS.heavydeagle = SOUNDS.deagle;
   SOUNDS.revolver = SOUNDS.deagle;
   SOUNDS.dualrevolver = function (t, v) { SOUNDS.revolver(t, v * 0.75); SOUNDS.revolver(t + 0.012, v * 0.75); };
   SOUNDS.pyrodualrevolver = SOUNDS.dualrevolver;

@@ -8,7 +8,8 @@ const CRATE_VALUE = { common: 4, rare: 7, epic: 10, mythic: 13, legendary: 20, t
 // Best tool for opening a crate, and how close to stand ([preference, distance, minimum distance]).
 const CRATE_GUN = { shotgun: [5, 92, 0], shotgun2: [5, 92, 0], flamethrower: [5, 170, 0], minigun: [4, 260, 0], ar: [4, 280, 0], deagle: [3, 280, 0],
   commandpistol: [3, 260, 0], launcher2: [3, 320, 225], revolver: [2.5, 280, 0], pistol: [2.5, 260, 0], launcher: [2, 320, 225], sniper2: [1.2, 300, 0], sniper: [1, 300, 0],
-  shotgun3: [5, 92, 0], pyroflamethrower: [5, 260, 0], dualrevolver: [2.5, 280, 0], pyrodualrevolver: [2.5, 280, 0], shieldpistol: [2.5, 260, 0] };
+  shotgun3: [5, 92, 0], pyroflamethrower: [5, 260, 0], dualrevolver: [2.5, 280, 0], pyrodualrevolver: [2.5, 280, 0], shieldpistol: [2.5, 260, 0],
+  boltrifle: [2.5, 300, 0], heavydeagle: [4, 280, 0] };
 
 Object.assign(Bot.prototype, {
   nextClass() {
@@ -28,10 +29,14 @@ Object.assign(Bot.prototype, {
   },
 
   // ---------------------------------------------------------------- what is an item worth to me?
+  baseItemValue(id) {
+    if (id === 'engineerhammer2' && this.p.classId !== 'engineer') return 0;
+    return ITEM_VALUE[id] || 30;
+  },
   itemWorth(id) {
     const p = this.p, it = this.W.ITEMS[id];
     if (!it) return 0;
-    let v = ITEM_VALUE[id] || 30;
+    let v = this.baseItemValue(id);
     if (it.heal && !this.hasHeal()) v += 18;                       // no way to heal: any heal looks good
     if (this.badItem && this.badItem.id === id && this.now < this.badItem.until) return 0;
     if (it.stack === 1 && this.world.countItem(p, id) >= 1) v *= 0.4; // a second riot shield is just dead weight
@@ -43,7 +48,7 @@ Object.assign(Bot.prototype, {
     for (let i = 0; i < p.items.length; i++) {
       const s = p.items[i];
       if (!s) continue;
-      const it = this.W.ITEMS[s.id], value = (ITEM_VALUE[s.id] || 30) * (0.75 + 0.25 * Math.min(1, s.n / Math.max(1, it.found)));
+      const it = this.W.ITEMS[s.id], value = this.baseItemValue(s.id) * (0.75 + 0.25 * Math.min(1, s.n / Math.max(1, it.found)));
       if (!worst || value < worst.value) worst = { idx: i, id: s.id, value };
     }
     return worst;
@@ -126,6 +131,8 @@ Object.assign(Bot.prototype, {
     for (const i of this.crates) {
       const c = map.crates[i];
       if (!c.alive) { this.crates.delete(i); continue; }
+      const drop = world.signalDrops[c.signalDrop];
+      if (drop && drop.owner === p.id && drop.trap) continue;
       const d = Math.hypot(c.x - p.x, c.y - p.y);
       if (d > 2600 || this.d.claimedByMate(c.id, p)) continue;
       offer('crate', c, 'c' + c.id, CRATE_VALUE[c.tier] * (need > 0 ? 1 : 0.55), d, 2.5 + c.hp / 70);

@@ -202,7 +202,8 @@
       pending.held !== null || (st && st.latch.ht !== null);
     var enabled = !changing && !blockedNow() && !W.MapScreen.isOpen() && !W.Inventory.isOpen() && p.alive && !p.downed && !p.mount && !p.vehicle && p.dropT <= 0;
     projectileInput.fire = chargeTracker.sample(input, 'fire', match.world.aimedProjectile(p), enabled);
-    projectileInput.gear = chargeTracker.sample(input, 'gear', p.weapons.some(function (w) { return w.id === 'grenade'; }) ? 'grenade' : null, enabled);
+    var throwable = p.weapons.find(function (w) { return WEAPONS[w.id].kind === 'throwable'; });
+    projectileInput.gear = chargeTracker.sample(input, 'gear', throwable ? throwable.id : null, enabled);
   }
 
   function localController(p) {
@@ -225,7 +226,7 @@
       utilityCharge: projectileInput.gear.seconds || 0,
       scope: Controls.down(input, 'scope'),
       reload: Controls.hit(input, 'reload'), slot: artillery ? artillery.mode : slot, cycle: input.wheel, swap: Controls.hit(input, 'swap'),
-      utility: !mapOpen && (p.weapons.some(function (w) { return w.id === 'grenade'; }) ? projectileInput.gear.released : Controls.hit(input, 'gear')),
+      utility: !mapOpen && (p.weapons.some(function (w) { return WEAPONS[w.id].kind === 'throwable'; }) ? projectileInput.gear.released : Controls.hit(input, 'gear')),
       held: pending.held, interactPressed: pending.interact, iv: !mapOpen && Controls.down(input, 'interact'), dropPressed: !mapOpen && Controls.hit(input, 'drop')
     };
     pending.held = null; pending.interact = false; pending.use = false;
@@ -295,9 +296,9 @@
     }
   }
 
-  function doUpgrade(classId, ctx) {
-    if (match && match.online) return Online.requestUpgrade(classId).then(function (r) { if (!r.ok) play('deny'); return r; });
-    var result = ctx.world.upgrade(ctx.player, ctx.station, classId);
+  function doUpgrade(classId, ctx, payment) {
+    if (match && match.online) return Online.requestUpgrade(classId, payment).then(function (r) { if (!r.ok) play('deny'); return r; });
+    var result = ctx.world.upgrade(ctx.player, ctx.station, classId, payment);
     if (!result.ok) play('deny');
     return result;
   }
@@ -316,6 +317,8 @@
       nogrenades: 'Out of grenades.',
       nogear: 'Soldiers have no gear. Medics (medkit) and Grenadiers (grenades) use ' + Controls.primary('gear') + '.',
       repairtarget: 'Stand near a damaged Humvee or tank to repair it.',
+      sentrytarget: 'Aim the hammer at a nearby friendly sentry of tier I, II or III.',
+      engineeronly: 'Only an Engineer can use this hammer.',
       full: 'Your item slots are full. Select an item and press ' + Controls.primary('drop') + ' to drop its stack' + (e.item && ITEMS[e.item] ? ' and make room for the ' + ITEMS[e.item].name : '') + '.',
       blocked: 'No room to place that there. Try a clear spot closer to you.',
       notarget: 'Click on an enemy within reach to call it down.',
@@ -332,6 +335,7 @@
   function itemSound(id) {
     var it = ITEMS[id];
     if (!it) return 'click';
+    if (id === 'engineerhammer2') return 'hammer';
     if (it.kind === 'consume') return 'drink';
     if (it.kind === 'throw') return 'throw';
     if (it.kind === 'place') return 'place';
@@ -349,7 +353,8 @@
       case 'regen': return 'First Aid Kit: healing 100 HP over 15 s.';
       case 'shieldo': return 'Shieldo Shieldo: immune for 1 s, then half damage for 5 s.';
       case 'drone': return 'Drone up: every enemy shows on your map and screen edges for 1 minute.';
-      case 'radar': return 'Radar on: nearby enemies ping for 30 s.';
+      case 'radar': return it && it.id === 'sniper2radar' ? 'Sniper II Radar active. Open the map for island-wide player and supply intel.' :
+        it && it.id === 'sniperradar' ? 'Sniper Radar active. Double-range contacts for 30 seconds.' : 'Radar on: nearby enemies ping for 30 s.';
       case 'invisible': return 'You are invisible to enemies for 30 s. Shooting still gives you away.';
       case 'power': return name + ': +15% damage, +15% speed, 15% less damage taken' + secs + (it && it.deathImmune ? ', and 10 s of death immunity' : '') + '.';
       default: return name + secs + '.';
@@ -362,6 +367,9 @@
     for (var i = 0; i < events.length; i++) {
       var e = events[i], mine = e.player === p;
       switch (e.type) {
+        case 'mine-alert':
+          if (mine) { play('minePing'); W.Hud.feed('Your ' + ITEMS[e.item].name.toLowerCase() + ' is nearby.', 'storm'); }
+          break;
         case 'shot': play(e.weapon, mine ? 0.75 : spatial(e.x === undefined ? e.player.x : e.x, e.y === undefined ? e.player.y : e.y) * 0.7); break;
         case 'melee': play('hammer', mine ? 0.75 : spatial(e.x, e.y) * 0.7); break;
         case 'repair':
@@ -445,14 +453,18 @@
             W.Hud.banner('Upgrade ready', 'Find an Upgrade Station (glowing blue hexagon) and press ' + Controls.primary('interact'), 2.8, '#ffd23f');
           }
           if (e.what === 'key') W.Hud.feed('Station key found: it skips one station recharge.', 'key');
-          if (e.what === 'classToken') W.Hud.feed('Class token found. Choose a free class upgrade at any ready station.', 'upgrade');
+          if (e.what === 'classToken') W.Hud.feed('Class key found. Redeem it for a class upgrade at a station.', 'upgrade');
           if (e.what === 'armor') W.Hud.feed('Armor plate: +' + C.armorPlate + ' armor (' + Math.round(e.total) + '/' + C.armorMax + '). Armor soaks up damage before your HP.', 'key');
           if (e.what === 'item' && e.item && ITEMS[e.item]) {
             W.Hud.feed('Found ' + e.amount + '× ' + ITEMS[e.item].name + ' (' + W.TIERS[ITEMS[e.item].tier].name + ').', 'key');
             if (!invHintShown) { invHintShown = true; W.Hud.banner('New item', 'Press ' + Controls.primary('inventory') + ' for inventory, its hotbar key to hold it, or ' + Controls.primary('drop') + ' to drop the held stack', 3, W.TIERS[ITEMS[e.item].tier].color); }
           }
           break;
-        case 'item-used': if (mine) play(itemSound(e.item)); break;
+        case 'item-used': if (mine && e.item !== 'flaregun' && e.item !== 'strikegun') play(itemSound(e.item)); break;
+        case 'flare':
+          play('strike', 0.55);
+          W.Hud.feed('Signal flare fired. Your map shows the launch site and the incoming Epic Crate.', 'info');
+          break;
         case 'item-dropped':
           if (mine && ITEMS[e.item]) { play('switch', 0.6); W.Hud.feed((e.reason === 'noroom' ? 'No free item slot: dropped ' : 'Dropped ') + e.amount + '× ' + ITEMS[e.item].name + '. Press ' + Controls.primary('interact') + ' nearby to pick it up.', 'muted'); }
           break;
@@ -467,7 +479,10 @@
           if (mine) { play(e.effect === 'poison' ? 'hurt' : e.effect === 'drone' || e.effect === 'radar' ? 'drone' : 'drink'); W.Hud.feed(buffText(e), e.effect === 'poison' ? 'kill' : 'heal'); }
           else if (e.effect === 'drone' && e.player && e.player.team === p.team) W.Hud.feed(e.player.name + ' launched a drone: enemies show on your map for 1 minute.', 'key');
           break;
-        case 'zone': play(e.zone.kind === 'snow' ? 'freeze' : e.zone.kind === 'fire' ? 'fire' : 'throw', spatial(e.zone.x, e.zone.y)); break;
+        case 'zone': {
+          var zoneSound = { snow: 'freeze', fire: 'fire', gas: 'gas', cylindergas: 'gas' }[e.zone.kind] || 'throw';
+          play(zoneSound, spatial(e.zone.x, e.zone.y)); break;
+        }
         case 'struct':
           if (!e.struct) break;
           if (e.op === 'add') play('place', spatial(e.struct.x, e.struct.y));
@@ -662,7 +677,7 @@
     Array.prototype.forEach.call(slots.options, function (option, i) {
       var item = match.player.items[i], open = match.world.itemSlotOpen(match.player, i);
       var label = 'Item slot ' + (i + 1) + ' (' + Controls.primary(Controls.itemAction(match.player, i)) + ')' +
-        (!open ? ' · Third class tool' : item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
+        (!open ? ' · ' + WEAPONS[match.player.weapons[i + 2].id].name : item ? ' · ' + ITEMS[item.id].name + ' ×' + item.n : ' · Empty');
       if (option.textContent !== label) option.textContent = label;
       if (option.disabled === open) option.disabled = !open;
     });
@@ -790,6 +805,7 @@
         switch (btn.getAttribute('data-test')) {
           case 'tokens': p.tokens += C.upgradeCost; msg = '+' + C.upgradeCost + ' tokens (you have ' + p.tokens + ').'; break;
           case 'key': p.keys += 1; msg = '+1 station key (you have ' + p.keys + ').'; break;
+          case 'class-key': p.classTokens++; msg = '+1 class key (you have ' + p.classTokens + ').'; break;
           case 'hurt':
             if (p.hp <= 1) { msg = 'Already at 1 HP.'; break; }
             world.damagePlayer(p, Math.min(30, Math.ceil(p.hp) - 1), null, 'test');
@@ -864,11 +880,13 @@
     window.addEventListener('resize', function () { renderer.resize(); });
     W.Hud.init();
     W.MapScreen.init();
-    W.UpgradeTree.init({ onUpgrade: doUpgrade, onClose: function () { input.release(); blurActive(); } });
-    W.SentryUpgradeUI.init({ onChoose: function (variant) {
+    W.UpgradeTree.init({ onUpgrade: doUpgrade, onBuy: function (id, ctx) {
+      return match.online ? Online.buyStationSupply(id) : ctx.world.buyStationSupply(ctx.player, ctx.station, id);
+    }, onClose: function () { input.release(); blurActive(); } });
+    W.SentryUpgradeUI.init({ onChoose: function (variant, nonce) {
       if (!match) return;
-      if (match.online) Online.chooseSentryUpgrade(variant);
-      else match.world.chooseSentryUpgrade(match.player, variant);
+      if (match.online) Online.chooseSentryUpgrade(variant, nonce);
+      else match.world.chooseSentryUpgrade(match.player, variant, nonce);
     }, onClose: clearGameInput });
     W.Inventory.init({ onSelect: selectHotbar, onUse: useHotbar, onClose: function () { input.release(); blurActive(); } });
     W.Menu.init({

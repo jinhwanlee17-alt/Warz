@@ -59,6 +59,12 @@ Object.assign(Bot.prototype, {
   classPlay() {
     const p = this.p, now = this.now, out = this.out;
     if (this.act || p.held >= 0 || this.mode === 'build') return;
+    if (p.classId === 'gastroop' && p.gasCylinders > 0 && now >= (this.cylinderReadyAt || 0) && this.target && this.target.visible &&
+        this.dist(this.target) < 280 && !this.world.gasProtected(this.target.ref)) {
+      out.slot = this.slotOfWeapon('gascylinder'); out.firePressed = true;
+      this.shoot = null; this.cylinderReadyAt = now + this.W.WEAPONS.gascylinder.duration;
+      return;
+    }
     if (p.classId === 'shieldoperator') {
       // A grenade or shell it will not get clear of: the red shield stops those from the front.
       const ev = this.evade, shield = this.slotOfWeapon('explosiveshield'), h = ev && ev.h;

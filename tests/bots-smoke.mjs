@@ -810,6 +810,23 @@ function duel(items, d, o = {}) {
 }
 const usedIn = (a, b, item, seconds) => a.until(() => a.used(item, b.p) > 0, seconds);
 {
+  for (const id of ['landmine', 'vehiclemine', 'strikegun']) {
+    const { a, b } = duel([[id, 1]], 395, { stance: () => 'flee' });
+    t.check(usedIn(a, b, id, 12) >= 0, 'a fleeing bot uses a carried ' + id + ' through its hotbar');
+    if (id === 'strikegun') {
+      const drop = a.world.signalDrops[0], c = a.world.landSignalDrop(drop); b.crates.add(c.id);
+      t.check(b.bestLoot(null)?.ref !== c, 'the bot remembers which crate its own Strike Gun called');
+      const other = a.bot(c.x + 120, c.y, {}, { team: b.p.team + 1 }); other.crates.add(c.id);
+      t.check(other.bestLoot(null)?.ref === c, 'an opponent sees an ordinary Epic Crate and can choose to open it');
+    } else t.check(a.world.mines.some(m => m.item === id && m.owner === b.p.id), 'the bot places a hidden ' + id);
+  }
+  const a = arena(); a.crowd();
+  const b = a.bot(9000, 9000, {});
+  a.world.spawnPickup('item', 9080, 9000, 1, false, 'flaregun');
+  t.check(usedIn(a, b, 'flaregun', 18) >= 0 && !a.world.signalDrops[0]?.trap,
+    'a bot picks up a dropped Flare Gun and calls in supplies while safe');
+}
+{
   for (const [item, d, why] of [['poison', 400, 'thrown at them'], ['firenade', 450, 'on someone standing still'], ['grenade', 420, 'on someone standing still'], ['lightning', 500, 'called on them'],
     ['meteor', 600, 'on someone standing still'], ['sentry', 400, 'set up to cover the fight'], ['sentry2', 400, 'set up to cover the fight'], ['strength', 500, 'drunk as the fight starts'],
     ['shield', 500, 'drunk as the fight starts'], ['power', 500, 'drunk as the fight starts'], ['overheal', 500, 'drunk as the fight starts']]) {

@@ -26,7 +26,7 @@
     { id: 'map', name: 'Island map', group: 'World' },
     { id: 'mute', name: 'Mute sound', group: 'World' },
     { id: 'item1', name: 'Hotbar slot 3 (item / third class tool)', group: 'Hotbar' },
-    { id: 'item2', name: 'Hotbar slot 4 (item)', group: 'Hotbar' },
+    { id: 'item2', name: 'Hotbar slot 4 (item / fourth class tool)', group: 'Hotbar' },
     { id: 'item3', name: 'Hotbar slot 5 (item)', group: 'Hotbar' },
     { id: 'slot6', name: 'Hotbar slot 6 (item)', group: 'Hotbar' },
     { id: 'slot7', name: 'Hotbar slot 7 (item)', group: 'Hotbar' },

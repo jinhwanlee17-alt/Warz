@@ -331,11 +331,13 @@
     for (i = 0; i < world.players.length; i++) if (world.players[i].dropT > 0 && !world.players[i].hidden) this.drawPlayer(ctx, world.players[i], t, opts);
     this.drawZones(ctx, world, v, t, true, viewer); // smoke hides whatever is under it
     this.drawStrikes(ctx, world, v, t);
+    this.drawFlares(ctx, world, v);
     if (opts.trajectory) this.drawTrajectory(ctx, world, opts.trajectory);
     this.drawExplosions(ctx, world);
     this.drawParticles(ctx, world, v);
     this.drawTexts(ctx, world, v);
     this.drawStorm(ctx, world.storm, v);
+    this.drawMineWarnings(ctx, world, v, viewer, z);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (viewer) this.drawReveal(ctx, world, cam, viewer);
   };
@@ -1028,6 +1030,31 @@
   };
 
   // ---------------------------------------------------------------- players
+  function gasMask(ctx, r, color, edge) {
+    ctx.save(); ctx.scale(r, r);
+    ctx.fillStyle = color; ctx.strokeStyle = edge; ctx.lineWidth = .14;
+    ctx.beginPath(); ctx.moveTo(-.88, -.18); ctx.bezierCurveTo(-1, -1.28, 1, -1.28, .88, -.18);
+    ctx.quadraticCurveTo(.84, .34, .48, .46); ctx.lineTo(.32, .79); ctx.quadraticCurveTo(0, 1.03, -.32, .79);
+    ctx.lineTo(-.48, .46); ctx.quadraticCurveTo(-.84, .34, -.88, -.18); ctx.closePath(); ctx.fill(); ctx.stroke();
+    for (var side = -1; side <= 1; side += 2) {
+      ctx.fillStyle = '#b5e6d3'; ctx.strokeStyle = '#28322c'; ctx.lineWidth = .13;
+      ctx.beginPath(); ctx.ellipse(side * .41, -.17, .29, .22, side * -.27, 0, TAU); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = '#566553'; ctx.beginPath(); ctx.arc(0, .47, .29, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.lineWidth = .06;
+    for (var i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(-.15, .47 + i * .09); ctx.lineTo(.15, .47 + i * .09); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  function gasCanister(ctx, x, y, r, cylinder) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(r, r);
+    ctx.strokeStyle = '#344331'; ctx.lineWidth = .14; ctx.fillStyle = cylinder ? '#68856a' : '#9eb659';
+    roundRect(ctx, -.51, -.75, 1.02, 1.5, .24); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#dbe4ac'; ctx.fillRect(-.47, -.25, .94, .21);
+    ctx.fillStyle = '#38453d'; ctx.fillRect(-.18, -1, .36, .24);
+    if (cylinder) { ctx.fillStyle = '#ecc470'; ctx.fillRect(-.4, -1.13, .8, .14); }
+    ctx.restore();
+  }
   function emblem(ctx, classId, r) {
     classId = classId.replace(/[23]$/, '');
     if (classId === 'soldier') return;
@@ -1152,6 +1179,8 @@
       ctx.beginPath();
       ctx.moveTo(x0, -tp.h0 * r / 2); ctx.lineTo(x1, -tp.h1 * r / 2); ctx.lineTo(x1, tp.h1 * r / 2); ctx.lineTo(x0, tp.h0 * r / 2);
       ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (b.held === 'gasgrenade' || b.held === 'gascylinder') {
+      gasCanister(ctx, r * 1.05 + kick, r * .52, r * (b.held === 'gascylinder' ? .79 : .56), b.held === 'gascylinder');
     } else if (b.held === 'grenade') {
       var gx = r * 1.02 + kick * 2, gy = r * 0.6;
       ctx.beginPath(); ctx.arc(gx, gy, r * 0.36, 0, TAU);
@@ -1332,15 +1361,17 @@
       else if (p.held < 0 && !(p.weapons[p.slot].id === 'medicstaff' && p.medicStaff && p.medicStaff.placed)) this.drawWeapon(ctx, p.weapons[p.slot].id, r, W.WEAPONS[p.weapons[p.slot].id].kind === 'melee' ? hammerSwing : p.recoil, p.sentryBuild ? 1 : p.minigunSpin, t, p.weapons[p.slot].reloading);
       ctx.restore();
     }
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
     var body = p.downed ? mix(p.color, '#6b7280', 0.55) : p.color;
-    ctx.fillStyle = p.hitFlash > 0.02 ? mix(body, '#ffffff', p.hitFlash * 0.65) : body;
-    if (depth && !p.downed && !p.trenchPeeking && p.hitFlash <= 0.02) ctx.fillStyle = mix(p.color, '#282524', depth * 0.24);
-    ctx.fill();
-    ctx.lineWidth = 4; ctx.strokeStyle = p.outline;
-    if (invisible) ctx.setLineDash([6, 6]);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    var headColor = p.hitFlash > 0.02 ? mix(body, '#ffffff', p.hitFlash * 0.65) : body;
+    if (depth && !p.downed && !p.trenchPeeking && p.hitFlash <= 0.02) headColor = mix(body, '#282524', depth * 0.24);
+    if (p.classId === 'gastroop') gasMask(ctx, r, headColor, p.outline);
+    else {
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
+      ctx.fillStyle = headColor; ctx.fill();
+      ctx.lineWidth = 4; ctx.strokeStyle = p.outline;
+      if (invisible) ctx.setLineDash([6, 6]);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
     if (p.fx && p.fx.immune > 0) {
       ctx.strokeStyle = 'rgba(127,233,255,0.9)'; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.arc(0, 0, r + 9, 0, TAU); ctx.stroke();
@@ -1360,7 +1391,7 @@
       ctx.beginPath();
       ctx.moveTo(-r * 0.4, -r * 0.4); ctx.lineTo(r * 0.4, r * 0.4); ctx.moveTo(r * 0.4, -r * 0.4); ctx.lineTo(-r * 0.4, r * 0.4);
       ctx.stroke();
-    } else if (W.CosmeticArt && W.CosmeticArt.face(ctx, p.face, r, body)) {
+    } else if (p.classId !== 'gastroop' && W.CosmeticArt && W.CosmeticArt.face(ctx, p.face, r, body)) {
       // A chosen face owns the head; preserve the class mark as a small shoulder badge.
       if (p.classId !== 'soldier') {
         ctx.save(); ctx.translate(r * 0.76, r * 0.63);
@@ -1599,7 +1630,9 @@
   function seatFace(ctx, p, x, y, rotation, viewer) {
     if (!p || p.hidden || !W.CosmeticArt || (p.fx && p.fx.invisible > 0 && viewer && viewer !== p && viewer.team !== p.team)) return;
     ctx.save(); ctx.translate(x, y); ctx.rotate(-rotation);
-    W.CosmeticArt.face(ctx, p.face, 10, p.color); ctx.restore();
+    if (p.classId === 'gastroop') gasMask(ctx, 10, p.color, p.outline);
+    else W.CosmeticArt.face(ctx, p.face, 10, p.color);
+    ctx.restore();
   }
   Renderer.prototype.drawTank = function (ctx, world, car, t, viewer, access) {
     var x = car.x + (car.ox || 0), y = car.y + (car.oy || 0), angle = car.angle + (car.oa || 0), wreck = car.wreck;
@@ -1924,7 +1957,8 @@
     var zs = world.zones, i, f;
     for (i = 0; i < zs.length; i++) {
       var z = zs[i];
-      if ((z.kind === 'smoke') !== over || !visible(v, z.x, z.y, z.r + 60)) continue;
+      var gas = z.kind === 'gas' || z.kind === 'cylindergas';
+      if ((z.kind === 'smoke' || gas) !== over || !visible(v, z.x, z.y, z.r + 60)) continue;
       var k = Math.min(1, z.age / 0.5) * Math.min(1, z.t / 0.8);
       if (z.kind === 'fire') {
         var flick = 0.85 + 0.15 * Math.sin(t * 23 + z.id);
@@ -1935,6 +1969,18 @@
         ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
         ctx.strokeStyle = 'rgba(255,170,60,' + (0.8 * k).toFixed(2) + ')'; ctx.lineWidth = 6; ctx.setLineDash([18, 12]); ctx.lineDashOffset = -t * 60;
         ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      } else if (gas) {
+        var mist = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, z.r);
+        mist.addColorStop(0, 'rgba(137,167,79,' + (.40 * k).toFixed(2) + ')');
+        mist.addColorStop(.88, 'rgba(184,201,102,' + (.27 * k).toFixed(2) + ')');
+        mist.addColorStop(1, 'rgba(147,170,82,' + (.09 * k).toFixed(2) + ')');
+        ctx.fillStyle = mist; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
+        ctx.strokeStyle = 'rgba(156,185,80,' + (.7 * k).toFixed(2) + ')'; ctx.lineWidth = 4; ctx.stroke();
+        ctx.fillStyle = 'rgba(181,204,116,' + (.11 * k).toFixed(2) + ')';
+        for (f = 0; f < 14; f++) {
+          var phase = z.id + f * 2.4 + t * .10, orbit = z.r * (.16 + f % 4 * .17);
+          ctx.beginPath(); ctx.arc(z.x + Math.cos(phase) * orbit, z.y + Math.sin(phase) * orbit, z.r * (.20 + .03 * Math.sin(t + f)), 0, TAU); ctx.fill();
+        }
       } else if (z.kind === 'snow') {
         ctx.fillStyle = 'rgba(200,236,255,' + (0.38 * k).toFixed(2) + ')'; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,' + (0.8 * k).toFixed(2) + ')'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.stroke();
@@ -2065,6 +2111,56 @@
     ctx.stroke(); ctx.fillStyle = 'rgba(255,218,90,0.12)'; ctx.strokeStyle = '#ffe17c'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(solution.targetX, solution.targetY, solution.radius || 28, 0, TAU); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.arc(solution.targetX, solution.targetY, 8, 0, TAU); ctx.fillStyle = '#fff4bd'; ctx.fill(); ctx.restore();
+  };
+
+  Renderer.prototype.drawMineWarnings = function (ctx, world, v, viewer, zoom) {
+    if (!viewer || !world.mines || !world.mines.length) return;
+    var unit = 1 / zoom, radius = 11 * unit;
+    ctx.save();
+    ctx.lineWidth = 2 * unit; ctx.strokeStyle = '#24262b';
+    ctx.font = 'bold ' + (18 * unit) + 'px ' + FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    world.mines.forEach(function (mine) {
+      if (!world.mineWarningVisible(mine, viewer) || !visible(v, mine.x, mine.y, 32 * unit)) return;
+      var y = mine.y - 21 * unit;
+      ctx.fillStyle = '#ffb64c';
+      ctx.beginPath(); ctx.moveTo(mine.x, mine.y); ctx.lineTo(mine.x - 6 * unit, y + radius / 2);
+      ctx.lineTo(mine.x + 6 * unit, y + radius / 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(mine.x, y, radius, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#24262b'; ctx.fillText('!', mine.x, y + unit);
+    });
+    ctx.restore();
+  };
+
+  Renderer.prototype.drawFlares = function (ctx, world, v) {
+    var renderer = this;
+    (world.signalDrops || []).forEach(function (drop, index) {
+      if (drop.crate || !visible(v, drop.x, drop.y, 320)) return;
+      var descent = U.clamp((drop.landAt - world.time) / W.SIGNAL_DROP.descent, 0, 1);
+      var height = 230 * descent, y = drop.y - height, half = C.crateSize / 2;
+      ctx.save();
+      ctx.fillStyle = 'rgba(26,23,35,0.22)'; ctx.beginPath();
+      ctx.ellipse(drop.x, drop.y + 5, half * (1 - 0.45 * descent), half * 0.42, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#4b4e55'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(drop.x - 42, y - 65); ctx.lineTo(drop.x - half + 3, y - half);
+      ctx.lineTo(drop.x, y - 65); ctx.lineTo(drop.x + half - 3, y - half); ctx.lineTo(drop.x + 42, y - 65); ctx.stroke();
+      ctx.fillStyle = '#e8d8ad'; ctx.beginPath(); ctx.arc(drop.x, y - 65, 42, Math.PI, TAU);
+      ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+      renderer.drawCrate(ctx, { id: index, x: drop.x, y: y, size: C.crateSize, shake: 0, tier: 'epic' }, world.time);
+    });
+    (world.flares || []).forEach(function (flare) {
+      if (!visible(v, flare.x, flare.y, 210)) return;
+      var age = W.ITEMS.flaregun.duration - (flare.until - world.time);
+      var height = 170 * (1 - Math.exp(-Math.max(0, age) * 2.6));
+      var y = flare.y - height;
+      ctx.save(); ctx.lineCap = 'round';
+      ctx.globalAlpha = Math.min(1, Math.max(0, flare.until - world.time));
+      ctx.strokeStyle = 'rgba(255,105,66,0.65)'; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(flare.x, y); ctx.lineTo(flare.x, y + Math.min(42, height)); ctx.stroke();
+      ctx.fillStyle = '#ff6844'; ctx.beginPath(); ctx.arc(flare.x, y, 13 + 3 * Math.sin(age * 6), 0, TAU); ctx.fill();
+      ctx.fillStyle = '#fff4ba'; ctx.beginPath(); ctx.arc(flare.x, y, 6, 0, TAU); ctx.fill();
+      ctx.restore();
+    });
   };
 
   // Drone and radar: enemies the viewer can see on the map get an arrow at the screen edge (or a ring on screen).
@@ -2245,7 +2341,8 @@
         } else {
           ctx.rotate(g.spin);
           var art = g.item && W.Icons && W.Icons.itemImage(g.item), size = g.r * 2.9;
-          if (art) ctx.drawImage(art, -size / 2, -size / 2, size, size);
+          if (g.item === 'gasgrenade') gasCanister(ctx, 0, 0, g.r * 1.25, false);
+          else if (art) ctx.drawImage(art, -size / 2, -size / 2, size, size);
           else {
             ctx.beginPath(); ctx.arc(0, 0, g.r, 0, TAU);
             ctx.fillStyle = '#56733f'; ctx.fill();

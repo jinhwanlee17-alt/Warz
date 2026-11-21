@@ -6,6 +6,7 @@ import { VIEW } from './sense.mjs';
 // Per weapon: [closest comfortable distance, farthest comfortable distance, farthest it bothers shooting].
 const BANDS = {
   ar: [240, 520, 900], pistol: [200, 430, 760], commandpistol: [200, 430, 760], sniper: [620, 1050, 1700], sniper2: [700, 1300, 2600],
+  boltrifle: [620, 1050, 1700], heavydeagle: [200, 430, 900],
   shotgun: [0, 150, 420], shotgun2: [0, 170, 440], deagle: [240, 560, 900], revolver: [260, 600, 900],
   launcher: [300, 560, 660], launcher2: [320, 600, 700], flamethrower: [0, 190, 290], minigun: [200, 480, 820], turret: [0, 900, 1050],
   // Level three.

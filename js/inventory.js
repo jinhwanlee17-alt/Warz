@@ -52,6 +52,7 @@
   function toggle() { if (open) hide(); else show(); }
 
   function howTo(it) {
+    if (it.effect === 'flare' || it.effect === 'strikedrop') return 'Hold the signal gun and click to call down the crate.';
     var key = esc(Controls.primary('interact'));
     switch (it.kind) {
       case 'consume': return 'Hold it and click anywhere to use it, or press Use now.';

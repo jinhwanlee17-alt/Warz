@@ -7,7 +7,7 @@ const planned = {
   sniper3: 'sniper2',
   president: 'commander', tankcommander: 'armorcrew', juggernaut2: 'juggernaut'
 };
-t.equal(released.join(), 'engineer,shieldoperator,rocketeer,shotgunner3,magicmedic,pyromaniac', 'new classes append without reordering older network class indices');
+t.equal(released.join(), 'engineer,shieldoperator,rocketeer,shotgunner3,magicmedic,pyromaniac,gastroop', 'new classes append without reordering older network class indices');
 t.equal(Object.keys(W.CLASS_PLANNED).sort().join(), Object.keys(planned).sort().join(), 'the four unreleased classes remain planned');
 t.equal(W.TREE_SOON.length, 4, 'four future branches remain visible in the tree');
 for (const id of released) {

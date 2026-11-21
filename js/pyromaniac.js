@@ -3,18 +3,29 @@
   'use strict';
   var W = window.Warz, World = W.World, U = W.U, EPS = 1e-8;
   var baseClass = World.prototype.setClass, baseClassUpdate = World.prototype.updateClassCombat;
-  var baseTrigger = World.prototype.trigger, baseUtility = World.prototype.useUtility, baseReload = World.prototype.startReload;
+  var baseTrigger = World.prototype.trigger, baseUtility = World.prototype.useUtility, baseReload = World.prototype.startReload, baseGun = World.prototype.fireGun;
   var basePlayerDamage = World.prototype.damagePlayer, baseVehicleDamage = World.prototype.damageVehicle;
   var baseUpdate = World.prototype.update, baseShield = World.prototype.shieldBlocks, baseZone = World.prototype.addZone;
   var basePlayerSnow = World.prototype.applyPlayerSentrySnow, baseVehicleSnow = World.prototype.applyVehicleSentrySnow;
   var P = W.Pyro = {
     firegunCost: 50, fireBarMax: 50, fireWindow: 60, burnDamageFraction: 0.1, burnTimeFraction: 0.4,
-    flameStage: function (seconds) {
-      if (seconds >= 10 - EPS) return { damage: 70, interval: 0.1 };
-      if (seconds >= 7.5 - EPS) return { damage: 45, interval: 0.15 };
-      return { damage: seconds >= 5 - EPS ? 15 : seconds >= 2.5 - EPS ? 10 : 5, interval: 0.25 };
+    isPyro: function (id) { return id === 'pyromancer' || id === 'pyromaniac'; },
+    fireCapacity: function (p) {
+      return p.classId === 'pyromancer' ? W.Rules.magazineSize(p, 'flamethrower') : P.fireBarMax + 10 * (p.pyroFireUpgrades || 0);
     },
-    firegunDamage: function (bar) { return U.clamp(bar || 0, 0, P.fireBarMax) / 2 / P.fireBarMax * 1800; }
+    fireRemaining: function (p) { return p.classId === 'pyromancer' ? p.weapons[0].ammo : p.pyroFireBar || 0; },
+    weaponMultiplier: function (map, p, fire) {
+      if (!p || !P.isPyro(p.classId)) return 1;
+      var biome = W.Biomes ? W.Biomes.at(map, p.x, p.y) : 'normal';
+      var climate = biome === 'tundra' || biome === 'tundra-forest' ? 0.2 : biome === 'desert' ? 1.05 : 1;
+      return climate * (fire ? 1 + 0.1 * (p.pyroFireUpgrades || 0) : 1);
+    },
+    flameStage: function (seconds) {
+      if (seconds >= 5 - EPS) return { damage: 70, interval: 0.1 };
+      if (seconds >= 2.5 - EPS) return { damage: 45, interval: 0.15 };
+      return { damage: seconds >= 2 - EPS ? 15 : seconds >= 1 - EPS ? 10 : 5, interval: 0.25 };
+    },
+    firegunDamage: function (bar, capacity) { return 900 * U.clamp((bar || 0) / (capacity || P.fireBarMax), 0, 1); }
   };
   function detached(p) { return !!(p.net && !p.bot && !p.net.conn); }
   World.prototype.applyPyroFiregun = function (p, enabled) {
@@ -26,12 +37,22 @@
   };
   World.prototype.setClass = function (p, id, fresh) {
     var sameLife = p.classId === id && !fresh, keep = sameLife && p.pyroFiregun;
+    var stacks = !fresh && P.isPyro(p.classId) && P.isPyro(id) ? p.pyroFireUpgrades || 0 : 0;
     var result = baseClass.apply(this, arguments);
+    p.pyroFireUpgrades = stacks;
     p.pyroHeat = 0; p.pyroFiring = false; p.pyroFiregun = false;
-    if (!sameLife) { p.pyroFireBar = id === 'pyromaniac' ? P.fireBarMax : 0; p.pyroFireResetAt = 0; p.pyroFireResetT = 0; }
+    if (id === 'pyromancer') p.weapons[0].ammo = P.fireCapacity(p);
+    if (!sameLife) { p.pyroFireBar = id === 'pyromaniac' ? P.fireCapacity(p) : 0; p.pyroFireResetAt = 0; p.pyroFireResetT = 0; }
     if (id === 'pyromaniac') this.applyPyroFiregun(p, keep);
     if (fresh) { p.pyroBurn = null; p.pyroBurning = 0; }
     return result;
+  };
+  World.prototype.applyPyroFireUpgrade = function (p) {
+    if (this.remote || !p || !P.isPyro(p.classId) || p.pyroFireUpgrades >= 2) return false;
+    p.pyroFireUpgrades = (p.pyroFireUpgrades || 0) + 1;
+    if (p.classId === 'pyromancer') p.weapons[0].ammo += 10;
+    else p.pyroFireBar += 10;
+    return true;
   };
   World.prototype.upgradePyroFiregun = function (p) {
     if (this.remote || !p || p.classId !== 'pyromaniac' || !p.alive || p.downed || p.dropT > 0 || p.mount || p.vehicle || detached(p) || p.pyroFiregun) return false;
@@ -59,7 +80,7 @@
   };
   World.prototype.resetExpiredPyroFire = function (p) {
     if (!this.remote && p.pyroFireResetAt > 0 && this.time >= p.pyroFireResetAt - EPS) {
-      p.pyroFireBar = p.classId === 'pyromaniac' ? P.fireBarMax : 0; p.pyroFireResetAt = 0;
+      p.pyroFireBar = p.classId === 'pyromaniac' ? P.fireCapacity(p) : 0; p.pyroFireResetAt = 0;
     }
   };
   World.prototype.spendPyroFire = function (p, amount) {
@@ -96,22 +117,23 @@
     var pulses = 0, self = this;
     do {
       var stage = P.flameStage(p.pyroHeat || 0), interval = stage.interval / this.fireRateMul(p);
+      var damage = stage.damage * P.weaponMultiplier(this.map, p, true);
       p.pyroHitInterval = interval; w.cooldown += interval; p.stats.shots++; pulses++;
       function inFlame(o, radius) {
         return Math.hypot(o.x - p.x, o.y - p.y) - (radius || 0) <= def.range &&
           Math.abs(U.angleDiff(p.angle, Math.atan2(o.y - p.y, o.x - p.x))) <= def.halfAngle && self.lineClear(p.x, p.y, o.x, o.y, o);
       }
       this.players.forEach(function (o) {
-        if (o !== p && !o.vehicle && !o.mount && o.alive && o.dropT <= 0 && o.team !== p.team && self.directFireExposed(o) && inFlame(o, o.r)) self.damagePlayer(o, stage.damage, p.id, def.id, o.x, o.y - o.r, { x: p.x, y: p.y });
+        if (o !== p && !o.vehicle && !o.mount && o.alive && o.dropT <= 0 && o.team !== p.team && self.directFireExposed(o) && inFlame(o, o.r)) self.damagePlayer(o, damage, p.id, def.id, o.x, o.y - o.r, { x: p.x, y: p.y });
       });
-      this.damageVehiclesMatching(function (v) { return inFlame(v, v.r); }, stage.damage, p.id, def.id, { team: p.team });
-      this.map.crates.forEach(function (c) { if (c.alive && inFlame(c, c.size / 2)) self.damageCrate(c, stage.damage, p.id, c.x, c.y); });
+      this.damageVehiclesMatching(function (v) { return inFlame(v, v.r); }, damage, p.id, def.id, { team: p.team });
+      this.map.crates.forEach(function (c) { if (c.alive && inFlame(c, c.size / 2)) self.damageCrate(c, damage, p.id, c.x, c.y); });
       this.foliage.query(p.x - def.range, p.y - def.range, p.x + def.range, p.y + def.range, function (plant) {
-        if (plant.alive !== false && inFlame(plant, plant.hitRadius)) self.damageFoliage(plant, stage.damage, p.id, def.id);
+        if (plant.alive !== false && inFlame(plant, plant.hitRadius)) self.damageFoliage(plant, damage, p.id, def.id);
       });
-      this.structures.slice().forEach(function (s) { if (s.alive && !s.trenchId && s.maxHp && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, stage.damage, p.id, s.x, s.y, def.id); });
+      this.structures.slice().forEach(function (s) { if (s.alive && !s.trenchId && s.maxHp && s.team !== p.team && inFlame(s, s.r)) self.damageStruct(s, damage, p.id, s.x, s.y, def.id); });
       this.flameFx(p.x, p.y, p.angle, def.range);
-      this.emit({ type: 'flame', weapon: def.id, player: p, x: p.x, y: p.y, angle: p.angle, range: def.range, halfAngle: def.halfAngle, damage: stage.damage });
+      this.emit({ type: 'flame', weapon: def.id, player: p, x: p.x, y: p.y, angle: p.angle, range: def.range, halfAngle: def.halfAngle, damage: damage });
     } while (w.cooldown <= EPS && pulses < 8);
     return true;
   };
@@ -126,13 +148,20 @@
     p.automaticWeapon = w.id;
     var count = 0;
     do {
-      var damage = P.firegunDamage(p.pyroFireBar);
+      var damage = P.firegunDamage(p.pyroFireBar, P.fireCapacity(p));
       this.spendPyroFire(p, 7);
       w.cooldown += def.fireInterval / this.fireRateMul(p); p.stats.shots++; count++;
       this.fireGun(p, Object.assign({}, def, { damage: damage }));
       if (!(p.pyroFireBar > EPS)) break;
     } while (w.cooldown <= EPS && count < 8);
     return true;
+  };
+  World.prototype.fireGun = function (p, def) {
+    if (def.id === 'revolver' || def.id === 'pyrodualrevolver' || def.id === 'firegun') {
+      var multiplier = P.weaponMultiplier(this.map, p, def.id === 'firegun');
+      if (multiplier !== 1) def = Object.assign({}, def, { damage: def.damage * multiplier, burnDps: (def.burnDps || 0) * multiplier });
+    }
+    return baseGun.call(this, p, def);
   };
   World.prototype.shieldBlocks = function (p, x, y, cause) {
     if (cause === 'pyroflamethrower' || cause === 'firegun' || cause === 'pyro-burn') return false;
@@ -150,12 +179,12 @@
       Object.keys(target.seats).forEach(function (seat) { var occupant = self.playerById(target.seats[seat]); if (occupant) self.extinguishPyro(occupant); });
     }
   };
-  World.prototype.applyPyroBurn = function (target, ownerId, kind, damage, interval) {
+  World.prototype.applyPyroBurn = function (target, ownerId, kind, damage, interval, burnDps) {
     if (this.remote || !target || (target.seats ? target.wreck || W.vehicleHasTankArmor(target) : !target.alive || target.vehicle)) return;
     if (this.inPyroSnow(target)) { this.extinguishPyro(target); return; }
     var now = this.time, all = target.pyroBurn || (target.pyroBurn = {}), old = all[kind];
     if (kind === 'firegun') {
-      all.firegun = { owner: ownerId, dps: W.WEAPONS.firegun.burnDps, until: Math.max(now, old ? old.until : 0) + W.WEAPONS.firegun.burnSeconds,
+      all.firegun = { owner: ownerId, dps: burnDps || W.WEAPONS.firegun.burnDps, until: Math.max(now, old ? old.until : 0) + W.WEAPONS.firegun.burnSeconds,
         last: old && old.until > now ? old.last : now, pending: old && old.until > now ? old.pending : 0, tick: old && old.until > now ? old.tick : 0 };
     } else {
       var continuous = old && now <= old.lastHit + Math.max(old.interval, interval) + 0.051;
@@ -165,24 +194,24 @@
         dps: total * P.burnDamageFraction, until: start + seconds * P.burnTimeFraction, last: start, pending: 0, tick: 0 };
     }
   };
-  World.prototype.damagePlayer = function (p, amount, source, cause) {
+  World.prototype.damagePlayer = function (p, amount, source, cause, hx, hy, from) {
     var at = this.events.length, result = basePlayerDamage.apply(this, arguments);
     if (this.remote || (cause !== 'pyroflamethrower' && cause !== 'firegun') || !p.alive || p.vehicle) return result;
     for (var i = at; i < this.events.length; i++) {
       var e = this.events[i];
       if (e.type === 'damage' && e.target === p && e.cause === cause && e.amount > 0) {
         var owner = this.playerById(source);
-        this.applyPyroBurn(p, source, cause === 'firegun' ? 'firegun' : 'flame', e.amount, owner && owner.pyroHitInterval || 0.25); break;
+        this.applyPyroBurn(p, source, cause === 'firegun' ? 'firegun' : 'flame', e.amount, owner && owner.pyroHitInterval || 0.25, from && from.burnDps); break;
       }
     }
     return result;
   };
-  World.prototype.damageVehicle = function (v, amount, source, cause) {
+  World.prototype.damageVehicle = function (v, amount, source, cause, hx, hy, burnDps) {
     if (W.vehicleHasTankArmor(v) && cause === 'pyro-burn') return false;
     var before = v && v.hp, result = baseVehicleDamage.apply(this, arguments);
     if (result && v && !v.wreck && (cause === 'pyroflamethrower' || cause === 'firegun')) {
       var owner = this.playerById(source);
-      this.applyPyroBurn(v, source, cause === 'firegun' ? 'firegun' : 'flame', before - v.hp, owner && owner.pyroHitInterval || 0.25);
+      this.applyPyroBurn(v, source, cause === 'firegun' ? 'firegun' : 'flame', before - v.hp, owner && owner.pyroHitInterval || 0.25, burnDps);
     }
     return result;
   };

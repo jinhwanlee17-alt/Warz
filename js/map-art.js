@@ -330,7 +330,71 @@
     g.restore();
   }
 
-  // Live layer: upgrade stations, storm circles, team structures and directional player markers.
+  function radarTerrain(g, map, k, big, dpr) {
+    g.save();
+    g.strokeStyle = '#80f5dd'; g.lineWidth = (big ? 2 : 1) * dpr;
+    g.beginPath();
+    (map.trenches || []).forEach(function (trench) {
+      trench.points.forEach(function (point, i) {
+        if (i === 0) g.moveTo(point.x * k, point.y * k);
+        else g.lineTo(point.x * k, point.y * k);
+      });
+    });
+    g.stroke();
+    var side = (big ? 4 : 1.6) * dpr;
+    (map.crates || []).forEach(function (crate) {
+      if (!crate.alive || crate.tier === 'legendary') return;
+      var x = crate.x * k - side / 2, y = crate.y * k - side / 2;
+      g.fillStyle = W.CRATES[crate.tier || 'common'].color;
+      g.fillRect(x, y, side, side);
+      if (big) { g.strokeStyle = '#42311c'; g.lineWidth = dpr; g.strokeRect(x, y, side, side); }
+    });
+    g.restore();
+  }
+
+  function radarLabels(g, world, viewer, k, px, dpr) {
+    var labels = [], rows = [], compact = px / dpr < 340;
+    var height = (compact ? 12 : 13) * dpr, padding = (compact ? 4 : 6) * dpr;
+    for (var row = 0; row < Math.max(1, Math.floor(px / height)); row++) rows.push([]);
+    g.save(); g.font = 'bold ' + Math.round((compact ? 10 : 11) * dpr) + 'px Trebuchet MS, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    world.players.forEach(function (o) {
+      if (!o.alive || o.hidden) return;
+      var text = (o === viewer ? 'You · ' : '') + W.CLASSES[o.classId].name + ' · ' + Math.ceil(o.hp) + ' HP';
+      var width = g.measureText(text).width + padding, ax = o.x * k, ay = o.y * k;
+      var preferredY = ay > px - 28 * dpr ? ay - 15 * dpr : ay + 15 * dpr;
+      var left = U.clamp(ax - width / 2, 0, px - width), top = U.clamp(preferredY - height / 2, 0, px - height);
+      var best = Infinity, bestRow = -1, bestIndex = 0;
+      // Pick the closest free span across all rows. Coastal squads can spread
+      // sideways even when their preferred column fills the entire phone map.
+      rows.forEach(function (spans, r) {
+        var dy = (r + .5) * height - preferredY;
+        if (dy * dy >= best) return;
+        for (var i = 0, start = 0; i <= spans.length; i++) {
+          var end = i < spans.length ? spans[i].left : px;
+          if (end - start >= width) {
+            var x = U.clamp(ax - width / 2, start, end - width), dx = x + width / 2 - ax;
+            var distance = dx * dx + dy * dy;
+            if (distance < best) { best = distance; bestRow = r; bestIndex = i; left = x; top = r * height; }
+          }
+          if (i < spans.length) start = spans[i].right;
+        }
+      });
+      if (bestRow >= 0) rows[bestRow].splice(bestIndex, 0, { left: left, right: left + width });
+      var label = { text: text, left: left, top: top, width: width,
+        color: o === viewer ? '#ffffff' : o.team === viewer.team ? '#9acedf' : '#ffb8af' };
+      labels.push(label);
+      g.strokeStyle = label.color; g.lineWidth = dpr;
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(left + width / 2, top + height / 2); g.stroke();
+    });
+    labels.forEach(function (label) {
+      g.fillStyle = 'rgba(14,23,31,.9)'; g.fillRect(label.left, label.top, label.width, height);
+      g.fillStyle = label.color; g.fillText(label.text, label.left + label.width / 2, label.top + height / 2);
+    });
+    g.restore();
+  }
+
+  // Live layer: upgrade stations, storm circles, signals and player markers.
   function overlay(g, world, p, px, opts) {
     opts = opts || {};
     var S = world.map.size || C.worldSize, k = px / S, dpr = opts.dpr || 1, big = !!opts.big, st = world.map.stations, i, view = opts.view;
@@ -372,6 +436,8 @@
         g.setLineDash([]);
       }
     }
+    var fullRadar = p && p.fx && p.fx.sniper2radar > 0 && !opts.tinyPlayers;
+    if (fullRadar) radarTerrain(g, world.map, k, big, dpr);
     if (p) {
       var md = (big ? 5 : 3.5) * dpr, arrowSize = (big ? 8 : 5.5) * dpr;
       // Empty vehicles can be found on the map. Occupied enemies do not become free radar contacts.
@@ -413,7 +479,7 @@
         g.lineWidth = 2 * dpr;
         g.beginPath(); g.arc(x, y, s * 2.2, 0, U.TAU); g.stroke();
       }
-      if (big) {
+      if (big && !fullRadar) {
         var youFont = Math.round(13 * dpr), labelPad = 3 * dpr, labelY = y - s * 2.8;
         g.save();
         g.font = 'bold ' + youFont + 'px Trebuchet MS, sans-serif';
@@ -455,6 +521,46 @@
       if (world.remote && p && p.hidden) return; // Rejoin sync precedes the first authoritative player snapshot.
       if (crate.tier === 'legendary' && crate.alive && crate.hp > 0) legendaryMarker(g, crate, k, px, big, dpr);
     });
+    if (fullRadar && big) radarLabels(g, world, p, k, px, dpr);
+    (world.flares || []).forEach(function (flare) {
+      if (!visible(flare.x, flare.y, 20)) return;
+      var radius = (big ? 8 : 4.5) * dpr, pad = radius * 1.9;
+      var x = U.clamp(flare.x * k, pad, px - pad), y = U.clamp(flare.y * k, pad, px - pad);
+      g.save(); g.strokeStyle = '#ff663b'; g.lineWidth = 2 * dpr;
+      var pulse = (world.time % 1.3) / 1.3;
+      g.globalAlpha = 1 - pulse * .7;
+      g.beginPath(); g.arc(x, y, radius * (1 + pulse * .7), 0, U.TAU); g.stroke();
+      g.globalAlpha = 1; g.fillStyle = '#fff1a1'; g.beginPath();
+      g.moveTo(x, y - radius); g.lineTo(x + radius * .65, y);
+      g.lineTo(x, y + radius); g.lineTo(x - radius * .65, y); g.closePath(); g.fill(); g.stroke();
+      if (big) {
+        g.font = 'bold ' + Math.round(11 * dpr) + 'px Trebuchet MS, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        var ly = y < 28 * dpr ? y + 16 * dpr : y - 16 * dpr;
+        g.strokeStyle = '#3e2620'; g.lineWidth = 3 * dpr; g.strokeText('Flare', x, ly); g.fillText('Flare', x, ly);
+      }
+      g.restore();
+    });
+    (world.signalDrops || []).forEach(function (drop) {
+      if (!world.signalDropPing(drop, p) || !visible(drop.x, drop.y, 20)) return;
+      var radius = (big ? 6 : 3.5) * dpr, x = drop.x * k, y = drop.y * k;
+      var mx = U.clamp(x + radius * 2, radius + dpr, px - radius - dpr);
+      var my = U.clamp(y + radius * 2, radius + dpr, px - radius - dpr);
+      g.save(); g.lineWidth = 2 * dpr; g.strokeStyle = '#423052';
+      g.beginPath(); g.moveTo(x, y); g.lineTo(mx, my); g.stroke();
+      g.fillStyle = W.CRATES.epic.color; g.fillRect(mx - radius, my - radius, 2 * radius, 2 * radius);
+      g.strokeRect(mx - radius, my - radius, 2 * radius, 2 * radius);
+      g.strokeStyle = '#fff'; g.lineWidth = dpr; g.beginPath();
+      g.moveTo(mx - radius * .65, my - radius * .65); g.lineTo(mx + radius * .65, my + radius * .65);
+      g.moveTo(mx + radius * .65, my - radius * .65); g.lineTo(mx - radius * .65, my + radius * .65); g.stroke();
+      if (big) {
+        g.font = 'bold ' + Math.round(11 * dpr) + 'px Trebuchet MS, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        var ly = my + 16 * dpr < px - 6 * dpr ? my + 16 * dpr : my - 16 * dpr;
+        var lx = U.clamp(mx, 32 * dpr, px - 32 * dpr);
+        g.lineWidth = 3 * dpr; g.strokeStyle = '#342842'; g.strokeText('Epic Crate', lx, ly);
+        g.fillStyle = '#f4e8ff'; g.fillText('Epic Crate', lx, ly);
+      }
+      g.restore();
+    });
     if (p && world.militaryPingsFor) {
       g.save(); g.lineWidth = (big ? 2 : 1.5) * dpr;
       world.militaryPingsFor(p).forEach(function (contact) {
@@ -469,6 +575,24 @@
       });
       g.restore();
     }
+    if (p) (world.mines || []).forEach(function (mine) {
+      if (mine.owner !== p.id || !visible(mine.x, mine.y, 15)) return;
+      var size = (big ? 5 : 3) * dpr, x = mine.x * k, y = mine.y * k;
+      g.save();
+      g.strokeStyle = '#24262b'; g.fillStyle = mine.item === 'vehiclemine' ? '#ffa453' : '#f4d850'; g.lineWidth = 1.5 * dpr;
+      g.beginPath(); g.moveTo(x, y - size); g.lineTo(x + size, y + size); g.lineTo(x - size, y + size); g.closePath(); g.fill(); g.stroke();
+      if (world.mineWarningVisible(mine, p)) {
+        // Mines often project onto the owner's arrow. Keep the pin anchored and its label clear of the arrow.
+        var r = (big ? 7.5 : 5.5) * dpr, pad = r + 2 * dpr;
+        var bx = U.clamp(x + r + size, pad, px - pad), by = U.clamp(y < pad * 2 ? y + r + size : y - r - size, pad, px - pad);
+        g.beginPath(); g.moveTo(x, y); g.lineTo(bx, by); g.stroke();
+        g.fillStyle = '#ffb64c';
+        g.beginPath(); g.arc(bx, by, r, 0, U.TAU); g.fill(); g.stroke();
+        g.fillStyle = '#24262b'; g.font = 'bold ' + Math.round(2 * r) + 'px Trebuchet MS, sans-serif';
+        g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('!', bx, by + dpr * .5);
+      }
+      g.restore();
+    });
   }
 
   W.MapArt = { base: base, paintBase: paintBase, overlay: overlay, vehicleGlyph: vehicleGlyph, drawsTrenchWire: drawsTrenchWire };

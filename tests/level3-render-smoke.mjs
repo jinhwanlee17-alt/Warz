@@ -19,7 +19,7 @@ function drawing() {
   } });
   return { ctx, calls, stack };
 }
-for (const id of ['wrench', 'engineerhammer', 'shieldpistol', 'explosiveshield', 'rpg', 'shotgun3', 'dualrevolver', 'medicstaff', 'magicmedkit', 'pyroflamethrower', 'pyrodualrevolver', 'firegun']) {
+for (const id of ['wrench', 'engineerhammer', 'shieldpistol', 'explosiveshield', 'rpg', 'shotgun3', 'dualrevolver', 'medicstaff', 'magicmedkit', 'pyroflamethrower', 'pyrodualrevolver', 'firegun', 'boltrifle', 'heavydeagle', 'gasgrenade', 'gascylinder']) {
   for (const active of [0, 1]) {
     const d = drawing(); renderer.drawWeapon(d.ctx, id, 24, .25, active, 1);
     t.equal(d.stack.length, 0, id + ' restores all canvas state, active=' + active);
@@ -42,7 +42,7 @@ for (const id of ['wrench', 'engineerhammer', 'shieldpistol', 'explosiveshield',
   t.check(d.calls.some(c => c.op === 'rotate' && c.args[0] === Math.PI / 2), 'reloading shield visibly rotates down beside the player');
   t.equal(d.stack.length, 0, 'lowered shield restores canvas state');
 }
-for (const id of ['engineer', 'shieldoperator', 'rocketeer', 'shotgunner3', 'magicmedic', 'pyromaniac']) {
+for (const id of ['engineer', 'shieldoperator', 'rocketeer', 'shotgunner3', 'magicmedic', 'pyromaniac', 'gastroop']) {
   const svg = W.Icons.classIcon(id);
   t.check(svg.includes('<svg') && !/undefined|NaN|Infinity/.test(svg), id + ' has a complete finite class portrait');
 }
@@ -50,6 +50,13 @@ const player = { id: 1, alive: true, classId: 'engineer', x: 100, y: 120, ox: 3,
   angle: .8, held: -1, dropT: 0, recoil: 0, color: '#c5c98a', outline: '#515538',
   weapons: [{ id: 'wrench' }, { id: 'pistol' }], slot: 0, hp: 100, maxHp: 100, fx: {},
   healFlash: 0, hitFlash: 0, isLocal: true, sentryBuild: { elapsed: 5, x: 200, y: 150 } };
+{
+  const d = drawing(), p = { ...player, classId: 'gastroop', face: 'smile', weapons: [{ id: 'boltrifle' }], sentryBuild: null };
+  renderer.drawPlayer(d.ctx, p, 0, { viewer: p });
+  t.equal(d.calls.filter(c => c.op === 'ellipse' && c.fill === '#b5e6d3').length, 2, 'mask lenses replace the normal player head and custom face');
+  t.check(!d.calls.some(c => c.op === 'arc' && c.args[2] === p.r), 'gas mask has its own head silhouette');
+  t.equal(d.stack.length, 0, 'mask drawing restores canvas state');
+}
 for (const preview of [false, true]) {
   const d = drawing(), before = JSON.stringify(player);
   renderer.drawSentryBuild(d.ctx, player, 1, preview);

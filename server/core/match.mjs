@@ -20,6 +20,8 @@ export const COLORS = [
 const r1 = (v) => Math.round(v * 10) / 10;
 const r2 = (v) => Math.round(v * 100) / 100;
 const r3 = (v) => Math.round(v * 1000) / 1000;
+const isGasZone = (kind) => kind === 'gas' || kind === 'cylindergas';
+const isObscuringCloud = (kind) => kind === 'smoke' || isGasZone(kind);
 const num = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 
@@ -204,6 +206,9 @@ export class Match {
     p.net.afk = 0;
     p.net.everConnected = true;
     p.net.itemsKey = ''; // resend the hotbar with the next snapshot
+    p.net.mineKey = undefined;
+    p.net.radarCrateKey = undefined;
+    p.net.signalDropKey = undefined;
     p.net.staffKey = '';
     p.net.structKey = '';
     conn.militaryVehicleKeys = null;
@@ -214,7 +219,7 @@ export class Match {
     if (this.practice && (!p.alive || p.net.left)) { p.net.left = false; this.respawnPracticePlayer(p); }
     this.send(conn, this.startMessage(p, rejoin));
     if (rejoin) {
-      this.send(conn, this.syncMessage());
+      this.send(conn, this.syncMessage(p));
       if (p.net.placement && !this.ended) this.send(conn, { t: 'eliminated', placement: p.net.placement, of: this.teamInfo.length, players: this.players.length, stats: this.stats(p), cause: 'rejoin' });
     }
   }
@@ -254,7 +259,8 @@ export class Match {
       }
       case 'emote': this.world.useEmote(p, m.slot); return;
       case 'sentry-choice':
-        this.world.chooseSentryUpgrade(p, m.variant === null ? null : str(m.variant, 16));
+        if (p.sentryChoice && p.sentryChoice.instant && !Number.isInteger(m.nonce)) return;
+        this.world.chooseSentryUpgrade(p, m.variant === null ? null : str(m.variant, 16), m.nonce);
         return;
       case 'practice': this.practiceCommand(p, m); return;
       case 'in': {
@@ -265,8 +271,13 @@ export class Match {
         return;
       }
       case 'upgrade': {
-        const cls = str(m.cls, 20), r = p.nearStation ? this.world.upgrade(p, p.nearStation, cls) : { ok: false, reason: 'far' };
+        const cls = str(m.cls, 20), r = this.world.upgrade(p, p.nearStation, cls, m.payment);
         this.send(conn, { t: 'upgrade-result', ok: !!r.ok, reason: r.reason, usedKey: !!r.usedKey, usedClassToken: !!r.usedClassToken, cls });
+        return;
+      }
+      case 'buy-supply': {
+        const r = this.world.buyStationSupply(p, p.nearStation, str(m.id, 20));
+        this.send(conn, { t: 'supply-result', ok: r.ok, reason: r.reason });
         return;
       }
       case 'leave': this.leave(conn); return;
@@ -318,6 +329,7 @@ export class Match {
     if (!p.alive || p.downed || p.dropT > 0) return reply(false, 'Wait until you are standing again, or respawn.', 'alive');
     switch (action) {
       case 'tokens': p.tokens = Math.min(10000, p.tokens + C.upgradeCost); return reply(true, '+' + C.upgradeCost + ' tokens (you have ' + p.tokens + ').');
+      case 'class-key': p.classTokens++; return reply(true, '+1 class key (you have ' + p.classTokens + ').');
       case 'key': p.keys = Math.min(100, p.keys + 1); return reply(true, '+1 station key (you have ' + p.keys + ').');
       case 'hurt':
         if (p.hp > 1) world.damagePlayer(p, Math.min(30, Math.ceil(p.hp) - 1), null, 'test');
@@ -378,7 +390,7 @@ export class Match {
 
   rememberPracticeLoadout(p) {
     p.net.practiceLoadout = { cls: p.classId, items: p.items.map((s) => s ? { ...s } : null), tokens: p.tokens, keys: p.keys, classTokens: p.classTokens,
-      weaponIds: p.weapons.map((w) => w.id), pyroFiregun: !!p.pyroFiregun, path: (p.upgradePath || []).slice(), from: p.upgradeFrom };
+      weaponIds: p.weapons.map((w) => w.id), pyroFiregun: !!p.pyroFiregun, pyroFireUpgrades: p.pyroFireUpgrades || 0, path: (p.upgradePath || []).slice(), from: p.upgradeFrom };
   }
 
   respawnPracticePlayer(p) {
@@ -390,7 +402,9 @@ export class Match {
     if (saved) {
       p.items = saved.items.map((s) => s ? { ...s } : null); p.tokens = saved.tokens; p.keys = saved.keys; p.classTokens = saved.classTokens || 0;
       p.pyroFiregun = saved.pyroFiregun;
-      p.weapons = saved.weaponIds.map((id) => ({ id, ammo: this.W.WEAPONS[id].mag || 0, cooldown: 0, reloadT: 0, reloading: false }));
+      p.pyroFireUpgrades = saved.pyroFireUpgrades || 0;
+      p.weapons = saved.weaponIds.map((id) => ({ id, ammo: this.W.Rules.magazineSize(p, id) || 0, cooldown: 0, reloadT: 0, reloading: false }));
+      if (p.classId === 'pyromaniac') p.pyroFireBar = this.W.Pyro.fireCapacity(p);
       p.upgradePath = saved.path; p.upgradeFrom = saved.from;
     }
     p.net.inputs = []; p.net.held = idleInput(); p.net.specId = 0; p.net.placement = null; p.net.practiceRespawnAt = 0;
@@ -408,13 +422,22 @@ export class Match {
     return rows;
   }
 
-  syncMessage() {
+  encodeSignalDrops() {
+    if (!this.world.signalDrops.length) return undefined;
+    return this.world.signalDrops.map(d => [d.x, d.y, r3(d.landAt), d.crate ? (d.crate.alive ? Math.max(1, Math.ceil(d.crate.hp)) : 0) : -1]);
+  }
+  dropPingsFor(player) {
+    if (!player || !this.world.signalDrops.length) return undefined;
+    return this.world.signalDrops.flatMap((drop, index) => this.world.signalDropPing(drop, player) ? [index] : []);
+  }
+  syncMessage(viewer) {
     const map = this.map;
     return {
       t: 'sync', time: r3(this.world.time),
       ps: this.practice ? this.practiceSettings() : undefined,
       roster: this.practice ? this.roster() : undefined,
-      crates: map.crates.filter((c) => c.hp < c.maxHp || !c.alive).map((c) => [c.id, c.alive ? Math.max(1, Math.ceil(c.hp)) : 0]),
+      crates: map.crates.filter(c => c.signalDrop === undefined && (c.hp < c.maxHp || !c.alive)).map((c) => [c.id, c.alive ? Math.max(1, Math.ceil(c.hp)) : 0]),
+      signalDrops: this.encodeSignalDrops(), dropPings: this.dropPingsFor(viewer),
       gone: [...this.gonePickups],
       rocks: map.rocks.filter((rock) => rock.alive === false).map((rock) => rock.id),
       crushedWires: this.crushedWires(),
@@ -465,7 +488,7 @@ export class Match {
       ? [p.emote.id, r3(p.emote.until - this.world.time)] : null;
   }
   encodeZone(z) {
-    return { id: z.id, k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, dur: z.dur, tl: r1(z.t), o: z.owner || 0, tm: z.team, dps: z.dps,
+    return { id: z.id, k: z.kind, x: r1(z.x), y: r1(z.y), r: z.r, dur: z.dur, tl: isObscuringCloud(z.kind) ? r3(z.t) : r1(z.t), o: z.owner || 0, tm: z.team, dps: z.dps,
       slow: z.slow, damageMul: z.damageMul, freezeAfter: z.freezeAfter };
   }
   encodeVehicle(v) {
@@ -491,7 +514,7 @@ export class Match {
     const input = {
       seq: num(m.s, 0, 1e9, 0) | 0, mx: num(m.mx, -1, 1, 0), my: num(m.my, -1, 1, 0), a: num(m.a, -10, 10, 0), d: num(m.d, 40, 3000, 400),
       sp: m.sp === true, th: m.th === true, tp: Math.floor(num(m.tp, 0, 2, 0)),
-      f: !!m.f, fp: !!m.fp, sc: !!m.sc, r: !!m.r, sl: (m.sl === 0 || m.sl === 1 || m.sl === 2) ? m.sl : null,
+      f: !!m.f, fp: !!m.fp, sc: !!m.sc, r: !!m.r, sl: Number.isInteger(m.sl) && m.sl >= 0 && m.sl < p.weapons.length ? m.sl : null,
       af: m.af === true, ax: Number.isFinite(m.ax) ? num(m.ax, 0, this.W.CONFIG.worldSize, 0) : null,
       ay: Number.isFinite(m.ay) ? num(m.ay, 0, this.W.CONFIG.worldSize, 0) : null,
       ch: num(m.ch, 0, this.W.CONFIG.projectileChargeTime, 0), uch: num(m.uch, 0, this.W.CONFIG.projectileChargeTime, 0),
@@ -679,8 +702,8 @@ export class Match {
 
   encodePyro(p) {
     const burn = this.world.pyroBurnTime ? this.world.pyroBurnTime(p) : 0;
-    return p.classId === 'pyromaniac' || burn > 0 ? { up: !!p.pyroFiregun, heat: r2(p.pyroHeat || 0), burn: r2(burn),
-      fire: r3(p.pyroFireBar || 0), reset: r3(this.world.pyroFireTime ? this.world.pyroFireTime(p) : 0) } : null;
+    return this.W.Pyro.isPyro(p.classId) || burn > 0 ? { up: !!p.pyroFiregun, heat: r2(p.pyroHeat || 0), burn: r2(burn),
+      stacks: p.pyroFireUpgrades || 0, fire: r3(this.W.Pyro.fireRemaining(p)), reset: r3(this.world.pyroFireTime(p)) } : null;
   }
 
   encodeMedicStaffMarkers() {
@@ -695,6 +718,7 @@ export class Match {
       snow: { inside: !!p.inSnow, slow: p.snowSlow || 0, time: r3(p.snowT || 0), cold: r3(p.tundraSnowT || 0), frozen: !!p.snowFrozen },
       tok: p.tokens, keys: p.keys, classTokens: p.classTokens || undefined, cls: this.classIndex.indexOf(p.classId), slot: p.slot,
       ammo: p.weapons.map((w) => w.ammo), rel: p.weapons.map((w) => (w.reloading ? r2(w.reloadT) : 0)), gren: p.grenades, med: r1(p.medkitCd),
+      cyl: p.gasCylinders || undefined, cylUsed: p.gasCylindersUsed || undefined, inGas: p.inGas || undefined,
       down: p.downed, downT: r1(p.downT), rev: r2(p.revive), sc: p.scoping, near: p.nearStation ? p.nearStation.id : -1,
       alive: p.alive, drop: r2(p.dropT), team: p.team, storm: p.inStorm,
       baseSignal: p.alive && p.baseSignal ? [p.baseSignal.base, +p.baseSignal.global, p.baseSignal.until ? Math.max(0.01, r2(p.baseSignal.until - this.world.time)) : 0] : undefined,
@@ -708,6 +732,9 @@ export class Match {
     // The hotbar only travels when it changes.
     const items = p.items.map((s) => (s ? [s.id, s.n] : 0)), key = JSON.stringify(items);
     if (key !== p.net.itemsKey) { p.net.itemsKey = key; you.items = items; }
+    const mines = this.world.mines.filter(m => m.owner === p.id).map(m => [m.id, m.item, r1(m.x), r1(m.y), +m.alert, m.pings]);
+    const mineKey = JSON.stringify(mines);
+    if (mineKey !== p.net.mineKey) { p.net.mineKey = mineKey; you.mines = mines; }
     const look = this.cosmeticLook(p), lookKey = JSON.stringify(look);
     if (lookKey !== p.net.cosmeticsKey) { p.net.cosmeticsKey = lookKey; you.cosmetics = look; }
     return you;
@@ -736,7 +763,7 @@ export class Match {
       case 'command': return { msg: { t: 'command', id: e.player.id, d: e.duration, rd: e.radarDuration, cd: e.cooldown, tm: e.team }, global: true };
       case 'flame': return { msg: { t: 'flame', id: e.player.id, x: e.x, y: e.y, a: e.angle, r: e.range, ha: e.halfAngle, dm: e.damage, w: e.weapon || undefined }, x: e.x, y: e.y };
       case 'pyro-upgrade': return { msg: { t: 'pyro-upgrade', id: e.player.id, n: 50 }, x: e.player.x, y: e.player.y, to: [e.player.id] };
-      case 'explosion': return e.cause === 'tank-cannon' || e.cause === 'artillery' ? null : { msg: { t: 'boom', x: r1(e.x), y: r1(e.y), pw: e.power, c: e.cause, o: e.owner || 0 }, x: e.x, y: e.y, far: true };
+      case 'explosion': return e.cause === 'tank-cannon' || e.cause === 'artillery' ? null : { msg: { t: 'boom', x: r1(e.x), y: r1(e.y), pw: e.power, r: e.radius, c: e.cause, o: e.owner || 0 }, x: e.x, y: e.y, far: true };
       case 'burst': return { msg: { t: 'burst', it: e.item, x: r1(e.x), y: r1(e.y), o: e.owner || 0 }, x: e.x, y: e.y, far: true };
       case 'zone': return { msg: Object.assign({ t: 'zone' }, this.encodeZone(e.zone)), global: true };
       case 'struct': return { msg: Object.assign({ t: 'struct', op: e.op, reason: e.reason, n: e.amount ? r1(e.amount) : undefined, src: typeof e.source === 'number' ? e.source : e.source ? e.source.id : 0 }, this.encodeStruct(e.struct)), global: true };
@@ -770,6 +797,7 @@ export class Match {
   }
 
   soundEvent(e) {
+    if (e.type === 'item-used' && this.W.ITEMS[e.item]?.struct === 'mine') return null;
     if (e.type === 'explosion' && (e.cause === 'tank-cannon' || e.cause === 'artillery')) return null;
     const types = { shot: ['shot', e.weapon], flame: ['flame', e.weapon || 'flamethrower'], explosion: ['explosion', 'explosion'], heal: ['heal', 'heal'],
       throw: ['throw', 'throw'], launch: ['launch', 'launcher'], 'rpg-shot': ['launch', 'rpg'], 'sentry-shot': ['sentry', 'turret'],
@@ -785,6 +813,9 @@ export class Match {
     const encoded = [];
     for (const e of events) { const enc = this.encodeEvent(e), sound = this.soundEvent(e); if (enc || sound) encoded.push(Object.assign({ sound }, enc || {})); }
     const time = r3(this.world.time);
+    const flares = this.world.flares.map(f => [f.id, r1(f.x), r1(f.y), r3(f.until - this.world.time)]);
+    const signalDrops = this.encodeSignalDrops(), signalDropKey = signalDrops && JSON.stringify(signalDrops);
+    let destroyedCrates, radarCrateKey, cloudRecovery;
     // Repair the global legendary marker after a slow connection skips a break event.
     const legendary = this.map.crates[this.map.legendaryCrateId];
     const lc = legendary ? (legendary.alive ? Math.max(1, Math.ceil(legendary.hp)) : 0) : undefined;
@@ -800,15 +831,35 @@ export class Match {
       if (!conn || !conn.open) continue;
       if (conn.bufferedAmount > 96 * 1024) {
         // A skipped movement snapshot must not lose a permanent opening in the wire.
-        for (const enc of encoded) if (enc.msg && enc.msg.t === 'wire-crushed') (conn.pendingWireCuts ||= []).push(enc.msg);
+        for (const { msg } of encoded) {
+          if (msg && msg.t === 'wire-crushed') (conn.pendingWireCuts ||= []).push(msg);
+          if (msg && msg.t === 'zone' && isObscuringCloud(msg.k)) conn.missedCloud = true;
+        }
         continue;
       }
       const c = this.viewCenter(p), hull = this.world.vehicleById(c.vehicle);
       const artilleryView = hull && hull.type === 'artillery' && c.vehicleWeapon === 1 && hull.seats.driver === c.id;
       const viewRange = c.scoping ? 4400 : VIEW;
       const basePings = this.world.militaryPingsFor(c).map(o => [o.id, r1(o.x), r1(o.y), o.team]);
+      // Repair any crate breaks this client missed while its connection was slow.
+      // Terrain and crate positions already come from the shared map seed.
+      const fullRadar = p.fx.sniper2radar > 0;
+      if (fullRadar && !destroyedCrates) {
+        destroyedCrates = this.map.crates.filter(crate => !crate.alive).map(crate => crate.id);
+        radarCrateKey = destroyedCrates.join(',');
+      }
       const list = conn.pendingWireCuts || [];
       conn.pendingWireCuts = null;
+      if (conn.missedCloud) {
+        // Rebuild skipped cloud births from the live world. Their radius and remaining time can change while blocked.
+        if (!cloudRecovery) {
+          const starting = new Set(events.filter(e => e.type === 'zone').map(e => e.zone.id));
+          cloudRecovery = this.world.zones.filter(z => isObscuringCloud(z.kind) && !starting.has(z.id))
+            .map(z => ({ t: 'zone', ...this.encodeZone(z) }));
+        }
+        list.push(...cloudRecovery);
+        conn.missedCloud = false;
+      }
       for (const enc of encoded) {
         const distance = Math.hypot(enc.x - c.x, enc.y - c.y);
         const delivered = enc.msg && (enc.only !== undefined ? enc.only === p.id : enc.global || (enc.to && enc.to.includes(p.id)) || distance < viewRange + (enc.far ? 900 : 300));
@@ -839,9 +890,14 @@ export class Match {
       const fleet = previousFleet ? vehicles.map(v => v.militaryBase && previousFleet.get(v.id) === militaryVehicleKeys.get(v.id) ? v.id : v) : vehicles;
       conn.sendText(JSON.stringify({ t: 'snap', time, you: this.encodeYou(p), looks, spec: p.alive ? 0 : p.net.specId, p: players, vehicles: fleet,
         basePings: basePings.length ? basePings : undefined, extraLc: extraLc.length ? extraLc : undefined,
+        flares: flares.length ? flares : undefined,
+        signalDrops: p.net.signalDropKey !== signalDropKey ? signalDrops : undefined, dropPings: this.dropPingsFor(p),
+        destroyedCrates: fullRadar && p.net.radarCrateKey !== radarCrateKey ? destroyedCrates : undefined,
         ps: this.practice ? this.practiceSettings() : undefined, pr: this.practice && p.net.practiceRosterVersion !== this.practiceRosterVersion ? this.roster() : undefined,
         ms: p.net.staffKey !== staffKey ? ms : undefined, sp: projectiles, rp: rockets, structs: p.net.structKey !== structKey ? structs : undefined, lc, e: list, alive: this.aliveCount, teams: this.teamsAlive }));
       p.net.structKey = structKey;
+      p.net.radarCrateKey = fullRadar ? radarCrateKey : undefined;
+      p.net.signalDropKey = signalDropKey;
       conn.militaryVehicleKeys = militaryVehicleKeys;
       p.net.staffKey = staffKey;
       p.net.lookVersion = this.cosmeticsVersion;
